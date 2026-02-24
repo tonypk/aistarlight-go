@@ -1,7 +1,7 @@
 -- name: CreateKnowledgeChunk :one
 INSERT INTO knowledge_chunks (id, source, category, content, embedding, metadata, created_at)
 VALUES ($1, $2, $3, $4, $5, $6, NOW())
-RETURNING *;
+RETURNING id, source, category, content, embedding, metadata, created_at;
 
 -- name: SearchSimilarChunks :many
 SELECT id, source, category, content, metadata, created_at,
@@ -11,17 +11,22 @@ ORDER BY embedding <=> $1::vector
 LIMIT $2;
 
 -- name: ListKnowledgeByCategory :many
-SELECT * FROM knowledge_chunks
+SELECT id, source, category, content, (embedding IS NOT NULL) as has_embedding, created_at
+FROM knowledge_chunks
 WHERE category = $1
 ORDER BY created_at DESC;
 
 -- name: ListAllKnowledgeChunks :many
-SELECT * FROM knowledge_chunks
+SELECT id, source, category, content, (embedding IS NOT NULL) as has_embedding, created_at
+FROM knowledge_chunks
 ORDER BY created_at DESC
 LIMIT $1;
 
 -- name: CountKnowledgeChunks :one
 SELECT COUNT(*) FROM knowledge_chunks;
+
+-- name: CountKnowledgeChunksWithEmbedding :one
+SELECT COUNT(*) FROM knowledge_chunks WHERE embedding IS NOT NULL;
 
 -- name: CountKnowledgeChunksByCategory :many
 SELECT COALESCE(category, 'uncategorized') as category, COUNT(*) as count

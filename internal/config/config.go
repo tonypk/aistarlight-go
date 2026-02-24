@@ -1,6 +1,8 @@
 package config
 
 import (
+	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/spf13/viper"
@@ -37,6 +39,39 @@ type DatabaseConfig struct {
 
 type RedisConfig struct {
 	URL string
+}
+
+// AsynqAddr returns the host:port address extracted from the Redis URL.
+// If the URL is already in host:port format, it is returned as-is.
+func (c RedisConfig) AsynqAddr() string {
+	u, err := url.Parse(c.URL)
+	if err != nil || u.Host == "" {
+		return c.URL
+	}
+	return u.Host
+}
+
+// AsynqDB returns the database number from the Redis URL path (e.g. /0 → 0).
+func (c RedisConfig) AsynqDB() int {
+	u, err := url.Parse(c.URL)
+	if err != nil || u.Path == "" || u.Path == "/" {
+		return 0
+	}
+	db, err := strconv.Atoi(u.Path[1:]) // strip leading "/"
+	if err != nil {
+		return 0
+	}
+	return db
+}
+
+// AsynqPassword returns the password from the Redis URL, if any.
+func (c RedisConfig) AsynqPassword() string {
+	u, err := url.Parse(c.URL)
+	if err != nil || u.User == nil {
+		return ""
+	}
+	pw, _ := u.User.Password()
+	return pw
 }
 
 type JWTConfig struct {

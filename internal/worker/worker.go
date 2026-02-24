@@ -28,9 +28,9 @@ type Services struct {
 }
 
 // NewServer creates an asynq worker server.
-func NewServer(redisAddr string, q *sqlc.Queries, svc *Services, uploadDir string) *Server {
+func NewServer(redisOpt asynq.RedisClientOpt, q *sqlc.Queries, svc *Services, uploadDir string) *Server {
 	srv := asynq.NewServer(
-		asynq.RedisClientOpt{Addr: redisAddr},
+		redisOpt,
 		asynq.Config{
 			Concurrency: 10,
 			Queues: map[string]int{

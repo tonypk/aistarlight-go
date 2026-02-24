@@ -97,6 +97,12 @@ datamigrate-dry:
 datamigrate-verify:
 	$(GO) run ./cmd/datamigrate -source "$(SOURCE_DB)" -target "$(DATABASE_URL)" --verify-only
 
+# Cross-compile for Linux (CI/deploy)
+build-linux:
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -ldflags="-s -w" -o aistarlight-api ./cmd/api
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -ldflags="-s -w" -o aistarlight-worker ./cmd/worker
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -ldflags="-s -w" -o aistarlight-migrate ./cmd/migrate
+
 # Clean
 clean:
-	rm -rf bin/ coverage.out coverage.html
+	rm -rf bin/ coverage.out coverage.html aistarlight-api aistarlight-worker aistarlight-migrate

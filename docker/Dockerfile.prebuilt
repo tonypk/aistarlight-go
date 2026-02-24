@@ -1,0 +1,13 @@
+FROM alpine:3.20
+
+RUN apk add --no-cache ca-certificates tzdata wget \
+    && addgroup -S app && adduser -S app -G app
+
+COPY aistarlight-api /api
+COPY aistarlight-migrate /migrate
+COPY migrations /migrations
+
+USER app
+EXPOSE 8000
+
+ENTRYPOINT ["/api"]

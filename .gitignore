@@ -1,4 +1,7 @@
 bin/
+aistarlight-api
+aistarlight-worker
+aistarlight-migrate
 *.exe
 *.out
 coverage.out

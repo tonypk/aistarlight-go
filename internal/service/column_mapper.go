@@ -13,26 +13,39 @@ import (
 
 const columnMapperSystemPrompt = `Expert Philippine tax accountant assistant.
 Map spreadsheet column names to standard BIR form fields.
+Per RR 16-2005 Section 4.114-3, as amended by RR 1-2012.
 
 Target fields by report type:
 
-BIR_2550M / BIR_2550Q (VAT):
-  date, description, amount, vat_amount, vat_type, category, tin,
-  invoice_number, supplier_name, address, gross_amount, taxable_amount,
-  ewt_rate, ewt_amount, atc_code
+BIR_2550M / BIR_2550Q (VAT) — covers SLS, SLP, SLI:
+  General: date, taxable_month, description, tin, registered_name, supplier_name, address, invoice_number
+  Amounts: amount, gross_amount, vat_amount, taxable_amount, exempt_amount, zero_rated_amount
+  Classification: vat_type (vatable/exempt/zero_rated/government), category (goods/services/capital/imports)
+  SLP (Purchases): gross_purchase, exempt_purchase, zero_rated_purchase, taxable_purchase, purchase_services, purchase_goods, purchase_capital_goods, input_tax, gross_taxable_purchase
+  SLS (Sales): gross_sales, exempt_sales, zero_rated_sales, taxable_sales, output_tax, gross_taxable_sales
+  SLI (Importations): import_entry_number, assessment_date, importation_date, country_of_origin, landed_cost, dutiable_value, customs_charges, taxable_imports, exempt_imports, vat_paid, vat_payment_date
+  EWT: ewt_rate, ewt_amount, atc_code
 
 BIR_1601C (Withholding on Compensation):
   employee_name, tin, total_compensation, statutory_minimum_wage,
-  nontaxable_13th_month, nontaxable_deminimis, sss_gsis_phic_hdmf,
-  other_nontaxable, tax_withheld, basic_pay, overtime_pay, holiday_pay,
-  sss, philhealth, pagibig, taxable_compensation
+  basic_pay, overtime_pay, holiday_pay,
+  nontaxable_13th_month, nontaxable_deminimis,
+  sss_gsis_phic_hdmf, sss, philhealth, pagibig,
+  other_nontaxable, taxable_compensation, tax_withheld
 
 BIR_0619E (Expanded Withholding):
-  payee_name, tin, atc_code, income_payment, tax_withheld,
-  address, nature_of_income, ewt_rate
+  payee_name, tin, address, atc_code, nature_of_income,
+  income_payment, ewt_rate, tax_withheld
 
-Bank Statements:
+Bank_Statement:
   date, description, amount, debit, credit, reference, balance
+
+Rules:
+- Match column headers to the closest target field based on meaning, not exact name.
+- Common aliases: "OR No." / "Receipt No." -> invoice_number, "Vendor" / "Payee" -> supplier_name, "Net of VAT" -> taxable_amount, "VAT" -> vat_amount, "Gross" -> gross_amount.
+- For purchase/expense sheets: prefer SLP fields (gross_purchase, taxable_purchase, input_tax).
+- For sales/revenue sheets: prefer SLS fields (gross_sales, taxable_sales, output_tax).
+- If a column clearly contains TIN numbers (###-###-###-###), map to "tin".
 
 Respond ONLY with valid JSON:
 {

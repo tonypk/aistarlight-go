@@ -256,3 +256,89 @@ func isEmptyRow(row []string) bool {
 	}
 	return true
 }
+
+// ParseUploadedFileAllRows re-parses a file and returns ALL rows (not just preview) for a given sheet.
+func ParseUploadedFileAllRows(content []byte, filename, targetSheet string) ([]map[string]interface{}, error) {
+	ext := strings.ToLower(filepath.Ext(filename))
+
+	var allRawRows [][]string
+
+	switch ext {
+	case ".xlsx", ".xls":
+		f, err := excelize.OpenReader(bytes.NewReader(content))
+		if err != nil {
+			return nil, fmt.Errorf("open excel: %w", err)
+		}
+		defer f.Close()
+
+		sheetName := targetSheet
+		if sheetName == "" {
+			sheets := f.GetSheetList()
+			if len(sheets) == 0 {
+				return nil, fmt.Errorf("no sheets in file")
+			}
+			sheetName = sheets[0]
+		}
+		rows, err := f.GetRows(sheetName)
+		if err != nil {
+			return nil, fmt.Errorf("read sheet %q: %w", sheetName, err)
+		}
+		allRawRows = rows
+
+	case ".csv":
+		reader := csv.NewReader(bytes.NewReader(content))
+		reader.LazyQuotes = true
+		reader.TrimLeadingSpace = true
+		reader.FieldsPerRecord = -1
+		for {
+			record, err := reader.Read()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return nil, fmt.Errorf("CSV parse: %w", err)
+			}
+			allRawRows = append(allRawRows, record)
+		}
+
+	default:
+		return nil, fmt.Errorf("unsupported format: %s", ext)
+	}
+
+	if len(allRawRows) < 2 {
+		return nil, fmt.Errorf("file has no data rows")
+	}
+
+	headerIdx := detectHeaderRow(allRawRows)
+	headers := allRawRows[headerIdx]
+	columns := make([]string, len(headers))
+	for i, h := range headers {
+		columns[i] = strings.TrimSpace(h)
+	}
+	for len(columns) > 0 && columns[len(columns)-1] == "" {
+		columns = columns[:len(columns)-1]
+	}
+
+	var result []map[string]interface{}
+	for _, row := range allRawRows[headerIdx+1:] {
+		if isEmptyRow(row) {
+			continue
+		}
+		m := make(map[string]interface{}, len(columns))
+		for i, col := range columns {
+			if i < len(row) {
+				val := strings.TrimSpace(row[i])
+				if val == "" {
+					m[col] = nil
+				} else {
+					m[col] = val
+				}
+			} else {
+				m[col] = nil
+			}
+		}
+		result = append(result, m)
+	}
+
+	return result, nil
+}

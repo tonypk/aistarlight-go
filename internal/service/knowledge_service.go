@@ -33,9 +33,12 @@ func NewKnowledgeService(ai *openai.Client, q *sqlc.Queries) *KnowledgeService {
 
 // KnowledgeResult holds a retrieved knowledge chunk.
 type KnowledgeResult struct {
-	Content  string  `json:"content"`
-	Source   string  `json:"source"`
-	Category string  `json:"category"`
+	ID           string `json:"id"`
+	Content      string `json:"content"`
+	Source       string `json:"source"`
+	Category     string `json:"category"`
+	HasEmbedding bool   `json:"has_embedding"`
+	CreatedAt    string `json:"created_at"`
 }
 
 // RetrieveRelevant retrieves relevant knowledge chunks for a query.
@@ -56,9 +59,12 @@ func (s *KnowledgeService) RetrieveRelevant(ctx context.Context, query string, c
 				results := make([]KnowledgeResult, len(chunks))
 				for i, c := range chunks {
 					results[i] = KnowledgeResult{
-						Content:  c.Content,
-						Source:   derefString(c.Source),
-						Category: derefString(c.Category),
+						ID:           c.ID.String(),
+						Content:      c.Content,
+						Source:       derefString(c.Source),
+						Category:     derefString(c.Category),
+						HasEmbedding: true,
+						CreatedAt:    c.CreatedAt.Format("2006-01-02T15:04:05Z"),
 					}
 				}
 				return results, nil
@@ -75,9 +81,12 @@ func (s *KnowledgeService) RetrieveRelevant(ctx context.Context, query string, c
 			results := make([]KnowledgeResult, 0, len(chunks))
 			for _, c := range chunks {
 				results = append(results, KnowledgeResult{
-					Content:  c.Content,
-					Source:   derefString(c.Source),
-					Category: derefString(c.Category),
+					ID:           c.ID.String(),
+					Content:      c.Content,
+					Source:       derefString(c.Source),
+					Category:     derefString(c.Category),
+					HasEmbedding: toBool(c.HasEmbedding),
+					CreatedAt:    c.CreatedAt.Format("2006-01-02T15:04:05Z"),
 				})
 				if len(results) >= limit {
 					break
@@ -95,9 +104,12 @@ func (s *KnowledgeService) RetrieveRelevant(ctx context.Context, query string, c
 	results := make([]KnowledgeResult, len(chunks))
 	for i, c := range chunks {
 		results[i] = KnowledgeResult{
-			Content:  c.Content,
-			Source:   derefString(c.Source),
-			Category: derefString(c.Category),
+			ID:           c.ID.String(),
+			Content:      c.Content,
+			Source:       derefString(c.Source),
+			Category:     derefString(c.Category),
+			HasEmbedding: toBool(c.HasEmbedding),
+			CreatedAt:    c.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		}
 	}
 	return results, nil
@@ -140,6 +152,11 @@ func (s *KnowledgeService) GetStats(ctx context.Context) (map[string]interface{}
 		return nil, err
 	}
 
+	withEmb, err := s.q.CountKnowledgeChunksWithEmbedding(ctx)
+	if err != nil {
+		withEmb = 0
+	}
+
 	catCounts, err := s.q.CountKnowledgeChunksByCategory(ctx)
 	if err != nil {
 		return nil, err
@@ -151,8 +168,9 @@ func (s *KnowledgeService) GetStats(ctx context.Context) (map[string]interface{}
 	}
 
 	return map[string]interface{}{
-		"total_chunks": total,
-		"categories":   categories,
+		"total":           total,
+		"with_embeddings": withEmb,
+		"categories":      categories,
 	}, nil
 }
 
@@ -162,3 +180,4 @@ func derefString(s *string) string {
 	}
 	return *s
 }
+

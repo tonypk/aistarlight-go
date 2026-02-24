@@ -18,10 +18,10 @@ type TaskService struct {
 }
 
 // NewTaskService creates a task service with asynq client.
-func NewTaskService(q *sqlc.Queries, redisAddr string) *TaskService {
+func NewTaskService(q *sqlc.Queries, redisOpt asynq.RedisClientOpt) *TaskService {
 	var client *asynq.Client
-	if redisAddr != "" {
-		client = asynq.NewClient(asynq.RedisClientOpt{Addr: redisAddr})
+	if redisOpt.Addr != "" {
+		client = asynq.NewClient(redisOpt)
 	}
 	return &TaskService{q: q, client: client}
 }

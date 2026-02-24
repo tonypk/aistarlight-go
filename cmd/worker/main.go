@@ -73,13 +73,15 @@ func main() {
 	}
 
 	// Create and start worker server.
-	srv := worker.NewServer(cfg.Redis.URL, q, svc, cfg.UploadDir)
+	redisOpt := asynq.RedisClientOpt{
+		Addr:     cfg.Redis.AsynqAddr(),
+		DB:       cfg.Redis.AsynqDB(),
+		Password: cfg.Redis.AsynqPassword(),
+	}
+	srv := worker.NewServer(redisOpt, q, svc, cfg.UploadDir)
 
 	// Register periodic tasks.
-	scheduler := asynq.NewScheduler(
-		asynq.RedisClientOpt{Addr: cfg.Redis.URL},
-		nil,
-	)
+	scheduler := asynq.NewScheduler(redisOpt, nil)
 
 	cleanupTask, _ := worker.NewCleanupTask()
 	if _, err := scheduler.Register("@daily", cleanupTask); err != nil {
@@ -103,7 +105,7 @@ func main() {
 		scheduler.Shutdown()
 	}()
 
-	slog.Info("worker starting", "redis", cfg.Redis.URL)
+	slog.Info("worker starting", "redis", cfg.Redis.AsynqAddr())
 	if err := srv.Run(); err != nil {
 		slog.Error("worker error", "error", err)
 		os.Exit(1)

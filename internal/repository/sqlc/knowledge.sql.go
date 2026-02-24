@@ -55,6 +55,17 @@ func (q *Queries) CountKnowledgeChunksByCategory(ctx context.Context) ([]CountKn
 	return items, nil
 }
 
+const countKnowledgeChunksWithEmbedding = `-- name: CountKnowledgeChunksWithEmbedding :one
+SELECT COUNT(*) FROM knowledge_chunks WHERE embedding IS NOT NULL
+`
+
+func (q *Queries) CountKnowledgeChunksWithEmbedding(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countKnowledgeChunksWithEmbedding)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createKnowledgeChunk = `-- name: CreateKnowledgeChunk :one
 INSERT INTO knowledge_chunks (id, source, category, content, embedding, metadata, created_at)
 VALUES ($1, $2, $3, $4, $5, $6, NOW())
@@ -93,27 +104,36 @@ func (q *Queries) CreateKnowledgeChunk(ctx context.Context, arg CreateKnowledgeC
 }
 
 const listAllKnowledgeChunks = `-- name: ListAllKnowledgeChunks :many
-SELECT id, source, category, content, embedding, metadata, created_at FROM knowledge_chunks
+SELECT id, source, category, content, (embedding IS NOT NULL) as has_embedding, created_at
+FROM knowledge_chunks
 ORDER BY created_at DESC
 LIMIT $1
 `
 
-func (q *Queries) ListAllKnowledgeChunks(ctx context.Context, limit int32) ([]KnowledgeChunk, error) {
+type ListAllKnowledgeChunksRow struct {
+	ID           uuid.UUID   `json:"id"`
+	Source       *string     `json:"source"`
+	Category     *string     `json:"category"`
+	Content      string      `json:"content"`
+	HasEmbedding interface{} `json:"has_embedding"`
+	CreatedAt    time.Time   `json:"created_at"`
+}
+
+func (q *Queries) ListAllKnowledgeChunks(ctx context.Context, limit int32) ([]ListAllKnowledgeChunksRow, error) {
 	rows, err := q.db.Query(ctx, listAllKnowledgeChunks, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []KnowledgeChunk{}
+	items := []ListAllKnowledgeChunksRow{}
 	for rows.Next() {
-		var i KnowledgeChunk
+		var i ListAllKnowledgeChunksRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Source,
 			&i.Category,
 			&i.Content,
-			&i.Embedding,
-			&i.Metadata,
+			&i.HasEmbedding,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -127,27 +147,36 @@ func (q *Queries) ListAllKnowledgeChunks(ctx context.Context, limit int32) ([]Kn
 }
 
 const listKnowledgeByCategory = `-- name: ListKnowledgeByCategory :many
-SELECT id, source, category, content, embedding, metadata, created_at FROM knowledge_chunks
+SELECT id, source, category, content, (embedding IS NOT NULL) as has_embedding, created_at
+FROM knowledge_chunks
 WHERE category = $1
 ORDER BY created_at DESC
 `
 
-func (q *Queries) ListKnowledgeByCategory(ctx context.Context, category *string) ([]KnowledgeChunk, error) {
+type ListKnowledgeByCategoryRow struct {
+	ID           uuid.UUID   `json:"id"`
+	Source       *string     `json:"source"`
+	Category     *string     `json:"category"`
+	Content      string      `json:"content"`
+	HasEmbedding interface{} `json:"has_embedding"`
+	CreatedAt    time.Time   `json:"created_at"`
+}
+
+func (q *Queries) ListKnowledgeByCategory(ctx context.Context, category *string) ([]ListKnowledgeByCategoryRow, error) {
 	rows, err := q.db.Query(ctx, listKnowledgeByCategory, category)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []KnowledgeChunk{}
+	items := []ListKnowledgeByCategoryRow{}
 	for rows.Next() {
-		var i KnowledgeChunk
+		var i ListKnowledgeByCategoryRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Source,
 			&i.Category,
 			&i.Content,
-			&i.Embedding,
-			&i.Metadata,
+			&i.HasEmbedding,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err

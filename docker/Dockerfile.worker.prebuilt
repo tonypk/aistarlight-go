@@ -1,0 +1,10 @@
+FROM alpine:3.20
+
+RUN apk add --no-cache ca-certificates tzdata \
+    && addgroup -S app && adduser -S app -G app
+
+COPY aistarlight-worker /worker
+
+USER app
+
+ENTRYPOINT ["/worker"]

@@ -1,16 +1,16 @@
 -- name: CreateUser :one
 INSERT INTO users (id, email, hashed_password, full_name, api_key, is_active, created_at)
 VALUES ($1, $2, $3, $4, $5, $6, NOW())
-RETURNING *;
+RETURNING id, email, hashed_password, full_name, api_key, is_active, created_at;
 
 -- name: GetUserByID :one
-SELECT * FROM users WHERE id = $1;
+SELECT id, email, hashed_password, full_name, api_key, is_active, created_at FROM users WHERE id = $1;
 
 -- name: GetUserByEmail :one
-SELECT * FROM users WHERE email = $1;
+SELECT id, email, hashed_password, full_name, api_key, is_active, created_at FROM users WHERE email = $1;
 
 -- name: GetUserByAPIKey :one
-SELECT * FROM users WHERE api_key = $1 AND is_active = true;
+SELECT id, email, hashed_password, full_name, api_key, is_active, created_at FROM users WHERE api_key = $1 AND is_active = true;
 
 -- name: UpdateUser :exec
 UPDATE users SET

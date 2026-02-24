@@ -42,8 +42,9 @@ func (h *KnowledgeHandler) Stats(c *gin.Context) {
 	stats, err := h.knowledge.GetStats(c.Request.Context())
 	if err != nil {
 		response.OK(c, gin.H{
-			"total_chunks": 0,
-			"categories":   map[string]int64{},
+			"total":           0,
+			"with_embeddings": 0,
+			"categories":      map[string]int64{},
 		})
 		return
 	}

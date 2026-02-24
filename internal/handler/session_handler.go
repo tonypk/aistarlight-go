@@ -2,11 +2,17 @@ package handler
 
 import (
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/tonypk/aistarlight-go/internal/config"
 	"github.com/tonypk/aistarlight-go/internal/handler/middleware"
 	"github.com/tonypk/aistarlight-go/internal/handler/response"
 	"github.com/tonypk/aistarlight-go/internal/service"
@@ -17,11 +23,12 @@ import (
 type SessionHandler struct {
 	svc       *service.SessionService
 	reportSvc *service.ReportService
+	cfg       *config.Config
 }
 
 // NewSessionHandler creates a session handler.
-func NewSessionHandler(svc *service.SessionService, reportSvc *service.ReportService) *SessionHandler {
-	return &SessionHandler{svc: svc, reportSvc: reportSvc}
+func NewSessionHandler(svc *service.SessionService, reportSvc *service.ReportService, cfg *config.Config) *SessionHandler {
+	return &SessionHandler{svc: svc, reportSvc: reportSvc, cfg: cfg}
 }
 
 type createSessionRequest struct {
@@ -118,7 +125,7 @@ type addFileRequest struct {
 	SourceType     string                   `json:"source_type" binding:"required"`
 	SheetName      string                   `json:"sheet_name"`
 	ColumnMappings map[string]string        `json:"column_mappings"`
-	Rows           []map[string]interface{} `json:"rows" binding:"required"`
+	Rows           []map[string]interface{} `json:"rows"`
 }
 
 // AddFile handles POST /api/v1/reconciliation/sessions/:id/files.
@@ -133,6 +140,20 @@ func (h *SessionHandler) AddFile(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
+	}
+
+	// If rows not provided, load from previously uploaded file
+	if len(req.Rows) == 0 {
+		rows, filename, err := h.loadRowsFromUpload(req.FileID, req.SheetName)
+		if err != nil {
+			slog.Error("failed to load rows from upload", "file_id", req.FileID, "error", err)
+			response.BadRequest(c, "Could not load data from uploaded file. Please re-upload.")
+			return
+		}
+		req.Rows = rows
+		if req.Filename == "" {
+			req.Filename = filename
+		}
 	}
 
 	companyID := middleware.GetCompanyID(c)
@@ -151,6 +172,76 @@ func (h *SessionHandler) AddFile(c *gin.Context) {
 	}
 
 	response.OK(c, result)
+}
+
+// loadRowsFromUpload reads rows from a previously uploaded file by file_id.
+func (h *SessionHandler) loadRowsFromUpload(fileID, sheetName string) ([]map[string]interface{}, string, error) {
+	uploadDir := h.cfg.UploadDir
+	if uploadDir == "" {
+		uploadDir = "/tmp/aistarlight-uploads"
+	}
+
+	// Try JSON (from browser-parsed upload) first
+	jsonPath := filepath.Join(uploadDir, fileID+".json")
+	if data, err := os.ReadFile(jsonPath); err == nil {
+		var parsed struct {
+			Filename string                                        `json:"filename"`
+			Sheets   map[string]*struct {
+				Rows    []map[string]interface{} `json:"rows"`
+				Preview []map[string]interface{} `json:"preview"`
+			} `json:"sheets"`
+		}
+		if err := json.Unmarshal(data, &parsed); err != nil {
+			return nil, "", fmt.Errorf("parse uploaded JSON: %w", err)
+		}
+		// Find the right sheet
+		for name, sheet := range parsed.Sheets {
+			if sheetName != "" && !strings.EqualFold(name, sheetName) {
+				continue
+			}
+			if len(sheet.Rows) > 0 {
+				return sheet.Rows, parsed.Filename, nil
+			}
+			if len(sheet.Preview) > 0 {
+				return sheet.Preview, parsed.Filename, nil
+			}
+		}
+		return nil, parsed.Filename, fmt.Errorf("no rows found in uploaded file")
+	}
+
+	// Try raw file (xlsx/csv) — re-parse from disk
+	for _, ext := range []string{".xlsx", ".xls", ".csv"} {
+		rawPath := filepath.Join(uploadDir, fileID+ext)
+		content, err := os.ReadFile(rawPath)
+		if err != nil {
+			continue
+		}
+		parsed, err := service.ParseUploadedFile(content, fileID+ext)
+		if err != nil {
+			return nil, "", fmt.Errorf("re-parse uploaded file: %w", err)
+		}
+		for name, sheet := range parsed.Sheets {
+			if sheetName != "" && !strings.EqualFold(name, sheetName) {
+				continue
+			}
+			// ParseUploadedFile only returns Preview (sample rows); we need all rows.
+			// Re-parse with full rows.
+			allRows, err := service.ParseUploadedFileAllRows(content, fileID+ext, name)
+			if err != nil {
+				return nil, "", fmt.Errorf("parse all rows: %w", err)
+			}
+			if len(allRows) > 0 {
+				return allRows, fileID + ext, nil
+			}
+			if len(sheet.Preview) > 0 {
+				return sheet.Preview, fileID + ext, nil
+			}
+			_ = name
+		}
+		return nil, "", fmt.Errorf("no rows found in file")
+	}
+
+	return nil, "", fmt.Errorf("uploaded file not found for id: %s", fileID)
 }
 
 type classifyRequest struct {

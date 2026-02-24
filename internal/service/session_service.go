@@ -206,6 +206,7 @@ func (s *SessionService) CreateSession(ctx context.Context, companyID, userID uu
 		SourceFiles: []byte("[]"),
 	})
 	if err != nil {
+		slog.Error("create session failed", "error", err, "company_id", companyID, "user_id", userID, "period", period)
 		return nil, fmt.Errorf("create session: %w", err)
 	}
 

@@ -76,6 +76,13 @@ func Auth(jwtSecret string, revokeChecker TokenRevokeChecker, apiKeyResolver API
 			return
 		}
 
+		// Handle legacy Python JWT: sub → user_id
+		if claims.UserID == uuid.Nil && claims.Subject != "" {
+			if parsed, err := uuid.Parse(claims.Subject); err == nil {
+				claims.UserID = parsed
+			}
+		}
+
 		// Handle legacy tenant_id → company_id mapping
 		if claims.CompanyID == uuid.Nil && claims.TenantID != nil {
 			claims.CompanyID = *claims.TenantID

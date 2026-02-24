@@ -114,3 +114,25 @@ DELETE FROM revoked_tokens WHERE expires_at < NOW();
 -- name: CreateCorrectionHistory :exec
 INSERT INTO correction_history (id, company_id, report_type, field_name, old_value, new_value, reason, created_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, NOW());
+
+-- ---- Receipt Bridge Queries ----
+
+-- name: GetCompletedUnlinkedReceipts :many
+SELECT * FROM receipt_batches
+WHERE company_id = $1
+    AND status = 'completed'
+    AND (transaction_ids IS NULL OR transaction_ids = '{}')
+ORDER BY created_at ASC
+LIMIT $2 OFFSET $3;
+
+-- name: CountCompletedUnlinkedReceipts :one
+SELECT COUNT(*) FROM receipt_batches
+WHERE company_id = $1
+    AND status = 'completed'
+    AND (transaction_ids IS NULL OR transaction_ids = '{}');
+
+-- name: LinkReceiptToTransactions :exec
+UPDATE receipt_batches SET
+    transaction_ids = $2,
+    updated_at = NOW()
+WHERE id = $1;

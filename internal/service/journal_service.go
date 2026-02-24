@@ -52,6 +52,10 @@ type CreateJournalLineInput struct {
 	Description *string
 	Debit       decimal.Decimal
 	Credit      decimal.Decimal
+
+	// accountNumber is used internally by JournalGenerator for account resolution.
+	// Not used by JournalService.Create directly.
+	accountNumber string
 }
 
 // Create creates a journal entry with lines inside a DB transaction.

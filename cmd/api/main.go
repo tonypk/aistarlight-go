@@ -18,6 +18,7 @@ import (
 	"github.com/tonypk/aistarlight-go/internal/config"
 	"github.com/tonypk/aistarlight-go/internal/handler"
 	"github.com/tonypk/aistarlight-go/internal/handler/middleware"
+	"github.com/hibiken/asynq"
 	"github.com/tonypk/aistarlight-go/internal/platform/crypto"
 	ocrclient "github.com/tonypk/aistarlight-go/internal/platform/ocr"
 	oai "github.com/tonypk/aistarlight-go/internal/platform/openai"
@@ -143,6 +144,11 @@ type services struct {
 	Period      *service.AccountingPeriodService
 	GL          *service.GLService
 	QBO         *service.QBOService
+	// Pipeline bridge services
+	ReceiptBridge  *service.ReceiptBridge
+	JournalGen     *service.JournalGenerator
+	FinStatement   *service.FinancialStatementService
+	GLTaxBridge    *service.GLTaxBridge
 }
 
 func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxpool.Pool) services {
@@ -166,6 +172,9 @@ func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxp
 
 	classifierSvc := service.NewClassifierService(ai, q)
 
+	journalSvc := service.NewJournalService(q, pool)
+	fsSvc := service.NewFinancialStatementService(q)
+
 	return services{
 		Auth:        service.NewAuthService(q, cfg.JWT),
 		Org:         service.NewOrgService(q),
@@ -187,12 +196,21 @@ func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxp
 		Receipt:     service.NewReceiptService(q, ocrclient.NewClient(cfg.OCR.ServiceURL)),
 		Audit:       service.NewAuditService(q),
 		Memory:      service.NewMemoryService(q),
-		Task:        service.NewTaskService(q, cfg.Redis.URL),
+		Task:        service.NewTaskService(q, asynq.RedisClientOpt{
+			Addr:     cfg.Redis.AsynqAddr(),
+			DB:       cfg.Redis.AsynqDB(),
+			Password: cfg.Redis.AsynqPassword(),
+		}),
 		Account:     accountSvc,
-		Journal:     service.NewJournalService(q, pool),
+		Journal:     journalSvc,
 		Period:      service.NewAccountingPeriodService(q),
 		GL:          service.NewGLService(q),
 		QBO:         qboSvc,
+		// Pipeline bridges
+		ReceiptBridge: service.NewReceiptBridge(q, classifierSvc),
+		JournalGen:    service.NewJournalGenerator(q, journalSvc),
+		FinStatement:  fsSvc,
+		GLTaxBridge:   service.NewGLTaxBridge(q, fsSvc),
 	}
 }
 
@@ -221,6 +239,11 @@ type handlers struct {
 	GL             *handler.GLHandler
 	QBO            *handler.QBOHandler
 	Settings       *handler.SettingsHandler
+	// Pipeline bridge handlers
+	ReceiptBridge  *handler.ReceiptBridgeHandler
+	JournalBridge  *handler.JournalBridgeHandler
+	FinStatement   *handler.FinancialStatementHandler
+	TaxBridge      *handler.TaxBridgeHandler
 }
 
 func newHandlers(svc services, cfg *config.Config) handlers {
@@ -231,7 +254,7 @@ func newHandlers(svc services, cfg *config.Config) handlers {
 		Report:         handler.NewReportHandler(svc.Report, svc.Company),
 		Chat:           handler.NewChatHandler(svc.Chat),
 		Reconciliation: handler.NewReconciliationHandler(svc.BankRecon),
-		Session:        handler.NewSessionHandler(svc.Session, svc.Report),
+		Session:        handler.NewSessionHandler(svc.Session, svc.Report, cfg),
 		Compliance:     handler.NewComplianceHandler(svc.Compliance),
 		Correction:     handler.NewCorrectionHandler(svc.Corrections, svc.Analyzer),
 		Withholding:    handler.NewWithholdingHandler(svc.Withholding, svc.Supplier),
@@ -249,6 +272,11 @@ func newHandlers(svc services, cfg *config.Config) handlers {
 		GL:             handler.NewGLHandler(svc.GL),
 		QBO:            handler.NewQBOHandler(svc.QBO, svc.Account),
 		Settings:       handler.NewSettingsHandler(svc.Company),
+		// Pipeline bridges
+		ReceiptBridge:  handler.NewReceiptBridgeHandler(svc.ReceiptBridge),
+		JournalBridge:  handler.NewJournalBridgeHandler(svc.JournalGen),
+		FinStatement:   handler.NewFinancialStatementHandler(svc.FinStatement),
+		TaxBridge:      handler.NewTaxBridgeHandler(svc.GLTaxBridge, svc.Company),
 	}
 }
 
@@ -293,6 +321,10 @@ func newGinEngine(cfg *config.Config, rdb *redis.Client, svc services, h handler
 		GL:             h.GL,
 		QBO:            h.QBO,
 		Settings:       h.Settings,
+		ReceiptBridge:  h.ReceiptBridge,
+		JournalBridge:  h.JournalBridge,
+		FinStatement:   h.FinStatement,
+		TaxBridge:      h.TaxBridge,
 		AuthSvc:        svc.Auth,
 		OrgSvc:         svc.Org,
 		CompanySvc:     svc.Company,

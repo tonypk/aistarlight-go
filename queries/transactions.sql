@@ -82,3 +82,23 @@ WHERE id = $1;
 UPDATE transactions SET
     match_group_id = $2, match_status = $3, updated_at = NOW()
 WHERE id = $1;
+
+-- name: LinkTransactionToJournalEntry :exec
+UPDATE transactions SET
+    journal_entry_id = $2, updated_at = NOW()
+WHERE id = $1;
+
+-- name: GetUnlinkedTransactions :many
+SELECT * FROM transactions
+WHERE company_id = $1 AND journal_entry_id IS NULL
+ORDER BY date ASC, row_index ASC
+LIMIT $2 OFFSET $3;
+
+-- name: CountUnlinkedTransactions :one
+SELECT COUNT(*) FROM transactions
+WHERE company_id = $1 AND journal_entry_id IS NULL;
+
+-- name: GetTransactionsByIDs :many
+SELECT * FROM transactions
+WHERE id = ANY(@ids::uuid[]) AND company_id = @company_id
+ORDER BY date ASC, row_index ASC;

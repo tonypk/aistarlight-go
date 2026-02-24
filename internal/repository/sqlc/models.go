@@ -300,6 +300,7 @@ type ReceiptBatch struct {
 	ErrorMessage   *string     `json:"error_message"`
 	CreatedAt      time.Time   `json:"created_at"`
 	UpdatedAt      time.Time   `json:"updated_at"`
+	TransactionIds []uuid.UUID `json:"transaction_ids"`
 }
 
 type ReconciliationSession struct {
@@ -385,6 +386,7 @@ type Transaction struct {
 	SupplierID           pgtype.UUID    `json:"supplier_id"`
 	CreatedAt            time.Time      `json:"created_at"`
 	UpdatedAt            time.Time      `json:"updated_at"`
+	JournalEntryID       pgtype.UUID    `json:"journal_entry_id"`
 }
 
 type User struct {

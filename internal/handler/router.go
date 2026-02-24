@@ -33,6 +33,11 @@ type Router struct {
 	GL             *GLHandler
 	QBO            *QBOHandler
 	Settings       *SettingsHandler
+	// Pipeline bridge handlers
+	ReceiptBridge  *ReceiptBridgeHandler
+	JournalBridge  *JournalBridgeHandler
+	FinStatement   *FinancialStatementHandler
+	TaxBridge      *TaxBridgeHandler
 
 	AuthSvc    *service.AuthService
 	OrgSvc     *service.OrgService
@@ -386,6 +391,34 @@ func (rt *Router) Setup(r *gin.Engine) {
 	{
 		gl.GET("/trial-balance", rt.GL.TrialBalance)
 		gl.GET("/account/:id/ledger", rt.GL.AccountLedger)
+	}
+
+	// ---- Pipeline Bridge Routes ----
+
+	// Receipt-to-Transaction bridge
+	receipts.POST("/batches/:id/convert", rt.ReceiptBridge.Convert)
+
+	// Journal entry generation bridge
+	journalBridge := api.Group("/journals")
+	journalBridge.Use(authMw)
+	{
+		journalBridge.POST("/generate", rt.JournalBridge.Generate)
+	}
+
+	// Financial statements
+	statements := api.Group("/statements")
+	statements.Use(authMw)
+	{
+		statements.GET("/balance-sheet", rt.FinStatement.BalanceSheet)
+		statements.GET("/income-statement", rt.FinStatement.IncomeStatement)
+	}
+
+	// Tax bridge (GL → Tax Engine + eBIRForms export)
+	tax := api.Group("/tax")
+	tax.Use(authMw)
+	{
+		tax.POST("/calculate", rt.TaxBridge.Calculate)
+		tax.GET("/export", rt.TaxBridge.Export)
 	}
 
 	// QuickBooks Online routes

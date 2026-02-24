@@ -102,3 +102,95 @@ WHERE journal_entry_id = $1;
 -- name: CountDraftEntriesByPeriod :one
 SELECT COUNT(*) FROM journal_entries
 WHERE period_id = $1 AND status = 'draft';
+
+-- name: AccountBalancesByPrefix :many
+-- Returns aggregated debit/credit for all accounts matching a number prefix,
+-- for posted entries up to a given date.
+SELECT
+    a.id AS account_id,
+    a.account_number,
+    a.name AS account_name,
+    a.account_type,
+    a.normal_balance,
+    COALESCE(SUM(jl.debit), 0)::NUMERIC(15,2) AS total_debit,
+    COALESCE(SUM(jl.credit), 0)::NUMERIC(15,2) AS total_credit
+FROM accounts a
+LEFT JOIN journal_lines jl ON jl.account_id = a.id
+LEFT JOIN journal_entries je ON je.id = jl.journal_entry_id
+    AND je.company_id = @company_id
+    AND je.status = 'posted'
+    AND je.entry_date <= @as_of_date
+WHERE a.company_id = @company_id
+    AND a.is_active = true
+    AND a.account_number LIKE @prefix || '%'
+GROUP BY a.id, a.account_number, a.name, a.account_type, a.normal_balance
+HAVING COALESCE(SUM(jl.debit), 0) > 0 OR COALESCE(SUM(jl.credit), 0) > 0
+ORDER BY a.account_number ASC;
+
+-- name: PeriodAccountBalances :many
+-- Returns aggregated debit/credit for all accounts matching a number prefix,
+-- for posted entries within a date range.
+SELECT
+    a.id AS account_id,
+    a.account_number,
+    a.name AS account_name,
+    a.account_type,
+    a.normal_balance,
+    COALESCE(SUM(jl.debit), 0)::NUMERIC(15,2) AS total_debit,
+    COALESCE(SUM(jl.credit), 0)::NUMERIC(15,2) AS total_credit
+FROM accounts a
+LEFT JOIN journal_lines jl ON jl.account_id = a.id
+LEFT JOIN journal_entries je ON je.id = jl.journal_entry_id
+    AND je.company_id = @company_id
+    AND je.status = 'posted'
+    AND je.entry_date >= @from_date
+    AND je.entry_date <= @to_date
+WHERE a.company_id = @company_id
+    AND a.is_active = true
+    AND a.account_number LIKE @prefix || '%'
+GROUP BY a.id, a.account_number, a.name, a.account_type, a.normal_balance
+HAVING COALESCE(SUM(jl.debit), 0) > 0 OR COALESCE(SUM(jl.credit), 0) > 0
+ORDER BY a.account_number ASC;
+
+-- name: AllAccountBalancesAsOf :many
+-- Returns aggregated balances for ALL active accounts up to a date (for balance sheet).
+SELECT
+    a.id AS account_id,
+    a.account_number,
+    a.name AS account_name,
+    a.account_type,
+    a.normal_balance,
+    COALESCE(SUM(jl.debit), 0)::NUMERIC(15,2) AS total_debit,
+    COALESCE(SUM(jl.credit), 0)::NUMERIC(15,2) AS total_credit
+FROM accounts a
+LEFT JOIN journal_lines jl ON jl.account_id = a.id
+LEFT JOIN journal_entries je ON je.id = jl.journal_entry_id
+    AND je.company_id = @company_id
+    AND je.status = 'posted'
+    AND je.entry_date <= @as_of_date
+WHERE a.company_id = @company_id AND a.is_active = true
+GROUP BY a.id, a.account_number, a.name, a.account_type, a.normal_balance
+HAVING COALESCE(SUM(jl.debit), 0) > 0 OR COALESCE(SUM(jl.credit), 0) > 0
+ORDER BY a.account_number ASC;
+
+-- name: PeriodAllAccountBalances :many
+-- Returns aggregated balances for ALL active accounts within a date range (for income statement).
+SELECT
+    a.id AS account_id,
+    a.account_number,
+    a.name AS account_name,
+    a.account_type,
+    a.normal_balance,
+    COALESCE(SUM(jl.debit), 0)::NUMERIC(15,2) AS total_debit,
+    COALESCE(SUM(jl.credit), 0)::NUMERIC(15,2) AS total_credit
+FROM accounts a
+LEFT JOIN journal_lines jl ON jl.account_id = a.id
+LEFT JOIN journal_entries je ON je.id = jl.journal_entry_id
+    AND je.company_id = @company_id
+    AND je.status = 'posted'
+    AND je.entry_date >= @from_date
+    AND je.entry_date <= @to_date
+WHERE a.company_id = @company_id AND a.is_active = true
+GROUP BY a.id, a.account_number, a.name, a.account_type, a.normal_balance
+HAVING COALESCE(SUM(jl.debit), 0) > 0 OR COALESCE(SUM(jl.credit), 0) > 0
+ORDER BY a.account_number ASC;

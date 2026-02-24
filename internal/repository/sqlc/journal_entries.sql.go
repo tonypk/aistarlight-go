@@ -12,6 +12,75 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const accountBalancesByPrefix = `-- name: AccountBalancesByPrefix :many
+SELECT
+    a.id AS account_id,
+    a.account_number,
+    a.name AS account_name,
+    a.account_type,
+    a.normal_balance,
+    COALESCE(SUM(jl.debit), 0)::NUMERIC(15,2) AS total_debit,
+    COALESCE(SUM(jl.credit), 0)::NUMERIC(15,2) AS total_credit
+FROM accounts a
+LEFT JOIN journal_lines jl ON jl.account_id = a.id
+LEFT JOIN journal_entries je ON je.id = jl.journal_entry_id
+    AND je.company_id = $1
+    AND je.status = 'posted'
+    AND je.entry_date <= $2
+WHERE a.company_id = $1
+    AND a.is_active = true
+    AND a.account_number LIKE $3 || '%'
+GROUP BY a.id, a.account_number, a.name, a.account_type, a.normal_balance
+HAVING COALESCE(SUM(jl.debit), 0) > 0 OR COALESCE(SUM(jl.credit), 0) > 0
+ORDER BY a.account_number ASC
+`
+
+type AccountBalancesByPrefixParams struct {
+	CompanyID uuid.UUID   `json:"company_id"`
+	AsOfDate  pgtype.Date `json:"as_of_date"`
+	Prefix    *string     `json:"prefix"`
+}
+
+type AccountBalancesByPrefixRow struct {
+	AccountID     uuid.UUID      `json:"account_id"`
+	AccountNumber string         `json:"account_number"`
+	AccountName   string         `json:"account_name"`
+	AccountType   string         `json:"account_type"`
+	NormalBalance string         `json:"normal_balance"`
+	TotalDebit    pgtype.Numeric `json:"total_debit"`
+	TotalCredit   pgtype.Numeric `json:"total_credit"`
+}
+
+// Returns aggregated debit/credit for all accounts matching a number prefix,
+// for posted entries up to a given date.
+func (q *Queries) AccountBalancesByPrefix(ctx context.Context, arg AccountBalancesByPrefixParams) ([]AccountBalancesByPrefixRow, error) {
+	rows, err := q.db.Query(ctx, accountBalancesByPrefix, arg.CompanyID, arg.AsOfDate, arg.Prefix)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AccountBalancesByPrefixRow{}
+	for rows.Next() {
+		var i AccountBalancesByPrefixRow
+		if err := rows.Scan(
+			&i.AccountID,
+			&i.AccountNumber,
+			&i.AccountName,
+			&i.AccountType,
+			&i.NormalBalance,
+			&i.TotalDebit,
+			&i.TotalCredit,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const accountLedger = `-- name: AccountLedger :many
 SELECT
     je.id AS journal_entry_id,
@@ -70,6 +139,71 @@ func (q *Queries) AccountLedger(ctx context.Context, arg AccountLedgerParams) ([
 			&i.Description,
 			&i.Debit,
 			&i.Credit,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const allAccountBalancesAsOf = `-- name: AllAccountBalancesAsOf :many
+SELECT
+    a.id AS account_id,
+    a.account_number,
+    a.name AS account_name,
+    a.account_type,
+    a.normal_balance,
+    COALESCE(SUM(jl.debit), 0)::NUMERIC(15,2) AS total_debit,
+    COALESCE(SUM(jl.credit), 0)::NUMERIC(15,2) AS total_credit
+FROM accounts a
+LEFT JOIN journal_lines jl ON jl.account_id = a.id
+LEFT JOIN journal_entries je ON je.id = jl.journal_entry_id
+    AND je.company_id = $1
+    AND je.status = 'posted'
+    AND je.entry_date <= $2
+WHERE a.company_id = $1 AND a.is_active = true
+GROUP BY a.id, a.account_number, a.name, a.account_type, a.normal_balance
+HAVING COALESCE(SUM(jl.debit), 0) > 0 OR COALESCE(SUM(jl.credit), 0) > 0
+ORDER BY a.account_number ASC
+`
+
+type AllAccountBalancesAsOfParams struct {
+	CompanyID uuid.UUID   `json:"company_id"`
+	AsOfDate  pgtype.Date `json:"as_of_date"`
+}
+
+type AllAccountBalancesAsOfRow struct {
+	AccountID     uuid.UUID      `json:"account_id"`
+	AccountNumber string         `json:"account_number"`
+	AccountName   string         `json:"account_name"`
+	AccountType   string         `json:"account_type"`
+	NormalBalance string         `json:"normal_balance"`
+	TotalDebit    pgtype.Numeric `json:"total_debit"`
+	TotalCredit   pgtype.Numeric `json:"total_credit"`
+}
+
+// Returns aggregated balances for ALL active accounts up to a date (for balance sheet).
+func (q *Queries) AllAccountBalancesAsOf(ctx context.Context, arg AllAccountBalancesAsOfParams) ([]AllAccountBalancesAsOfRow, error) {
+	rows, err := q.db.Query(ctx, allAccountBalancesAsOf, arg.CompanyID, arg.AsOfDate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AllAccountBalancesAsOfRow{}
+	for rows.Next() {
+		var i AllAccountBalancesAsOfRow
+		if err := rows.Scan(
+			&i.AccountID,
+			&i.AccountNumber,
+			&i.AccountName,
+			&i.AccountType,
+			&i.NormalBalance,
+			&i.TotalDebit,
+			&i.TotalCredit,
 		); err != nil {
 			return nil, err
 		}
@@ -400,6 +534,149 @@ func (q *Queries) ListJournalLinesByEntry(ctx context.Context, journalEntryID uu
 			&i.Credit,
 			&i.AccountName,
 			&i.AccountNumber,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const periodAccountBalances = `-- name: PeriodAccountBalances :many
+SELECT
+    a.id AS account_id,
+    a.account_number,
+    a.name AS account_name,
+    a.account_type,
+    a.normal_balance,
+    COALESCE(SUM(jl.debit), 0)::NUMERIC(15,2) AS total_debit,
+    COALESCE(SUM(jl.credit), 0)::NUMERIC(15,2) AS total_credit
+FROM accounts a
+LEFT JOIN journal_lines jl ON jl.account_id = a.id
+LEFT JOIN journal_entries je ON je.id = jl.journal_entry_id
+    AND je.company_id = $1
+    AND je.status = 'posted'
+    AND je.entry_date >= $2
+    AND je.entry_date <= $3
+WHERE a.company_id = $1
+    AND a.is_active = true
+    AND a.account_number LIKE $4 || '%'
+GROUP BY a.id, a.account_number, a.name, a.account_type, a.normal_balance
+HAVING COALESCE(SUM(jl.debit), 0) > 0 OR COALESCE(SUM(jl.credit), 0) > 0
+ORDER BY a.account_number ASC
+`
+
+type PeriodAccountBalancesParams struct {
+	CompanyID uuid.UUID   `json:"company_id"`
+	FromDate  pgtype.Date `json:"from_date"`
+	ToDate    pgtype.Date `json:"to_date"`
+	Prefix    *string     `json:"prefix"`
+}
+
+type PeriodAccountBalancesRow struct {
+	AccountID     uuid.UUID      `json:"account_id"`
+	AccountNumber string         `json:"account_number"`
+	AccountName   string         `json:"account_name"`
+	AccountType   string         `json:"account_type"`
+	NormalBalance string         `json:"normal_balance"`
+	TotalDebit    pgtype.Numeric `json:"total_debit"`
+	TotalCredit   pgtype.Numeric `json:"total_credit"`
+}
+
+// Returns aggregated debit/credit for all accounts matching a number prefix,
+// for posted entries within a date range.
+func (q *Queries) PeriodAccountBalances(ctx context.Context, arg PeriodAccountBalancesParams) ([]PeriodAccountBalancesRow, error) {
+	rows, err := q.db.Query(ctx, periodAccountBalances,
+		arg.CompanyID,
+		arg.FromDate,
+		arg.ToDate,
+		arg.Prefix,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PeriodAccountBalancesRow{}
+	for rows.Next() {
+		var i PeriodAccountBalancesRow
+		if err := rows.Scan(
+			&i.AccountID,
+			&i.AccountNumber,
+			&i.AccountName,
+			&i.AccountType,
+			&i.NormalBalance,
+			&i.TotalDebit,
+			&i.TotalCredit,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const periodAllAccountBalances = `-- name: PeriodAllAccountBalances :many
+SELECT
+    a.id AS account_id,
+    a.account_number,
+    a.name AS account_name,
+    a.account_type,
+    a.normal_balance,
+    COALESCE(SUM(jl.debit), 0)::NUMERIC(15,2) AS total_debit,
+    COALESCE(SUM(jl.credit), 0)::NUMERIC(15,2) AS total_credit
+FROM accounts a
+LEFT JOIN journal_lines jl ON jl.account_id = a.id
+LEFT JOIN journal_entries je ON je.id = jl.journal_entry_id
+    AND je.company_id = $1
+    AND je.status = 'posted'
+    AND je.entry_date >= $2
+    AND je.entry_date <= $3
+WHERE a.company_id = $1 AND a.is_active = true
+GROUP BY a.id, a.account_number, a.name, a.account_type, a.normal_balance
+HAVING COALESCE(SUM(jl.debit), 0) > 0 OR COALESCE(SUM(jl.credit), 0) > 0
+ORDER BY a.account_number ASC
+`
+
+type PeriodAllAccountBalancesParams struct {
+	CompanyID uuid.UUID   `json:"company_id"`
+	FromDate  pgtype.Date `json:"from_date"`
+	ToDate    pgtype.Date `json:"to_date"`
+}
+
+type PeriodAllAccountBalancesRow struct {
+	AccountID     uuid.UUID      `json:"account_id"`
+	AccountNumber string         `json:"account_number"`
+	AccountName   string         `json:"account_name"`
+	AccountType   string         `json:"account_type"`
+	NormalBalance string         `json:"normal_balance"`
+	TotalDebit    pgtype.Numeric `json:"total_debit"`
+	TotalCredit   pgtype.Numeric `json:"total_credit"`
+}
+
+// Returns aggregated balances for ALL active accounts within a date range (for income statement).
+func (q *Queries) PeriodAllAccountBalances(ctx context.Context, arg PeriodAllAccountBalancesParams) ([]PeriodAllAccountBalancesRow, error) {
+	rows, err := q.db.Query(ctx, periodAllAccountBalances, arg.CompanyID, arg.FromDate, arg.ToDate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PeriodAllAccountBalancesRow{}
+	for rows.Next() {
+		var i PeriodAllAccountBalancesRow
+		if err := rows.Scan(
+			&i.AccountID,
+			&i.AccountNumber,
+			&i.AccountName,
+			&i.AccountType,
+			&i.NormalBalance,
+			&i.TotalDebit,
+			&i.TotalCredit,
 		); err != nil {
 			return nil, err
 		}

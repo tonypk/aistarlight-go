@@ -55,7 +55,7 @@ func (m *migrator) copyViaTemp(ctx context.Context, label, tempTable, insertQuer
 	if err != nil {
 		return fmt.Errorf("begin tx %s: %w", label, err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	// Create temp table with same structure by copying from source column definitions.
 	createTemp := fmt.Sprintf("CREATE TEMP TABLE %s (LIKE %s INCLUDING ALL) ON COMMIT DROP",
@@ -81,12 +81,12 @@ func (m *migrator) copyViaTemp(ctx context.Context, label, tempTable, insertQuer
 	if _, err := tx.Exec(ctx, createTemp); err != nil {
 		// Fallback: create temp table without LIKE.
 		slog.Warn("LIKE failed, trying manual temp table", "table", label, "error", err)
-		tx.Rollback(ctx)
+		_ = tx.Rollback(ctx)
 		tx, err = m.dst.Begin(ctx)
 		if err != nil {
 			return fmt.Errorf("begin tx retry %s: %w", label, err)
 		}
-		defer tx.Rollback(ctx)
+		defer func() { _ = tx.Rollback(ctx) }()
 
 		createManual := buildCreateTemp(tempTable, colNames, fieldDescs)
 		if _, err := tx.Exec(ctx, createManual); err != nil {

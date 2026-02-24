@@ -246,7 +246,6 @@ var dateFormats = []string{
 }
 
 var datePattern = regexp.MustCompile(`\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2}`)
-var amountPattern = regexp.MustCompile(`[$₱PHP]*\s*([\d,]+\.\d{2})`)
 
 func parseDate(value string, expectedFormat string) string {
 	if value == "" {

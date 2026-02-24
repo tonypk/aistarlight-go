@@ -117,9 +117,9 @@ func (s *JournalService) Create(ctx context.Context, input CreateJournalEntryInp
 	lines := make([]domain.JournalLine, len(input.Lines))
 	for i, lineInput := range input.Lines {
 		debitNum := pgtype.Numeric{}
-		debitNum.Scan(lineInput.Debit.String())
+		_ = debitNum.Scan(lineInput.Debit.String())
 		creditNum := pgtype.Numeric{}
-		creditNum.Scan(lineInput.Credit.String())
+		_ = creditNum.Scan(lineInput.Credit.String())
 
 		dbLine, err := qtx.CreateJournalLine(ctx, sqlc.CreateJournalLineParams{
 			ID:             uuid.New(),
@@ -302,9 +302,9 @@ func (s *JournalService) Reverse(ctx context.Context, id uuid.UUID, reversedBy u
 	// Create reversed lines
 	for i, lineInput := range reversedLines {
 		debitNum := pgtype.Numeric{}
-		debitNum.Scan(lineInput.Debit.String())
+		_ = debitNum.Scan(lineInput.Debit.String())
 		creditNum := pgtype.Numeric{}
-		creditNum.Scan(lineInput.Credit.String())
+		_ = creditNum.Scan(lineInput.Credit.String())
 
 		_, err := qtx.CreateJournalLine(ctx, sqlc.CreateJournalLineParams{
 			ID:             uuid.New(),

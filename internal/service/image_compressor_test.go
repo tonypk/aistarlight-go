@@ -25,13 +25,13 @@ func createTestImage(w, h int) *image.RGBA {
 
 func encodeJPEG(img image.Image, quality int) []byte {
 	var buf bytes.Buffer
-	jpeg.Encode(&buf, img, &jpeg.Options{Quality: quality})
+	_ = jpeg.Encode(&buf, img, &jpeg.Options{Quality: quality})
 	return buf.Bytes()
 }
 
 func encodePNG(img image.Image) []byte {
 	var buf bytes.Buffer
-	png.Encode(&buf, img)
+	_ = png.Encode(&buf, img)
 	return buf.Bytes()
 }
 

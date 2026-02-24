@@ -34,8 +34,11 @@ Respond ONLY with valid JSON:
 {
   "mappings": {"source_column_name": "target_field_name", ...},
   "unmapped": ["column_names_that_dont_map"],
-  "confidence": 0.95
-}`
+  "confidence": 0.95,
+  "field_confidence": {"source_column_name": 0.95, ...}
+}
+
+field_confidence: per-column confidence (0.0-1.0) indicating how sure you are about each mapping.`
 
 // ColumnMapperService handles AI-powered column mapping.
 type ColumnMapperService struct {
@@ -49,9 +52,10 @@ func NewColumnMapperService(ai *openai.Client) *ColumnMapperService {
 
 // ColumnMapping holds the result of column mapping.
 type ColumnMapping struct {
-	Mappings   map[string]string `json:"mappings"`
-	Unmapped   []string          `json:"unmapped"`
-	Confidence float64           `json:"confidence"`
+	Mappings        map[string]string  `json:"mappings"`
+	Unmapped        []string           `json:"unmapped"`
+	Confidence      float64            `json:"confidence"`
+	FieldConfidence map[string]float64 `json:"field_confidence,omitempty"`
 }
 
 // AutoMapColumns maps spreadsheet columns to BIR form fields using AI.
@@ -64,9 +68,15 @@ func (s *ColumnMapperService) AutoMapColumns(
 ) (*ColumnMapping, error) {
 	// If existing mappings cover all columns, reuse them
 	if len(existingMappings) > 0 && allColumnsMapped(columns, existingMappings) {
+		fc := make(map[string]float64, len(columns))
+		for _, col := range columns {
+			fc[col] = 1.0
+		}
 		return &ColumnMapping{
-			Mappings:   existingMappings,
-			Confidence: 1.0,
+			Mappings:        existingMappings,
+			Unmapped:        []string{},
+			Confidence:      1.0,
+			FieldConfidence: fc,
 		}, nil
 	}
 

@@ -18,9 +18,11 @@ import (
 	"github.com/tonypk/aistarlight-go/internal/config"
 	"github.com/tonypk/aistarlight-go/internal/handler"
 	"github.com/tonypk/aistarlight-go/internal/handler/middleware"
+	"github.com/tonypk/aistarlight-go/internal/platform/crypto"
 	ocrclient "github.com/tonypk/aistarlight-go/internal/platform/ocr"
 	oai "github.com/tonypk/aistarlight-go/internal/platform/openai"
 	pg "github.com/tonypk/aistarlight-go/internal/platform/postgres"
+	"github.com/tonypk/aistarlight-go/internal/platform/qbo"
 	rd "github.com/tonypk/aistarlight-go/internal/platform/redis"
 	"github.com/tonypk/aistarlight-go/internal/repository/sqlc"
 	"github.com/tonypk/aistarlight-go/internal/service"
@@ -134,11 +136,32 @@ type services struct {
 	Audit       *service.AuditService
 	Memory      *service.MemoryService
 	Task        *service.TaskService
+	Account     *service.AccountService
+	Journal     *service.JournalService
+	Period      *service.AccountingPeriodService
+	GL          *service.GLService
+	QBO         *service.QBOService
 }
 
-func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client) services {
+func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxpool.Pool) services {
 	knowledge := service.NewKnowledgeService(ai, q)
 	matchAnalyzer := service.NewMatchAnalyzer(ai)
+
+	accountSvc := service.NewAccountService(q)
+
+	// QBO service (optional — only if credentials configured)
+	var qboSvc *service.QBOService
+	if cfg.QBO.ClientID != "" && cfg.Encryption.Key != "" {
+		encryptor, err := crypto.NewAESEncryptor(cfg.Encryption.Key)
+		if err != nil {
+			slog.Warn("ENCRYPTION_KEY invalid, QBO disabled", "error", err)
+		} else {
+			oauthProvider := qbo.NewOAuthProvider(cfg.QBO)
+			qboClient := qbo.NewClient(cfg.QBO.BaseURL, cfg.QBO.RateLimit, cfg.QBO.MaxConcur)
+			qboSvc = service.NewQBOService(q, oauthProvider, qboClient, encryptor)
+		}
+	}
+
 	return services{
 		Auth:        service.NewAuthService(q, cfg.JWT),
 		Org:         service.NewOrgService(q),
@@ -159,6 +182,11 @@ func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client) services {
 		Audit:       service.NewAuditService(q),
 		Memory:      service.NewMemoryService(q),
 		Task:        service.NewTaskService(q, cfg.Redis.URL),
+		Account:     accountSvc,
+		Journal:     service.NewJournalService(q, pool),
+		Period:      service.NewAccountingPeriodService(q),
+		GL:          service.NewGLService(q),
+		QBO:         qboSvc,
 	}
 }
 
@@ -180,6 +208,11 @@ type handlers struct {
 	Data           *handler.DataHandler
 	Form           *handler.FormHandler
 	Knowledge      *handler.KnowledgeHandler
+	Account        *handler.AccountHandler
+	Journal        *handler.JournalHandler
+	Period         *handler.AccountingPeriodHandler
+	GL             *handler.GLHandler
+	QBO            *handler.QBOHandler
 }
 
 func newHandlers(svc services, cfg *config.Config) handlers {
@@ -198,9 +231,14 @@ func newHandlers(svc services, cfg *config.Config) handlers {
 		Audit:          handler.NewAuditHandler(svc.Audit),
 		Memory:         handler.NewMemoryHandler(svc.Memory),
 		Task:           handler.NewTaskHandler(svc.Task),
-		Data:           handler.NewDataHandler(svc.ColMapper, cfg),
+		Data:           handler.NewDataHandler(svc.ColMapper, svc.Memory, cfg),
 		Form:           handler.NewFormHandler(svc.Report),
 		Knowledge:      handler.NewKnowledgeHandler(svc.Knowledge),
+		Account:        handler.NewAccountHandler(svc.Account),
+		Journal:        handler.NewJournalHandler(svc.Journal),
+		Period:         handler.NewAccountingPeriodHandler(svc.Period),
+		GL:             handler.NewGLHandler(svc.GL),
+		QBO:            handler.NewQBOHandler(svc.QBO, svc.Account),
 	}
 }
 
@@ -238,6 +276,11 @@ func newGinEngine(cfg *config.Config, rdb *redis.Client, svc services, h handler
 		Data:           h.Data,
 		Form:           h.Form,
 		Knowledge:      h.Knowledge,
+		Account:        h.Account,
+		Journal:        h.Journal,
+		Period:         h.Period,
+		GL:             h.GL,
+		QBO:            h.QBO,
 		AuthSvc:        svc.Auth,
 		OrgSvc:         svc.Org,
 		CompanySvc:     svc.Company,

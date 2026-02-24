@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/tonypk/aistarlight-go/internal/config"
+	"github.com/tonypk/aistarlight-go/internal/handler/middleware"
 	"github.com/tonypk/aistarlight-go/internal/handler/response"
 	"github.com/tonypk/aistarlight-go/internal/service"
 )
@@ -20,12 +21,13 @@ import (
 // DataHandler handles file upload and data processing endpoints.
 type DataHandler struct {
 	colMapper *service.ColumnMapperService
+	memorySvc *service.MemoryService
 	cfg       *config.Config
 }
 
 // NewDataHandler creates a new data handler.
-func NewDataHandler(colMapper *service.ColumnMapperService, cfg *config.Config) *DataHandler {
-	return &DataHandler{colMapper: colMapper, cfg: cfg}
+func NewDataHandler(colMapper *service.ColumnMapperService, memorySvc *service.MemoryService, cfg *config.Config) *DataHandler {
+	return &DataHandler{colMapper: colMapper, memorySvc: memorySvc, cfg: cfg}
 }
 
 var allowedExtensions = map[string]bool{
@@ -282,7 +284,22 @@ func (h *DataHandler) SuggestMapping(c *gin.Context) {
 		req.ReportType = "BIR_2550M"
 	}
 
-	result, err := h.colMapper.AutoMapColumns(c.Request.Context(), req.Columns, req.SampleRows, req.ReportType, nil)
+	// Look up saved preferences to seed AI mapping
+	var existingMappings map[string]string
+	companyID := middleware.GetCompanyID(c)
+	if h.memorySvc != nil {
+		pref, err := h.memorySvc.GetPreference(c.Request.Context(), companyID, req.ReportType)
+		if err == nil && pref != nil && len(pref.ColumnMappings) > 0 {
+			existingMappings = make(map[string]string, len(pref.ColumnMappings))
+			for k, v := range pref.ColumnMappings {
+				if s, ok := v.(string); ok {
+					existingMappings[k] = s
+				}
+			}
+		}
+	}
+
+	result, err := h.colMapper.AutoMapColumns(c.Request.Context(), req.Columns, req.SampleRows, req.ReportType, existingMappings)
 	if err != nil {
 		slog.Error("column mapping failed", "error", err)
 		response.InternalError(c, "Column mapping failed. Please try again.")

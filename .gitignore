@@ -1,0 +1,12 @@
+bin/
+*.exe
+*.out
+coverage.out
+coverage.html
+.env
+*.log
+tmp/
+.idea/
+.vscode/
+*.swp
+*.swo

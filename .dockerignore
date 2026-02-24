@@ -1,0 +1,13 @@
+.git
+.github
+.env
+.env.*
+!.env.example
+bin/
+coverage.*
+*.md
+deploy/
+ocr-service/
+docker/
+.dockerignore
+docker-compose*.yml

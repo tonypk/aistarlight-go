@@ -178,6 +178,8 @@ type handlers struct {
 	Memory         *handler.MemoryHandler
 	Task           *handler.TaskHandler
 	Data           *handler.DataHandler
+	Form           *handler.FormHandler
+	Knowledge      *handler.KnowledgeHandler
 }
 
 func newHandlers(svc services, cfg *config.Config) handlers {
@@ -197,6 +199,8 @@ func newHandlers(svc services, cfg *config.Config) handlers {
 		Memory:         handler.NewMemoryHandler(svc.Memory),
 		Task:           handler.NewTaskHandler(svc.Task),
 		Data:           handler.NewDataHandler(svc.ColMapper, cfg),
+		Form:           handler.NewFormHandler(svc.Report),
+		Knowledge:      handler.NewKnowledgeHandler(svc.Knowledge),
 	}
 }
 
@@ -217,9 +221,9 @@ func newGinEngine(cfg *config.Config, rdb *redis.Client, svc services, h handler
 
 	// Wire up all routes
 	rt := &handler.Router{
-		Auth:       h.Auth,
-		Org:        h.Org,
-		Company:    h.Company,
+		Auth:           h.Auth,
+		Org:            h.Org,
+		Company:        h.Company,
 		Report:         h.Report,
 		Chat:           h.Chat,
 		Reconciliation: h.Reconciliation,
@@ -232,11 +236,13 @@ func newGinEngine(cfg *config.Config, rdb *redis.Client, svc services, h handler
 		Memory:         h.Memory,
 		Task:           h.Task,
 		Data:           h.Data,
+		Form:           h.Form,
+		Knowledge:      h.Knowledge,
 		AuthSvc:        svc.Auth,
-		OrgSvc:     svc.Org,
-		CompanySvc: svc.Company,
-		Config:     cfg,
-		Redis:      rdb,
+		OrgSvc:         svc.Org,
+		CompanySvc:     svc.Company,
+		Config:         cfg,
+		Redis:          rdb,
 	}
 	rt.Setup(r)
 

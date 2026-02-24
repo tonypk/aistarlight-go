@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/tonypk/aistarlight-go/internal/domain"
 	"github.com/tonypk/aistarlight-go/internal/handler/middleware"
 	"github.com/tonypk/aistarlight-go/internal/handler/response"
 	"github.com/tonypk/aistarlight-go/internal/service"
@@ -170,6 +171,42 @@ func (h *AuthHandler) ListCompanies(c *gin.Context) {
 	}
 
 	response.OK(c, items)
+}
+
+// InviteMember handles POST /api/v1/auth/invite.
+// Adds a user as a member of the current company.
+func (h *AuthHandler) InviteMember(c *gin.Context) {
+	var req struct {
+		Email string `json:"email" binding:"required,email"`
+		Role  string `json:"role" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	companyID := middleware.GetCompanyID(c)
+
+	// Look up user by email
+	user, err := h.auth.GetByEmail(c.Request.Context(), req.Email)
+	if err != nil {
+		response.NotFound(c, "user not found, they must register first")
+		return
+	}
+
+	// Add as company member
+	err = h.company.AddMember(c.Request.Context(), companyID, user.ID, domain.CompanyRole(req.Role))
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	response.Created(c, gin.H{
+		"message":    "member invited successfully",
+		"user_id":    user.ID,
+		"company_id": companyID,
+		"role":       req.Role,
+	})
 }
 
 type switchCompanyRequest struct {

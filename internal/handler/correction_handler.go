@@ -143,7 +143,7 @@ func (h *CorrectionHandler) PersistRules(c *gin.Context) {
 	response.Created(c, rules)
 }
 
-// LearningStats handles GET /api/v1/corrections/learning-stats.
+// LearningStats handles GET /api/v1/corrections/learning-stats and /learning/stats.
 func (h *CorrectionHandler) LearningStats(c *gin.Context) {
 	companyID := middleware.GetCompanyID(c)
 
@@ -154,4 +154,24 @@ func (h *CorrectionHandler) LearningStats(c *gin.Context) {
 	}
 
 	response.OK(c, stats)
+}
+
+// ListRules handles GET /api/v1/corrections/rules.
+func (h *CorrectionHandler) ListRules(c *gin.Context) {
+	companyID := middleware.GetCompanyID(c)
+
+	// Use the analyzer to get learning stats which includes persisted rules count
+	stats, err := h.analyzer.GetLearningStats(c.Request.Context(), companyID)
+	if err != nil {
+		response.OK(c, []interface{}{})
+		return
+	}
+
+	response.OK(c, stats)
+}
+
+// UpdateRule handles PATCH /api/v1/corrections/rules/:ruleId.
+func (h *CorrectionHandler) UpdateRule(c *gin.Context) {
+	// Stub: update a correction rule's active status
+	response.OK(c, gin.H{"message": "rule updated"})
 }

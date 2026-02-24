@@ -24,6 +24,8 @@ type Router struct {
 	Memory         *MemoryHandler
 	Task           *TaskHandler
 	Data           *DataHandler
+	Form           *FormHandler
+	Knowledge      *KnowledgeHandler
 
 	AuthSvc    *service.AuthService
 	OrgSvc     *service.OrgService
@@ -31,6 +33,14 @@ type Router struct {
 
 	Config *config.Config
 	Redis  *redis.Client
+}
+
+// adaptReportIDParam wraps a handler to copy the :id param as :reportId.
+func adaptReportIDParam(h gin.HandlerFunc) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Params = append(c.Params, gin.Param{Key: "reportId", Value: c.Param("id")})
+		h(c)
+	}
 }
 
 func (rt *Router) Setup(r *gin.Engine) {
@@ -56,6 +66,7 @@ func (rt *Router) Setup(r *gin.Engine) {
 		authProtected.POST("/api-key", rt.Auth.GenerateAPIKey)
 		authProtected.GET("/companies", rt.Auth.ListCompanies)
 		authProtected.POST("/switch-company", rt.Auth.SwitchCompany)
+		authProtected.POST("/invite", rt.Auth.InviteMember) // frontend compat
 	}
 
 	// Organization routes
@@ -102,18 +113,29 @@ func (rt *Router) Setup(r *gin.Engine) {
 	reports.Use(authMw)
 	{
 		reports.POST("", rt.Report.Create)
+		reports.POST("/generate", rt.Report.Generate) // frontend compat
 		reports.GET("", rt.Report.List)
 		reports.POST("/calculate", rt.Report.Calculate)
+		reports.GET("/supported-forms", rt.Report.SupportedForms)
 
 		reportByID := reports.Group("/:id")
 		{
 			reportByID.GET("", rt.Report.Get)
-			reportByID.GET("/pdf", rt.Report.DownloadPDF)
-			reportByID.GET("/csv", rt.Report.DownloadCSV)
+			reportByID.GET("/download", rt.Report.DownloadPDF)   // frontend compat (was /pdf)
+			reportByID.GET("/pdf", rt.Report.DownloadPDF)        // keep original
+			reportByID.GET("/export-csv", rt.Report.DownloadCSV) // frontend compat (was /csv)
+			reportByID.GET("/csv", rt.Report.DownloadCSV)        // keep original
 			reportByID.DELETE("", rt.Report.Delete)
 			reportByID.PATCH("/status", rt.Report.UpdateStatus)
+			reportByID.PATCH("/confirm", rt.Report.Confirm)       // frontend compat
+			reportByID.PATCH("/edit", rt.Report.Edit)             // frontend compat
+			reportByID.PATCH("/transition", rt.Report.Transition) // frontend compat
 			reportByID.POST("/recalculate", rt.Report.Recalculate)
 			reportByID.POST("/overrides", rt.Report.ApplyOverrides)
+			// Compliance routes nested under reports (frontend compat)
+			reportByID.POST("/validate", adaptReportIDParam(rt.Compliance.Validate))
+			reportByID.GET("/validation", adaptReportIDParam(rt.Compliance.GetLatest))
+			reportByID.GET("/validation/history", adaptReportIDParam(rt.Compliance.ListValidations))
 		}
 	}
 
@@ -126,7 +148,7 @@ func (rt *Router) Setup(r *gin.Engine) {
 		chat.GET("/history", rt.Chat.History)
 	}
 
-	// Reconciliation routes
+	// Reconciliation routes (canonical)
 	recon := api.Group("/reconciliation")
 	recon.Use(authMw)
 	{
@@ -137,7 +159,19 @@ func (rt *Router) Setup(r *gin.Engine) {
 		recon.GET("/batches/:id", rt.Reconciliation.Get)
 	}
 
-	// Compliance routes
+	// Bank Reconciliation routes (frontend compat — uses /bank-recon prefix)
+	bankRecon := api.Group("/bank-recon")
+	bankRecon.Use(authMw)
+	{
+		bankRecon.POST("/process", rt.Reconciliation.Process)
+		bankRecon.GET("/batches", rt.Reconciliation.List)
+		bankRecon.GET("/batches/:id", rt.Reconciliation.Get)
+		bankRecon.POST("/batches/:id/accept-suggestion", rt.Reconciliation.AcceptSuggestion)
+		bankRecon.POST("/batches/:id/reject-suggestion", rt.Reconciliation.RejectSuggestion)
+		bankRecon.POST("/batches/:id/rerun-analysis", rt.Reconciliation.RerunAnalysis)
+	}
+
+	// Compliance routes (canonical)
 	compliance := api.Group("/compliance")
 	compliance.Use(authMw)
 	{
@@ -158,6 +192,11 @@ func (rt *Router) Setup(r *gin.Engine) {
 		corrections.POST("/analyze", rt.Correction.AnalyzePatterns)
 		corrections.POST("/persist-rules", rt.Correction.PersistRules)
 		corrections.GET("/learning-stats", rt.Correction.LearningStats)
+		// Frontend compat: /learning/stats and /learning/analyze sub-paths
+		corrections.GET("/learning/stats", rt.Correction.LearningStats)
+		corrections.POST("/learning/analyze", rt.Correction.AnalyzePatterns)
+		corrections.GET("/rules", rt.Correction.ListRules)
+		corrections.PATCH("/rules/:ruleId", rt.Correction.UpdateRule)
 	}
 
 	// Withholding tax routes
@@ -166,9 +205,20 @@ func (rt *Router) Setup(r *gin.Engine) {
 	{
 		withholding.POST("/classify", rt.Withholding.Classify)
 		withholding.GET("/rates", rt.Withholding.Rates)
+		withholding.GET("/ewt-rates", rt.Withholding.Rates)       // frontend compat
+		withholding.GET("/ewt-summary", rt.Withholding.EWTSummary) // frontend compat
 		withholding.POST("/certificates", rt.Withholding.CreateCertificate)
 		withholding.GET("/certificates", rt.Withholding.ListCertificates)
 		withholding.GET("/certificates/:id", rt.Withholding.GetCertificate)
+		withholding.GET("/certificates/:id/download", rt.Withholding.DownloadCertificate) // frontend compat
+		// Supplier CRUD (stubs for frontend compat)
+		withholding.GET("/suppliers", rt.Withholding.ListSuppliers)
+		withholding.POST("/suppliers", rt.Withholding.CreateSupplier)
+		withholding.PATCH("/suppliers/:id", rt.Withholding.UpdateSupplier)
+		withholding.DELETE("/suppliers/:id", rt.Withholding.DeleteSupplier)
+		// SAWT (stubs for frontend compat)
+		withholding.GET("/sawt", rt.Withholding.GetSAWT)
+		withholding.GET("/sawt/download", rt.Withholding.DownloadSAWT)
 	}
 
 	// Dashboard routes
@@ -205,6 +255,22 @@ func (rt *Router) Setup(r *gin.Engine) {
 	{
 		memory.GET("/preferences/:reportType", rt.Memory.GetPreference)
 		memory.PUT("/preferences/:reportType", rt.Memory.UpsertPreference)
+	}
+
+	// Form schema routes (frontend compat)
+	forms := api.Group("/forms")
+	forms.Use(authMw)
+	{
+		forms.GET("", rt.Form.List)
+		forms.GET("/:formType", rt.Form.GetSchema)
+	}
+
+	// Knowledge base routes (frontend compat)
+	knowledge := api.Group("/knowledge")
+	knowledge.Use(authMw)
+	{
+		knowledge.GET("", rt.Knowledge.List)
+		knowledge.GET("/stats", rt.Knowledge.Stats)
 	}
 
 	// Data upload routes

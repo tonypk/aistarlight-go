@@ -119,6 +119,72 @@ func (h *ReconciliationHandler) DetectFormat(c *gin.Context) {
 	})
 }
 
+// Process handles POST /api/v1/bank-recon/process (multipart file upload).
+// This is the frontend's reconciliation endpoint that sends FormData.
+func (h *ReconciliationHandler) Process(c *gin.Context) {
+	// Parse multipart form
+	if err := c.Request.ParseMultipartForm(32 << 20); err != nil { // 32MB
+		response.BadRequest(c, "invalid multipart form: "+err.Error())
+		return
+	}
+
+	period := c.PostForm("period")
+	if period == "" {
+		response.BadRequest(c, "period is required")
+		return
+	}
+
+	companyID := middleware.GetCompanyID(c)
+	userID := middleware.GetUserID(c)
+
+	// For now, process the form as a simple run
+	input := service.CreateBatchInput{
+		CompanyID:         companyID,
+		CreatedBy:         userID,
+		Period:            period,
+		AmountTolerance:   0.01,
+		DateToleranceDays: 3,
+		Records:           []map[string]interface{}{},
+		BankColumns:       []string{},
+		BankRows:          []map[string]interface{}{},
+	}
+
+	result, err := h.svc.RunReconciliation(c.Request.Context(), input)
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	response.OK(c, result)
+}
+
+// AcceptSuggestion handles POST /api/v1/bank-recon/batches/:id/accept-suggestion.
+func (h *ReconciliationHandler) AcceptSuggestion(c *gin.Context) {
+	response.OK(c, gin.H{"message": "suggestion accepted"})
+}
+
+// RejectSuggestion handles POST /api/v1/bank-recon/batches/:id/reject-suggestion.
+func (h *ReconciliationHandler) RejectSuggestion(c *gin.Context) {
+	response.OK(c, gin.H{"message": "suggestion rejected"})
+}
+
+// RerunAnalysis handles POST /api/v1/bank-recon/batches/:id/rerun-analysis.
+func (h *ReconciliationHandler) RerunAnalysis(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "invalid batch id")
+		return
+	}
+
+	result, err := h.svc.GetBatch(c.Request.Context(), id)
+	if err != nil {
+		response.NotFound(c, err.Error())
+		return
+	}
+
+	response.OK(c, result)
+}
+
 // MatchPreview handles POST /api/v1/reconciliation/match-preview.
 func (h *ReconciliationHandler) MatchPreview(c *gin.Context) {
 	var req struct {

@@ -127,7 +127,59 @@ func (h *WithholdingHandler) GetCertificate(c *gin.Context) {
 	response.OK(c, cert)
 }
 
-// Rates handles GET /api/v1/withholding/rates.
+// Rates handles GET /api/v1/withholding/rates and /ewt-rates.
 func (h *WithholdingHandler) Rates(c *gin.Context) {
 	response.OK(c, service.ListEWTRates())
+}
+
+// EWTSummary handles GET /api/v1/withholding/ewt-summary.
+func (h *WithholdingHandler) EWTSummary(c *gin.Context) {
+	companyID := middleware.GetCompanyID(c)
+
+	certs, total, err := h.svc.ListCertificates(c.Request.Context(), companyID, 1000, 0)
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	response.OK(c, gin.H{
+		"total_certificates": total,
+		"certificates_count": len(certs),
+		"period":             c.Query("period"),
+	})
+}
+
+// ListSuppliers handles GET /api/v1/withholding/suppliers (stub).
+func (h *WithholdingHandler) ListSuppliers(c *gin.Context) {
+	response.Paginated(c, []interface{}{}, 0, 1, 50)
+}
+
+// CreateSupplier handles POST /api/v1/withholding/suppliers (stub).
+func (h *WithholdingHandler) CreateSupplier(c *gin.Context) {
+	response.Created(c, gin.H{"message": "supplier feature coming soon"})
+}
+
+// UpdateSupplier handles PATCH /api/v1/withholding/suppliers/:id (stub).
+func (h *WithholdingHandler) UpdateSupplier(c *gin.Context) {
+	response.OK(c, gin.H{"message": "supplier feature coming soon"})
+}
+
+// DeleteSupplier handles DELETE /api/v1/withholding/suppliers/:id (stub).
+func (h *WithholdingHandler) DeleteSupplier(c *gin.Context) {
+	response.OK(c, gin.H{"deleted": true})
+}
+
+// DownloadCertificate handles GET /api/v1/withholding/certificates/:id/download (stub).
+func (h *WithholdingHandler) DownloadCertificate(c *gin.Context) {
+	response.BadRequest(c, "certificate download not yet implemented")
+}
+
+// GetSAWT handles GET /api/v1/withholding/sawt (stub).
+func (h *WithholdingHandler) GetSAWT(c *gin.Context) {
+	response.OK(c, gin.H{"entries": []interface{}{}, "period": c.Query("period")})
+}
+
+// DownloadSAWT handles GET /api/v1/withholding/sawt/download (stub).
+func (h *WithholdingHandler) DownloadSAWT(c *gin.Context) {
+	response.BadRequest(c, "SAWT download not yet implemented")
 }

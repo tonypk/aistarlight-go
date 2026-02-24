@@ -110,6 +110,21 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*domai
 	return user, nil
 }
 
+// GetByEmail returns a user by their email address.
+func (s *AuthService) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
+	dbUser, err := s.q.GetUserByEmail(ctx, email)
+	if err != nil {
+		return nil, fmt.Errorf("user not found")
+	}
+
+	return &domain.User{
+		ID:       dbUser.ID,
+		Email:    dbUser.Email,
+		FullName: dbUser.FullName,
+		IsActive: dbUser.IsActive,
+	}, nil
+}
+
 func (s *AuthService) Login(ctx context.Context, email, password string) (*TokenPair, *uuid.UUID, error) {
 	dbUser, err := s.q.GetUserByEmail(ctx, email)
 	if err != nil {

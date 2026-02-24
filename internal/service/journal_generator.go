@@ -37,6 +37,11 @@ func (g *JournalGenerator) GenerateFromTransaction(ctx context.Context, companyI
 		return nil, fmt.Errorf("transaction already linked to journal entry")
 	}
 
+	// Skip zero-amount transactions
+	if numericToDecimal(txn.Amount).IsZero() {
+		return nil, fmt.Errorf("transaction has zero amount")
+	}
+
 	entry, err := g.createJournalFromTxn(ctx, companyID, txn, userID)
 	if err != nil {
 		return nil, err
@@ -72,6 +77,9 @@ func (g *JournalGenerator) GenerateFromSession(ctx context.Context, companyID uu
 		}
 		if txn.JournalEntryID.Valid {
 			continue // already linked
+		}
+		if numericToDecimal(txn.Amount).IsZero() {
+			continue // skip zero-amount transactions
 		}
 
 		entry, err := g.createJournalFromTxn(ctx, companyID, txn, userID)

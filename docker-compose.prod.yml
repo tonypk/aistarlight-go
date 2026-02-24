@@ -66,7 +66,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.prebuilt
-    entrypoint: ["/migrate", "-path", "/migrations", "-database", "postgresql://${POSTGRES_USER:-aistarlight}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aistarlight}?sslmode=disable", "up"]
+    entrypoint: ["/migrate", "-dir", "/migrations", "-database", "postgresql://${POSTGRES_USER:-aistarlight}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aistarlight}?sslmode=disable", "-action", "up"]
     depends_on:
       postgres:
         condition: service_healthy

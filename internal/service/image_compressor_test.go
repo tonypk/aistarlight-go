@@ -151,14 +151,8 @@ func TestToGrayscale(t *testing.T) {
 		t.Errorf("Expected 100x100, got %dx%d", bounds.Dx(), bounds.Dy())
 	}
 
-	// Verify all pixels are grayscale (single channel)
-	for y := 0; y < 10; y++ {
-		for x := 0; x < 10; x++ {
-			c := gray.GrayAt(x, y)
-			if c.Y == 0 && x > 0 && y > 0 {
-				// With our gradient test image, non-origin pixels shouldn't be pure black
-				// (unless the gradient produces exactly 0, which it can at origin)
-			}
-		}
+	// Verify output is a valid grayscale image with non-zero dimensions
+	if gray.Bounds().Dx() == 0 || gray.Bounds().Dy() == 0 {
+		t.Fatal("expected non-zero grayscale image dimensions")
 	}
 }

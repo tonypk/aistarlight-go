@@ -88,7 +88,7 @@ func (s *JournalService) Create(ctx context.Context, input CreateJournalEntryInp
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	qtx := s.q.WithTx(tx)
 
@@ -264,7 +264,7 @@ func (s *JournalService) Reverse(ctx context.Context, id uuid.UUID, reversedBy u
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	qtx := s.q.WithTx(tx)
 

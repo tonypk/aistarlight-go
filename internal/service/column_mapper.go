@@ -126,9 +126,21 @@ func (s *ColumnMapperService) AutoMapColumns(
 		}, nil
 	}
 
+	// Strip markdown code fences if present (e.g. ```json ... ```)
+	content := strings.TrimSpace(resp.Choices[0].Message.Content)
+	if strings.HasPrefix(content, "```") {
+		if idx := strings.Index(content, "\n"); idx != -1 {
+			content = content[idx+1:]
+		}
+		if strings.HasSuffix(content, "```") {
+			content = content[:len(content)-3]
+		}
+		content = strings.TrimSpace(content)
+	}
+
 	var result ColumnMapping
-	if err := json.Unmarshal([]byte(resp.Choices[0].Message.Content), &result); err != nil {
-		slog.Warn("failed to parse column mapping response", "error", err)
+	if err := json.Unmarshal([]byte(content), &result); err != nil {
+		slog.Warn("failed to parse column mapping response", "error", err, "raw", content)
 		return &ColumnMapping{
 			Mappings:   map[string]string{},
 			Unmapped:   columns,

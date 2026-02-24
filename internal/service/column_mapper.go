@@ -17,15 +17,19 @@ Map spreadsheet column names to standard BIR form fields.
 Target fields by report type:
 
 BIR_2550M / BIR_2550Q (VAT):
-  date, description, amount, vat_amount, vat_type, category, tin
+  date, description, amount, vat_amount, vat_type, category, tin,
+  invoice_number, supplier_name, address, gross_amount, taxable_amount,
+  ewt_rate, ewt_amount, atc_code
 
 BIR_1601C (Withholding on Compensation):
   employee_name, tin, total_compensation, statutory_minimum_wage,
   nontaxable_13th_month, nontaxable_deminimis, sss_gsis_phic_hdmf,
-  other_nontaxable, tax_withheld
+  other_nontaxable, tax_withheld, basic_pay, overtime_pay, holiday_pay,
+  sss, philhealth, pagibig, taxable_compensation
 
 BIR_0619E (Expanded Withholding):
-  payee_name, tin, atc_code, income_payment, tax_withheld
+  payee_name, tin, atc_code, income_payment, tax_withheld,
+  address, nature_of_income, ewt_rate
 
 Bank Statements:
   date, description, amount, debit, credit, reference, balance

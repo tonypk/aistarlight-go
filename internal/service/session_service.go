@@ -316,6 +316,17 @@ func (s *SessionService) AddFile(ctx context.Context, sessionID, companyID uuid.
 			category = "goods"
 		}
 
+		// Extract EWT and ATC fields if mapped
+		ewtRateNum := pgtype.Numeric{}
+		if v := parseAmount(row["ewt_rate"]); v != 0 {
+			_ = ewtRateNum.Scan(fmt.Sprintf("%v", v))
+		}
+		ewtAmountNum := pgtype.Numeric{}
+		if v := parseAmount(row["ewt_amount"]); v != 0 {
+			_ = ewtAmountNum.Scan(fmt.Sprintf("%v", v))
+		}
+		atcCode := toStringPtr(row["atc_code"])
+
 		_, err := s.q.CreateTransaction(ctx, sqlc.CreateTransactionParams{
 			ID:                   uuid.New(),
 			CompanyID:            companyID,
@@ -334,6 +345,9 @@ func (s *SessionService) AddFile(ctx context.Context, sessionID, companyID uuid.
 			ClassificationSource: "ai",
 			RawData:              rawData,
 			MatchStatus:          "unmatched",
+			EwtRate:              ewtRateNum,
+			EwtAmount:            ewtAmountNum,
+			AtcCode:              atcCode,
 		})
 		if err != nil {
 			slog.Warn("failed to create transaction", "error", err, "row", i)

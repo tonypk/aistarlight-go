@@ -44,8 +44,8 @@ func (s *KnowledgeService) RetrieveRelevant(ctx context.Context, query string, c
 		limit = 5
 	}
 
-	// Try vector search first
-	if s.ai != nil {
+	// Try vector search when query is non-empty
+	if s.ai != nil && query != "" {
 		embedding, err := s.ai.CreateEmbedding(ctx, query)
 		if err == nil {
 			chunks, err := s.q.SearchSimilarChunks(ctx, sqlc.SearchSimilarChunksParams{
@@ -64,7 +64,7 @@ func (s *KnowledgeService) RetrieveRelevant(ctx context.Context, query string, c
 				return results, nil
 			}
 		} else {
-			slog.Warn("embedding generation failed, falling back to category search", "error", err)
+			slog.Warn("embedding generation failed, falling back", "error", err)
 		}
 	}
 
@@ -87,7 +87,20 @@ func (s *KnowledgeService) RetrieveRelevant(ctx context.Context, query string, c
 		}
 	}
 
-	return nil, fmt.Errorf("no knowledge found")
+	// Final fallback: list all chunks
+	chunks, err := s.q.ListAllKnowledgeChunks(ctx, int32(limit))
+	if err != nil {
+		return nil, fmt.Errorf("no knowledge found")
+	}
+	results := make([]KnowledgeResult, len(chunks))
+	for i, c := range chunks {
+		results[i] = KnowledgeResult{
+			Content:  c.Content,
+			Source:   derefString(c.Source),
+			Category: derefString(c.Category),
+		}
+	}
+	return results, nil
 }
 
 // AnswerQuestion generates an answer using retrieved context.

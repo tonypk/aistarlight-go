@@ -93,6 +93,57 @@ func toPreferenceOutput(p sqlc.UserPreference) *PreferenceOutput {
 	return out
 }
 
+// ListPreferences returns all preferences for a company.
+func (s *MemoryService) ListPreferences(ctx context.Context, companyID uuid.UUID) ([]PreferenceOutput, error) {
+	prefs, err := s.q.ListUserPreferencesByCompany(ctx, companyID)
+	if err != nil {
+		return nil, fmt.Errorf("list preferences: %w", err)
+	}
+
+	results := make([]PreferenceOutput, len(prefs))
+	for i, p := range prefs {
+		results[i] = *toPreferenceOutput(p)
+	}
+	return results, nil
+}
+
+// DeletePreference deletes a preference for a company + report type.
+func (s *MemoryService) DeletePreference(ctx context.Context, companyID uuid.UUID, reportType string) error {
+	return s.q.DeleteUserPreference(ctx, sqlc.DeleteUserPreferenceParams{
+		CompanyID:  companyID,
+		ReportType: reportType,
+	})
+}
+
+// ListCorrections returns correction history for a company.
+func (s *MemoryService) ListCorrections(ctx context.Context, companyID uuid.UUID) ([]CorrectionOutput, error) {
+	corrections, err := s.q.ListCorrectionsByCompany(ctx, sqlc.ListCorrectionsByCompanyParams{
+		CompanyID: companyID,
+		Limit:     100,
+		Offset:    0,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list corrections: %w", err)
+	}
+
+	results := make([]CorrectionOutput, len(corrections))
+	for i, c := range corrections {
+		results[i] = CorrectionOutput{
+			ID:         c.ID,
+			CompanyID:  c.CompanyID,
+			UserID:     c.UserID,
+			EntityType: c.EntityType,
+			EntityID:   c.EntityID,
+			FieldName:  c.FieldName,
+			NewValue:   c.NewValue,
+			OldValue:   c.OldValue,
+			Reason:     c.Reason,
+			CreatedAt:  c.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		}
+	}
+	return results, nil
+}
+
 func mergeJSON(existing []byte, updates map[string]interface{}) map[string]interface{} {
 	merged := make(map[string]interface{})
 	if len(existing) > 0 {

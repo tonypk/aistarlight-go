@@ -17,6 +17,19 @@ func NewMemoryHandler(svc *service.MemoryService) *MemoryHandler {
 	return &MemoryHandler{svc: svc}
 }
 
+// ListPreferences handles GET /api/v1/memory/preferences.
+func (h *MemoryHandler) ListPreferences(c *gin.Context) {
+	companyID := middleware.GetCompanyID(c)
+
+	prefs, err := h.svc.ListPreferences(c.Request.Context(), companyID)
+	if err != nil {
+		response.OK(c, []interface{}{})
+		return
+	}
+
+	response.OK(c, prefs)
+}
+
 // GetPreference handles GET /api/v1/memory/preferences/:reportType.
 func (h *MemoryHandler) GetPreference(c *gin.Context) {
 	companyID := middleware.GetCompanyID(c)
@@ -29,6 +42,32 @@ func (h *MemoryHandler) GetPreference(c *gin.Context) {
 	}
 
 	response.OK(c, pref)
+}
+
+// DeletePreference handles DELETE /api/v1/memory/preferences/:reportType.
+func (h *MemoryHandler) DeletePreference(c *gin.Context) {
+	companyID := middleware.GetCompanyID(c)
+	reportType := c.Param("reportType")
+
+	if err := h.svc.DeletePreference(c.Request.Context(), companyID, reportType); err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	response.OK(c, gin.H{"deleted": true})
+}
+
+// ListCorrections handles GET /api/v1/memory/corrections.
+func (h *MemoryHandler) ListCorrections(c *gin.Context) {
+	companyID := middleware.GetCompanyID(c)
+
+	corrections, err := h.svc.ListCorrections(c.Request.Context(), companyID)
+	if err != nil {
+		response.OK(c, []interface{}{})
+		return
+	}
+
+	response.OK(c, corrections)
 }
 
 type upsertPreferenceRequest struct {

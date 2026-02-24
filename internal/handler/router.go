@@ -285,8 +285,11 @@ func (rt *Router) Setup(r *gin.Engine) {
 	memory := api.Group("/memory")
 	memory.Use(authMw)
 	{
+		memory.GET("/preferences", rt.Memory.ListPreferences)
 		memory.GET("/preferences/:reportType", rt.Memory.GetPreference)
 		memory.PUT("/preferences/:reportType", rt.Memory.UpsertPreference)
+		memory.DELETE("/preferences/:reportType", rt.Memory.DeletePreference)
+		memory.GET("/corrections", rt.Memory.ListCorrections)
 	}
 
 	// Form schema routes (frontend compat)

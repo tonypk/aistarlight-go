@@ -15,6 +15,11 @@ SELECT * FROM knowledge_chunks
 WHERE category = $1
 ORDER BY created_at DESC;
 
+-- name: ListAllKnowledgeChunks :many
+SELECT * FROM knowledge_chunks
+ORDER BY created_at DESC
+LIMIT $1;
+
 -- name: CountKnowledgeChunks :one
 SELECT COUNT(*) FROM knowledge_chunks;
 

@@ -33,6 +33,15 @@ ON CONFLICT (company_id, report_type) DO UPDATE SET
 SELECT * FROM user_preferences
 WHERE company_id = $1 AND report_type = $2;
 
+-- name: ListUserPreferencesByCompany :many
+SELECT * FROM user_preferences
+WHERE company_id = $1
+ORDER BY updated_at DESC;
+
+-- name: DeleteUserPreference :exec
+DELETE FROM user_preferences
+WHERE company_id = $1 AND report_type = $2;
+
 -- ---- Receipt Batches ----
 
 -- name: CreateReceiptBatch :one

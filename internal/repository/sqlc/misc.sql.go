@@ -213,6 +213,21 @@ func (q *Queries) CreateRevokedToken(ctx context.Context, arg CreateRevokedToken
 	return err
 }
 
+const deleteUserPreference = `-- name: DeleteUserPreference :exec
+DELETE FROM user_preferences
+WHERE company_id = $1 AND report_type = $2
+`
+
+type DeleteUserPreferenceParams struct {
+	CompanyID  uuid.UUID `json:"company_id"`
+	ReportType string    `json:"report_type"`
+}
+
+func (q *Queries) DeleteUserPreference(ctx context.Context, arg DeleteUserPreferenceParams) error {
+	_, err := q.db.Exec(ctx, deleteUserPreference, arg.CompanyID, arg.ReportType)
+	return err
+}
+
 const getBankReconBatchByID = `-- name: GetBankReconBatchByID :one
 SELECT id, company_id, created_by, session_id, status, source_files, total_entries, parse_summary, match_result, ai_suggestions, ai_explanations, amount_tolerance, date_tolerance_days, period, error_message, created_at, updated_at FROM bank_reconciliation_batches WHERE id = $1
 `
@@ -446,6 +461,40 @@ func (q *Queries) ListReceiptBatchesByCompany(ctx context.Context, arg ListRecei
 			&i.Results,
 			&i.ErrorMessage,
 			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUserPreferencesByCompany = `-- name: ListUserPreferencesByCompany :many
+SELECT id, company_id, report_type, column_mappings, format_rules, auto_fill_rules, updated_at FROM user_preferences
+WHERE company_id = $1
+ORDER BY updated_at DESC
+`
+
+func (q *Queries) ListUserPreferencesByCompany(ctx context.Context, companyID uuid.UUID) ([]UserPreference, error) {
+	rows, err := q.db.Query(ctx, listUserPreferencesByCompany, companyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []UserPreference{}
+	for rows.Next() {
+		var i UserPreference
+		if err := rows.Scan(
+			&i.ID,
+			&i.CompanyID,
+			&i.ReportType,
+			&i.ColumnMappings,
+			&i.FormatRules,
+			&i.AutoFillRules,
 			&i.UpdatedAt,
 		); err != nil {
 			return nil, err

@@ -92,6 +92,40 @@ func (q *Queries) CreateKnowledgeChunk(ctx context.Context, arg CreateKnowledgeC
 	return i, err
 }
 
+const listAllKnowledgeChunks = `-- name: ListAllKnowledgeChunks :many
+SELECT id, source, category, content, embedding, metadata, created_at FROM knowledge_chunks
+ORDER BY created_at DESC
+LIMIT $1
+`
+
+func (q *Queries) ListAllKnowledgeChunks(ctx context.Context, limit int32) ([]KnowledgeChunk, error) {
+	rows, err := q.db.Query(ctx, listAllKnowledgeChunks, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []KnowledgeChunk{}
+	for rows.Next() {
+		var i KnowledgeChunk
+		if err := rows.Scan(
+			&i.ID,
+			&i.Source,
+			&i.Category,
+			&i.Content,
+			&i.Embedding,
+			&i.Metadata,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listKnowledgeByCategory = `-- name: ListKnowledgeByCategory :many
 SELECT id, source, category, content, embedding, metadata, created_at FROM knowledge_chunks
 WHERE category = $1

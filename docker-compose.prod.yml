@@ -2,7 +2,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: docker/Dockerfile.api
+      dockerfile: docker/Dockerfile.prebuilt
     restart: unless-stopped
     env_file:
       - .env
@@ -37,7 +37,7 @@ services:
   worker:
     build:
       context: .
-      dockerfile: docker/Dockerfile.worker
+      dockerfile: docker/Dockerfile.worker.prebuilt
     restart: unless-stopped
     env_file:
       - .env
@@ -65,7 +65,7 @@ services:
   migrate:
     build:
       context: .
-      dockerfile: docker/Dockerfile.api
+      dockerfile: docker/Dockerfile.prebuilt
     entrypoint: ["/migrate", "-dir", "/migrations", "-database", "postgresql://${POSTGRES_USER:-aistarlight}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aistarlight}?sslmode=disable", "-action", "up"]
     depends_on:
       postgres:

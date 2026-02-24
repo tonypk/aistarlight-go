@@ -7,17 +7,19 @@ import (
 )
 
 type Config struct {
-	Server    ServerConfig
-	Database  DatabaseConfig
-	Redis     RedisConfig
-	JWT       JWTConfig
-	OpenAI    OpenAIConfig
-	GCS       GCSConfig
-	OCR       OCRConfig
-	CORS      CORSConfig
-	Rate      RateConfig
-	Log       LogConfig
-	UploadDir string
+	Server     ServerConfig
+	Database   DatabaseConfig
+	Redis      RedisConfig
+	JWT        JWTConfig
+	OpenAI     OpenAIConfig
+	GCS        GCSConfig
+	OCR        OCRConfig
+	CORS       CORSConfig
+	Rate       RateConfig
+	Log        LogConfig
+	QBO        QBOConfig
+	Encryption EncryptionConfig
+	UploadDir  string
 }
 
 type ServerConfig struct {
@@ -72,6 +74,20 @@ type LogConfig struct {
 	Format string // text, json
 }
 
+type QBOConfig struct {
+	ClientID     string
+	ClientSecret string
+	RedirectURL  string
+	Scopes       string
+	BaseURL      string // https://quickbooks.api.intuit.com (production) or https://sandbox-quickbooks.api.intuit.com
+	RateLimit    int    // requests per minute (QBO limit: 500)
+	MaxConcur    int    // max concurrent requests (QBO limit: 10)
+}
+
+type EncryptionConfig struct {
+	Key string // 32-byte hex-encoded AES-256 key
+}
+
 func Load() (*Config, error) {
 	v := viper.New()
 
@@ -97,6 +113,10 @@ func Load() (*Config, error) {
 	v.SetDefault("LOG_LEVEL", "info")
 	v.SetDefault("LOG_FORMAT", "text")
 	v.SetDefault("UPLOAD_DIR", "/tmp/aistarlight-uploads")
+	v.SetDefault("QBO_BASE_URL", "https://sandbox-quickbooks.api.intuit.com")
+	v.SetDefault("QBO_SCOPES", "com.intuit.quickbooks.accounting")
+	v.SetDefault("QBO_RATE_LIMIT", 500)
+	v.SetDefault("QBO_MAX_CONCUR", 10)
 
 	// Try reading .env, ignore if not found
 	_ = v.ReadInConfig()
@@ -148,6 +168,18 @@ func Load() (*Config, error) {
 		Log: LogConfig{
 			Level:  v.GetString("LOG_LEVEL"),
 			Format: v.GetString("LOG_FORMAT"),
+		},
+		QBO: QBOConfig{
+			ClientID:     v.GetString("QBO_CLIENT_ID"),
+			ClientSecret: v.GetString("QBO_CLIENT_SECRET"),
+			RedirectURL:  v.GetString("QBO_REDIRECT_URL"),
+			Scopes:       v.GetString("QBO_SCOPES"),
+			BaseURL:      v.GetString("QBO_BASE_URL"),
+			RateLimit:    v.GetInt("QBO_RATE_LIMIT"),
+			MaxConcur:    v.GetInt("QBO_MAX_CONCUR"),
+		},
+		Encryption: EncryptionConfig{
+			Key: v.GetString("ENCRYPTION_KEY"),
 		},
 		UploadDir: v.GetString("UPLOAD_DIR"),
 	}

@@ -200,6 +200,29 @@ func (q *Queries) FindMatchingCorrectionRules(ctx context.Context, arg FindMatch
 	return items, nil
 }
 
+const getCorrectionRuleByID = `-- name: GetCorrectionRuleByID :one
+SELECT id, company_id, rule_type, match_criteria, correction_field, correction_value, confidence, source_correction_count, is_active, created_at, updated_at FROM correction_rules WHERE id = $1
+`
+
+func (q *Queries) GetCorrectionRuleByID(ctx context.Context, id uuid.UUID) (CorrectionRule, error) {
+	row := q.db.QueryRow(ctx, getCorrectionRuleByID, id)
+	var i CorrectionRule
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.RuleType,
+		&i.MatchCriteria,
+		&i.CorrectionField,
+		&i.CorrectionValue,
+		&i.Confidence,
+		&i.SourceCorrectionCount,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getLatestValidationByReport = `-- name: GetLatestValidationByReport :one
 SELECT id, report_id, company_id, overall_score, check_results, rag_findings, validated_at FROM validation_results WHERE report_id = $1
 ORDER BY validated_at DESC LIMIT 1

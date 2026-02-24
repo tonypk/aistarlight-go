@@ -15,6 +15,7 @@ type Router struct {
 	Report         *ReportHandler
 	Chat           *ChatHandler
 	Reconciliation *ReconciliationHandler
+	Session        *SessionHandler
 	Compliance     *ComplianceHandler
 	Correction     *CorrectionHandler
 	Withholding    *WithholdingHandler
@@ -26,6 +27,12 @@ type Router struct {
 	Data           *DataHandler
 	Form           *FormHandler
 	Knowledge      *KnowledgeHandler
+	Account        *AccountHandler
+	Journal        *JournalHandler
+	Period         *AccountingPeriodHandler
+	GL             *GLHandler
+	QBO            *QBOHandler
+	Settings       *SettingsHandler
 
 	AuthSvc    *service.AuthService
 	OrgSvc     *service.OrgService
@@ -159,6 +166,31 @@ func (rt *Router) Setup(r *gin.Engine) {
 		recon.GET("/batches/:id", rt.Reconciliation.Get)
 	}
 
+	// Reconciliation Session routes
+	reconSessions := recon.Group("/sessions")
+	{
+		reconSessions.POST("", rt.Session.CreateSession)
+		reconSessions.GET("", rt.Session.ListSessions)
+
+		reconSessionByID := reconSessions.Group("/:id")
+		{
+			reconSessionByID.GET("", rt.Session.GetSession)
+			reconSessionByID.DELETE("", rt.Session.DeleteSession)
+			reconSessionByID.POST("/files", rt.Session.AddFile)
+			reconSessionByID.POST("/classify", rt.Session.Classify)
+			reconSessionByID.GET("/transactions", rt.Session.ListTransactions)
+			reconSessionByID.PATCH("/transactions/:txnId", rt.Session.UpdateTransaction)
+			reconSessionByID.POST("/detect-anomalies", rt.Session.DetectAnomalies)
+			reconSessionByID.GET("/anomalies", rt.Session.ListAnomalies)
+			reconSessionByID.PATCH("/anomalies/:anomalyId", rt.Session.ResolveAnomaly)
+			reconSessionByID.GET("/summary", rt.Session.GetSummary)
+			reconSessionByID.POST("/reconcile", rt.Session.Reconcile)
+			reconSessionByID.POST("/generate-report", rt.Session.GenerateReport)
+			reconSessionByID.GET("/export-pdf", rt.Session.ExportPDF)
+			reconSessionByID.GET("/export", rt.Session.Export)
+		}
+	}
+
 	// Bank Reconciliation routes (frontend compat — uses /bank-recon prefix)
 	bankRecon := api.Group("/bank-recon")
 	bankRecon.Use(authMw)
@@ -273,6 +305,16 @@ func (rt *Router) Setup(r *gin.Engine) {
 		knowledge.GET("/stats", rt.Knowledge.Stats)
 	}
 
+	// Settings routes
+	settings := api.Group("/settings")
+	settings.Use(authMw)
+	{
+		settings.GET("/company", rt.Settings.GetCompanySettings)
+		settings.PUT("/company", rt.Settings.UpdateCompanySettings)
+		settings.GET("/team", rt.Settings.ListTeam)
+		settings.PATCH("/team/:userId/role", rt.Settings.UpdateMemberRole)
+	}
+
 	// Data upload routes
 	data := api.Group("/data")
 	data.Use(authMw)
@@ -289,5 +331,71 @@ func (rt *Router) Setup(r *gin.Engine) {
 	{
 		tasks.GET("", rt.Task.List)
 		tasks.GET("/:id", rt.Task.Get)
+	}
+
+	// Chart of Accounts routes
+	accounts := api.Group("/accounts")
+	accounts.Use(authMw)
+	{
+		accounts.POST("", rt.Account.Create)
+		accounts.GET("", rt.Account.List)
+		accounts.POST("/seed", rt.Account.Seed)
+		accountByID := accounts.Group("/:id")
+		{
+			accountByID.GET("", rt.Account.Get)
+			accountByID.PUT("", rt.Account.Update)
+			accountByID.DELETE("", rt.Account.Delete)
+			accountByID.GET("/balance", rt.Account.Balance)
+		}
+	}
+
+	// Journal Entry routes
+	journalEntries := api.Group("/journal-entries")
+	journalEntries.Use(authMw)
+	{
+		journalEntries.POST("", rt.Journal.Create)
+		journalEntries.GET("", rt.Journal.List)
+		jeByID := journalEntries.Group("/:id")
+		{
+			jeByID.GET("", rt.Journal.Get)
+			jeByID.POST("/post", rt.Journal.Post)
+			jeByID.POST("/reverse", rt.Journal.Reverse)
+		}
+	}
+
+	// Accounting Period routes
+	periods := api.Group("/accounting-periods")
+	periods.Use(authMw)
+	{
+		periods.POST("", rt.Period.Create)
+		periods.GET("", rt.Period.List)
+		periods.POST("/generate", rt.Period.Generate)
+		periodByID := periods.Group("/:id")
+		{
+			periodByID.POST("/close", rt.Period.Close)
+			periodByID.POST("/reopen", rt.Period.Reopen)
+		}
+	}
+
+	// General Ledger routes
+	gl := api.Group("/gl")
+	gl.Use(authMw)
+	{
+		gl.GET("/trial-balance", rt.GL.TrialBalance)
+		gl.GET("/account/:id/ledger", rt.GL.AccountLedger)
+	}
+
+	// QuickBooks Online routes
+	if rt.QBO != nil {
+		qboGroup := api.Group("/qbo")
+		qboGroup.Use(authMw)
+		{
+			qboGroup.GET("/auth-url", rt.QBO.AuthURL)
+			qboGroup.GET("/callback", rt.QBO.Callback)
+			qboGroup.GET("/status", rt.QBO.Status)
+			qboGroup.POST("/disconnect", rt.QBO.Disconnect)
+			qboGroup.POST("/sync/accounts", rt.QBO.SyncAccounts)
+			qboGroup.GET("/sync/logs", rt.QBO.SyncLogs)
+		}
 	}
 }

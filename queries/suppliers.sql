@@ -22,3 +22,12 @@ SELECT COUNT(*) FROM suppliers WHERE company_id = $1;
 
 -- name: GetSupplierByTIN :one
 SELECT * FROM suppliers WHERE company_id = $1 AND tin = $2;
+
+-- name: SearchSuppliersByCompany :many
+SELECT * FROM suppliers
+WHERE company_id = $1
+  AND (name ILIKE '%' || $2 || '%' OR tin ILIKE '%' || $2 || '%')
+ORDER BY name LIMIT $3 OFFSET $4;
+
+-- name: DeleteSupplier :exec
+DELETE FROM suppliers WHERE id = $1 AND company_id = $2;

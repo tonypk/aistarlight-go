@@ -101,6 +101,23 @@ func (a *CorrectionAnalyzer) GetLearningStats(ctx context.Context, companyID uui
 	}, nil
 }
 
+// UpdateRule updates a correction rule (primarily for toggling is_active).
+func (a *CorrectionAnalyzer) UpdateRule(ctx context.Context, ruleID uuid.UUID, isActive bool) error {
+	rule, err := a.q.GetCorrectionRuleByID(ctx, ruleID)
+	if err != nil {
+		return fmt.Errorf("rule not found")
+	}
+
+	return a.q.UpdateCorrectionRule(ctx, sqlc.UpdateCorrectionRuleParams{
+		ID:                    ruleID,
+		MatchCriteria:         rule.MatchCriteria,
+		CorrectionValue:       rule.CorrectionValue,
+		Confidence:            rule.Confidence,
+		SourceCorrectionCount: rule.SourceCorrectionCount,
+		IsActive:              isActive,
+	})
+}
+
 type correctionGroup struct {
 	fieldName string
 	newValue  string

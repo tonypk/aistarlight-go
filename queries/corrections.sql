@@ -29,6 +29,9 @@ UPDATE correction_rules SET
     updated_at = NOW()
 WHERE id = $1;
 
+-- name: GetCorrectionRuleByID :one
+SELECT * FROM correction_rules WHERE id = $1;
+
 -- name: ListActiveCorrectionRulesByCompany :many
 SELECT * FROM correction_rules
 WHERE company_id = $1 AND is_active = true

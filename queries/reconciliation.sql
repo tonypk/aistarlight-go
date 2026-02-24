@@ -25,3 +25,6 @@ LIMIT $2 OFFSET $3;
 
 -- name: CountReconciliationSessionsByCompany :one
 SELECT COUNT(*) FROM reconciliation_sessions WHERE company_id = $1;
+
+-- name: DeleteReconciliationSession :exec
+DELETE FROM reconciliation_sessions WHERE id = $1 AND company_id = $2;

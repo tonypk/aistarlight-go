@@ -39,10 +39,14 @@ func (h *KnowledgeHandler) List(c *gin.Context) {
 
 // Stats handles GET /api/v1/knowledge/stats.
 func (h *KnowledgeHandler) Stats(c *gin.Context) {
-	response.OK(c, gin.H{
-		"total_chunks":       0,
-		"categories":         []string{"vat", "income_tax", "withholding", "compliance", "general"},
-		"last_updated":       nil,
-		"embedding_coverage": 0.0,
-	})
+	stats, err := h.knowledge.GetStats(c.Request.Context())
+	if err != nil {
+		response.OK(c, gin.H{
+			"total_chunks": 0,
+			"categories":   map[string]int64{},
+		})
+		return
+	}
+
+	response.OK(c, stats)
 }

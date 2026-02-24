@@ -13,6 +13,48 @@ import (
 	pgvector "github.com/pgvector/pgvector-go"
 )
 
+const countKnowledgeChunks = `-- name: CountKnowledgeChunks :one
+SELECT COUNT(*) FROM knowledge_chunks
+`
+
+func (q *Queries) CountKnowledgeChunks(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countKnowledgeChunks)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countKnowledgeChunksByCategory = `-- name: CountKnowledgeChunksByCategory :many
+SELECT COALESCE(category, 'uncategorized') as category, COUNT(*) as count
+FROM knowledge_chunks
+GROUP BY category
+`
+
+type CountKnowledgeChunksByCategoryRow struct {
+	Category string `json:"category"`
+	Count    int64  `json:"count"`
+}
+
+func (q *Queries) CountKnowledgeChunksByCategory(ctx context.Context) ([]CountKnowledgeChunksByCategoryRow, error) {
+	rows, err := q.db.Query(ctx, countKnowledgeChunksByCategory)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CountKnowledgeChunksByCategoryRow{}
+	for rows.Next() {
+		var i CountKnowledgeChunksByCategoryRow
+		if err := rows.Scan(&i.Category, &i.Count); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const createKnowledgeChunk = `-- name: CreateKnowledgeChunk :one
 INSERT INTO knowledge_chunks (id, source, category, content, embedding, metadata, created_at)
 VALUES ($1, $2, $3, $4, $5, $6, NOW())

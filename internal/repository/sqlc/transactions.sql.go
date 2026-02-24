@@ -12,6 +12,31 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const bulkUpdateTransactionClassification = `-- name: BulkUpdateTransactionClassification :exec
+UPDATE transactions SET
+    vat_type = $2, category = $3, confidence = $4, classification_source = $5, updated_at = NOW()
+WHERE id = $1
+`
+
+type BulkUpdateTransactionClassificationParams struct {
+	ID                   uuid.UUID      `json:"id"`
+	VatType              string         `json:"vat_type"`
+	Category             string         `json:"category"`
+	Confidence           pgtype.Numeric `json:"confidence"`
+	ClassificationSource string         `json:"classification_source"`
+}
+
+func (q *Queries) BulkUpdateTransactionClassification(ctx context.Context, arg BulkUpdateTransactionClassificationParams) error {
+	_, err := q.db.Exec(ctx, bulkUpdateTransactionClassification,
+		arg.ID,
+		arg.VatType,
+		arg.Category,
+		arg.Confidence,
+		arg.ClassificationSource,
+	)
+	return err
+}
+
 const countTransactionsByCompany = `-- name: CountTransactionsByCompany :one
 SELECT COUNT(*) FROM transactions WHERE company_id = $1
 `
@@ -29,6 +54,42 @@ SELECT COUNT(*) FROM transactions WHERE session_id = $1
 
 func (q *Queries) CountTransactionsBySession(ctx context.Context, sessionID uuid.UUID) (int64, error) {
 	row := q.db.QueryRow(ctx, countTransactionsBySession, sessionID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countTransactionsBySessionFiltered = `-- name: CountTransactionsBySessionFiltered :one
+SELECT COUNT(*) FROM transactions
+WHERE session_id = $1
+  AND ($2::varchar = '' OR vat_type = $2)
+  AND ($3::varchar = '' OR category = $3)
+  AND ($4::varchar = '' OR source_type = $4)
+  AND ($5::varchar = '' OR match_status = $5)
+  AND ($6::numeric IS NULL OR confidence >= $6)
+  AND ($7::text = '' OR description ILIKE '%' || $7 || '%')
+`
+
+type CountTransactionsBySessionFilteredParams struct {
+	SessionID uuid.UUID      `json:"session_id"`
+	Column2   string         `json:"column_2"`
+	Column3   string         `json:"column_3"`
+	Column4   string         `json:"column_4"`
+	Column5   string         `json:"column_5"`
+	Column6   pgtype.Numeric `json:"column_6"`
+	Column7   string         `json:"column_7"`
+}
+
+func (q *Queries) CountTransactionsBySessionFiltered(ctx context.Context, arg CountTransactionsBySessionFilteredParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countTransactionsBySessionFiltered,
+		arg.SessionID,
+		arg.Column2,
+		arg.Column3,
+		arg.Column4,
+		arg.Column5,
+		arg.Column6,
+		arg.Column7,
+	)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -171,6 +232,55 @@ func (q *Queries) GetTransactionByID(ctx context.Context, id uuid.UUID) (Transac
 	return i, err
 }
 
+const listAllTransactionsBySession = `-- name: ListAllTransactionsBySession :many
+SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at FROM transactions WHERE session_id = $1 ORDER BY row_index
+`
+
+func (q *Queries) ListAllTransactionsBySession(ctx context.Context, sessionID uuid.UUID) ([]Transaction, error) {
+	rows, err := q.db.Query(ctx, listAllTransactionsBySession, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Transaction{}
+	for rows.Next() {
+		var i Transaction
+		if err := rows.Scan(
+			&i.ID,
+			&i.CompanyID,
+			&i.SessionID,
+			&i.SourceType,
+			&i.SourceFileID,
+			&i.RowIndex,
+			&i.Date,
+			&i.Description,
+			&i.Amount,
+			&i.VatAmount,
+			&i.VatType,
+			&i.Category,
+			&i.Tin,
+			&i.Confidence,
+			&i.ClassificationSource,
+			&i.RawData,
+			&i.MatchGroupID,
+			&i.MatchStatus,
+			&i.EwtRate,
+			&i.EwtAmount,
+			&i.AtcCode,
+			&i.SupplierID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTransactionsByCompany = `-- name: ListTransactionsByCompany :many
 SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at FROM transactions
 WHERE company_id = $1
@@ -287,6 +397,86 @@ func (q *Queries) ListTransactionsBySession(ctx context.Context, arg ListTransac
 	return items, nil
 }
 
+const listTransactionsBySessionFiltered = `-- name: ListTransactionsBySessionFiltered :many
+SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at FROM transactions
+WHERE session_id = $1
+  AND ($4::varchar = '' OR vat_type = $4)
+  AND ($5::varchar = '' OR category = $5)
+  AND ($6::varchar = '' OR source_type = $6)
+  AND ($7::varchar = '' OR match_status = $7)
+  AND ($8::numeric IS NULL OR confidence >= $8)
+  AND ($9::text = '' OR description ILIKE '%' || $9 || '%')
+ORDER BY row_index
+LIMIT $2 OFFSET $3
+`
+
+type ListTransactionsBySessionFilteredParams struct {
+	SessionID uuid.UUID      `json:"session_id"`
+	Limit     int32          `json:"limit"`
+	Offset    int32          `json:"offset"`
+	Column4   string         `json:"column_4"`
+	Column5   string         `json:"column_5"`
+	Column6   string         `json:"column_6"`
+	Column7   string         `json:"column_7"`
+	Column8   pgtype.Numeric `json:"column_8"`
+	Column9   string         `json:"column_9"`
+}
+
+func (q *Queries) ListTransactionsBySessionFiltered(ctx context.Context, arg ListTransactionsBySessionFilteredParams) ([]Transaction, error) {
+	rows, err := q.db.Query(ctx, listTransactionsBySessionFiltered,
+		arg.SessionID,
+		arg.Limit,
+		arg.Offset,
+		arg.Column4,
+		arg.Column5,
+		arg.Column6,
+		arg.Column7,
+		arg.Column8,
+		arg.Column9,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Transaction{}
+	for rows.Next() {
+		var i Transaction
+		if err := rows.Scan(
+			&i.ID,
+			&i.CompanyID,
+			&i.SessionID,
+			&i.SourceType,
+			&i.SourceFileID,
+			&i.RowIndex,
+			&i.Date,
+			&i.Description,
+			&i.Amount,
+			&i.VatAmount,
+			&i.VatType,
+			&i.Category,
+			&i.Tin,
+			&i.Confidence,
+			&i.ClassificationSource,
+			&i.RawData,
+			&i.MatchGroupID,
+			&i.MatchStatus,
+			&i.EwtRate,
+			&i.EwtAmount,
+			&i.AtcCode,
+			&i.SupplierID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateTransaction = `-- name: UpdateTransaction :exec
 UPDATE transactions SET
     vat_type = COALESCE($2, vat_type),
@@ -331,5 +521,22 @@ func (q *Queries) UpdateTransaction(ctx context.Context, arg UpdateTransactionPa
 		arg.AtcCode,
 		arg.SupplierID,
 	)
+	return err
+}
+
+const updateTransactionMatch = `-- name: UpdateTransactionMatch :exec
+UPDATE transactions SET
+    match_group_id = $2, match_status = $3, updated_at = NOW()
+WHERE id = $1
+`
+
+type UpdateTransactionMatchParams struct {
+	ID           uuid.UUID   `json:"id"`
+	MatchGroupID pgtype.UUID `json:"match_group_id"`
+	MatchStatus  string      `json:"match_status"`
+}
+
+func (q *Queries) UpdateTransactionMatch(ctx context.Context, arg UpdateTransactionMatchParams) error {
+	_, err := q.db.Exec(ctx, updateTransactionMatch, arg.ID, arg.MatchGroupID, arg.MatchStatus)
 	return err
 }

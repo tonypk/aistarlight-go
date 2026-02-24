@@ -90,34 +90,31 @@ func (h *ChatHandler) Stream(c *gin.Context) {
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no")
 
-	// Stream tokens
+	// Stream tokens and accumulate full content
+	var fullContent string
 	c.Stream(func(w io.Writer) bool {
 		token, ok := <-tokenCh
 		if !ok {
 			return false
 		}
+		fullContent += token
 		data, _ := json.Marshal(gin.H{"token": token})
 		fmt.Fprintf(w, "data: %s\n\n", data)
 		c.Writer.Flush()
 		return true
 	})
 
-	// Collect full response for persistence
-	// (The channel is already drained by the stream above)
-	// For the final event, send done signal
-	var fullContent string
-	if toolResults != nil {
-		for _, tr := range *toolResults {
-			_ = tr // Tool results already processed
-		}
-	}
-
+	// Send done signal with accumulated content
 	doneData, _ := json.Marshal(gin.H{"done": true, "content": fullContent})
 	fmt.Fprintf(c.Writer, "data: %s\n\n", doneData)
 	c.Writer.Flush()
 
-	// Save assistant response
-	_ = h.svc.SaveMessage(c.Request.Context(), companyID, userID, "assistant", fullContent, nil)
+	// Save assistant response with accumulated content
+	var toolCalls []service.ToolCallResult
+	if toolResults != nil {
+		toolCalls = *toolResults
+	}
+	_ = h.svc.SaveMessage(c.Request.Context(), companyID, userID, "assistant", fullContent, toolCalls)
 }
 
 // History handles GET /api/v1/chat/history.

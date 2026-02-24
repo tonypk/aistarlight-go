@@ -14,3 +14,11 @@ LIMIT $2;
 SELECT * FROM knowledge_chunks
 WHERE category = $1
 ORDER BY created_at DESC;
+
+-- name: CountKnowledgeChunks :one
+SELECT COUNT(*) FROM knowledge_chunks;
+
+-- name: CountKnowledgeChunksByCategory :many
+SELECT COALESCE(category, 'uncategorized') as category, COUNT(*) as count
+FROM knowledge_chunks
+GROUP BY category;

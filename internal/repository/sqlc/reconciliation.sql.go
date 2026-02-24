@@ -67,6 +67,20 @@ func (q *Queries) CreateReconciliationSession(ctx context.Context, arg CreateRec
 	return i, err
 }
 
+const deleteReconciliationSession = `-- name: DeleteReconciliationSession :exec
+DELETE FROM reconciliation_sessions WHERE id = $1 AND company_id = $2
+`
+
+type DeleteReconciliationSessionParams struct {
+	ID        uuid.UUID `json:"id"`
+	CompanyID uuid.UUID `json:"company_id"`
+}
+
+func (q *Queries) DeleteReconciliationSession(ctx context.Context, arg DeleteReconciliationSessionParams) error {
+	_, err := q.db.Exec(ctx, deleteReconciliationSession, arg.ID, arg.CompanyID)
+	return err
+}
+
 const getReconciliationSessionByID = `-- name: GetReconciliationSessionByID :one
 SELECT id, company_id, created_by, period, status, report_id, source_files, summary, reconciliation_result, completed_at, created_at, updated_at FROM reconciliation_sessions WHERE id = $1
 `

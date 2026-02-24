@@ -12,6 +12,37 @@ import (
 	pgvector "github.com/pgvector/pgvector-go"
 )
 
+type Account struct {
+	ID            uuid.UUID   `json:"id"`
+	CompanyID     uuid.UUID   `json:"company_id"`
+	AccountNumber string      `json:"account_number"`
+	Name          string      `json:"name"`
+	AccountType   string      `json:"account_type"`
+	SubType       *string     `json:"sub_type"`
+	ParentID      pgtype.UUID `json:"parent_id"`
+	Description   *string     `json:"description"`
+	IsActive      bool        `json:"is_active"`
+	IsSystem      bool        `json:"is_system"`
+	NormalBalance string      `json:"normal_balance"`
+	QboAccountID  *string     `json:"qbo_account_id"`
+	CreatedAt     time.Time   `json:"created_at"`
+	UpdatedAt     time.Time   `json:"updated_at"`
+}
+
+type AccountingPeriod struct {
+	ID         uuid.UUID          `json:"id"`
+	CompanyID  uuid.UUID          `json:"company_id"`
+	Name       string             `json:"name"`
+	PeriodType string             `json:"period_type"`
+	StartDate  pgtype.Date        `json:"start_date"`
+	EndDate    pgtype.Date        `json:"end_date"`
+	Status     string             `json:"status"`
+	ClosedBy   pgtype.UUID        `json:"closed_by"`
+	ClosedAt   pgtype.Timestamptz `json:"closed_at"`
+	CreatedAt  time.Time          `json:"created_at"`
+	UpdatedAt  time.Time          `json:"updated_at"`
+}
+
 type Anomaly struct {
 	ID             uuid.UUID          `json:"id"`
 	CompanyID      uuid.UUID          `json:"company_id"`
@@ -162,6 +193,37 @@ type FormSchema struct {
 	UpdatedAt        time.Time `json:"updated_at"`
 }
 
+type JournalEntry struct {
+	ID           uuid.UUID          `json:"id"`
+	CompanyID    uuid.UUID          `json:"company_id"`
+	PeriodID     pgtype.UUID        `json:"period_id"`
+	EntryNumber  *int32             `json:"entry_number"`
+	EntryDate    pgtype.Date        `json:"entry_date"`
+	Reference    *string            `json:"reference"`
+	Description  *string            `json:"description"`
+	SourceType   *string            `json:"source_type"`
+	SourceID     pgtype.UUID        `json:"source_id"`
+	Status       string             `json:"status"`
+	PostedBy     pgtype.UUID        `json:"posted_by"`
+	PostedAt     pgtype.Timestamptz `json:"posted_at"`
+	ReversedByID pgtype.UUID        `json:"reversed_by_id"`
+	ReversesID   pgtype.UUID        `json:"reverses_id"`
+	Memo         *string            `json:"memo"`
+	CreatedBy    pgtype.UUID        `json:"created_by"`
+	CreatedAt    time.Time          `json:"created_at"`
+	UpdatedAt    time.Time          `json:"updated_at"`
+}
+
+type JournalLine struct {
+	ID             uuid.UUID      `json:"id"`
+	JournalEntryID uuid.UUID      `json:"journal_entry_id"`
+	AccountID      uuid.UUID      `json:"account_id"`
+	LineNumber     int32          `json:"line_number"`
+	Description    *string        `json:"description"`
+	Debit          pgtype.Numeric `json:"debit"`
+	Credit         pgtype.Numeric `json:"credit"`
+}
+
 type KnowledgeChunk struct {
 	ID        uuid.UUID        `json:"id"`
 	Source    *string          `json:"source"`
@@ -190,6 +252,37 @@ type Organization struct {
 	IsActive     bool      `json:"is_active"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+type QboConnection struct {
+	ID              uuid.UUID          `json:"id"`
+	CompanyID       uuid.UUID          `json:"company_id"`
+	RealmID         string             `json:"realm_id"`
+	AccessTokenEnc  []byte             `json:"access_token_enc"`
+	RefreshTokenEnc []byte             `json:"refresh_token_enc"`
+	TokenExpiry     time.Time          `json:"token_expiry"`
+	RefreshExpiry   time.Time          `json:"refresh_expiry"`
+	Scope           *string            `json:"scope"`
+	IsActive        bool               `json:"is_active"`
+	LastSyncAt      pgtype.Timestamptz `json:"last_sync_at"`
+	LastSyncStatus  *string            `json:"last_sync_status"`
+	CreatedAt       time.Time          `json:"created_at"`
+	UpdatedAt       time.Time          `json:"updated_at"`
+}
+
+type QboSyncLog struct {
+	ID            uuid.UUID          `json:"id"`
+	ConnectionID  uuid.UUID          `json:"connection_id"`
+	CompanyID     uuid.UUID          `json:"company_id"`
+	EntityType    string             `json:"entity_type"`
+	SyncType      string             `json:"sync_type"`
+	SyncDirection string             `json:"sync_direction"`
+	StartedAt     time.Time          `json:"started_at"`
+	CompletedAt   pgtype.Timestamptz `json:"completed_at"`
+	RecordsSynced int32              `json:"records_synced"`
+	RecordsFailed int32              `json:"records_failed"`
+	ErrorDetails  []byte             `json:"error_details"`
+	Status        string             `json:"status"`
 }
 
 type ReceiptBatch struct {

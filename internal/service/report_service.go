@@ -271,6 +271,30 @@ func (s *ReportService) Delete(ctx context.Context, id uuid.UUID) error {
 	return s.q.DeleteReport(ctx, id)
 }
 
+// GenerateFromSession creates a report from a reconciliation session's VAT summary.
+func (s *ReportService) GenerateFromSession(ctx context.Context, sessionID, companyID, userID uuid.UUID, reportType string) (*domain.Report, error) {
+	session, err := s.q.GetReconciliationSessionByID(ctx, sessionID)
+	if err != nil || session.CompanyID != companyID {
+		return nil, fmt.Errorf("session not found")
+	}
+
+	var inputData map[string]interface{}
+	if len(session.Summary) > 0 {
+		_ = json.Unmarshal(session.Summary, &inputData)
+	}
+	if inputData == nil {
+		return nil, fmt.Errorf("no summary available — run reconciliation first")
+	}
+
+	return s.Create(ctx, CreateReportInput{
+		CompanyID:  companyID,
+		ReportType: reportType,
+		Period:     session.Period,
+		InputData:  inputData,
+		CreatedBy:  userID,
+	})
+}
+
 func toReport(r sqlc.Report) *domain.Report {
 	report := &domain.Report{
 		ID:                     r.ID,

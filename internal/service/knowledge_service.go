@@ -120,6 +120,29 @@ func (s *KnowledgeService) AnswerQuestion(ctx context.Context, question string, 
 	return resp.Choices[0].Message.Content, nil
 }
 
+// GetStats returns knowledge base statistics.
+func (s *KnowledgeService) GetStats(ctx context.Context) (map[string]interface{}, error) {
+	total, err := s.q.CountKnowledgeChunks(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	catCounts, err := s.q.CountKnowledgeChunksByCategory(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	categories := make(map[string]int64)
+	for _, cc := range catCounts {
+		categories[cc.Category] = cc.Count
+	}
+
+	return map[string]interface{}{
+		"total_chunks": total,
+		"categories":   categories,
+	}, nil
+}
+
 func derefString(s *string) string {
 	if s == nil {
 		return ""

@@ -15,3 +15,24 @@ WHERE id = $1;
 -- name: ListAnomaliesBySession :many
 SELECT * FROM anomalies WHERE session_id = $1
 ORDER BY created_at;
+
+-- name: DeleteAnomaliesBySession :exec
+DELETE FROM anomalies WHERE session_id = $1;
+
+-- name: ListAnomaliesBySessionFiltered :many
+SELECT * FROM anomalies
+WHERE session_id = $1
+  AND ($4::varchar = '' OR status = $4)
+ORDER BY created_at
+LIMIT $2 OFFSET $3;
+
+-- name: CountAnomaliesBySession :one
+SELECT COUNT(*) FROM anomalies WHERE session_id = $1;
+
+-- name: CountAnomaliesBySessionFiltered :one
+SELECT COUNT(*) FROM anomalies
+WHERE session_id = $1
+  AND ($2::varchar = '' OR status = $2);
+
+-- name: GetAnomalyByID :one
+SELECT * FROM anomalies WHERE id = $1;

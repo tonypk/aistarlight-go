@@ -120,20 +120,84 @@ func parseCSV(content []byte) (*ParsedFile, error) {
 	}, nil
 }
 
-// rowsToSheetData converts raw string rows (first row = headers) to SheetData.
+// detectHeaderRow scans the first N rows and returns the index of the most
+// likely header row.  BIR forms have merged title cells at the top
+// (e.g. "PURCHASE TRANSACTION") followed by metadata rows before the real
+// column headers appear.  The header row is the one with the highest ratio
+// of non-empty, unique cells.
+func detectHeaderRow(rows [][]string) int {
+	const headerScanLimit = 20
+	const minFillRatio = 0.4
+
+	bestRow := 0
+	bestScore := 0.0
+
+	limit := headerScanLimit
+	if limit > len(rows) {
+		limit = len(rows)
+	}
+
+	for i := 0; i < limit; i++ {
+		row := rows[i]
+		if len(row) == 0 {
+			continue
+		}
+
+		// Count the maximum possible columns (widest row in the sheet).
+		totalCols := 0
+		for _, r := range rows {
+			if len(r) > totalCols {
+				totalCols = len(r)
+			}
+		}
+		if totalCols == 0 {
+			continue
+		}
+
+		nonEmpty := 0
+		unique := make(map[string]struct{})
+		for _, cell := range row {
+			v := strings.TrimSpace(cell)
+			if v != "" {
+				nonEmpty++
+				unique[v] = struct{}{}
+			}
+		}
+
+		fillRatio := float64(nonEmpty) / float64(totalCols)
+		uniqueness := float64(len(unique)) / float64(max(nonEmpty, 1))
+		score := fillRatio * uniqueness
+
+		if fillRatio >= minFillRatio && score > bestScore {
+			bestScore = score
+			bestRow = i
+		}
+	}
+
+	return bestRow
+}
+
+// rowsToSheetData converts raw string rows to SheetData with smart header detection.
 func rowsToSheetData(rows [][]string) *SheetData {
 	if len(rows) < 1 {
 		return nil
 	}
 
-	// First row as headers.
-	headers := rows[0]
+	// Detect the real header row (may not be row 0 for BIR forms).
+	headerIdx := detectHeaderRow(rows)
+
+	headers := rows[headerIdx]
 	columns := make([]string, len(headers))
 	for i, h := range headers {
 		columns[i] = strings.TrimSpace(h)
 	}
 
-	dataRows := rows[1:]
+	// Remove empty trailing columns.
+	for len(columns) > 0 && columns[len(columns)-1] == "" {
+		columns = columns[:len(columns)-1]
+	}
+
+	dataRows := rows[headerIdx+1:]
 
 	// Skip fully empty data.
 	var nonEmptyCount int

@@ -1,6 +1,10 @@
 package handler
 
 import (
+	"encoding/csv"
+	"fmt"
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
@@ -12,12 +16,13 @@ import (
 
 // WithholdingHandler handles EWT endpoints.
 type WithholdingHandler struct {
-	svc *service.WithholdingService
+	svc      *service.WithholdingService
+	supplier *service.SupplierService
 }
 
 // NewWithholdingHandler creates a withholding handler.
-func NewWithholdingHandler(svc *service.WithholdingService) *WithholdingHandler {
-	return &WithholdingHandler{svc: svc}
+func NewWithholdingHandler(svc *service.WithholdingService, supplier *service.SupplierService) *WithholdingHandler {
+	return &WithholdingHandler{svc: svc, supplier: supplier}
 }
 
 type classifyEWTRequest struct {
@@ -149,37 +154,261 @@ func (h *WithholdingHandler) EWTSummary(c *gin.Context) {
 	})
 }
 
-// ListSuppliers handles GET /api/v1/withholding/suppliers (stub).
+// ListSuppliers handles GET /api/v1/withholding/suppliers.
 func (h *WithholdingHandler) ListSuppliers(c *gin.Context) {
-	response.Paginated(c, []interface{}{}, 0, 1, 50)
+	companyID := middleware.GetCompanyID(c)
+	p := pagination.Parse(c)
+	search := c.Query("search")
+
+	suppliers, total, err := h.supplier.List(c.Request.Context(), companyID, p.Limit, p.Offset, search)
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	response.Paginated(c, suppliers, int(total), p.Page, p.Limit)
 }
 
-// CreateSupplier handles POST /api/v1/withholding/suppliers (stub).
+// CreateSupplier handles POST /api/v1/withholding/suppliers.
 func (h *WithholdingHandler) CreateSupplier(c *gin.Context) {
-	response.Created(c, gin.H{"message": "supplier feature coming soon"})
+	var req service.CreateSupplierInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	companyID := middleware.GetCompanyID(c)
+
+	supplier, err := h.supplier.Create(c.Request.Context(), companyID, req)
+	if err != nil {
+		if err.Error() == fmt.Sprintf("supplier with TIN %s already exists", req.TIN) {
+			response.Conflict(c, err.Error())
+		} else {
+			response.InternalError(c, err.Error())
+		}
+		return
+	}
+
+	response.Created(c, supplier)
 }
 
-// UpdateSupplier handles PATCH /api/v1/withholding/suppliers/:id (stub).
+// UpdateSupplier handles PATCH /api/v1/withholding/suppliers/:id.
 func (h *WithholdingHandler) UpdateSupplier(c *gin.Context) {
-	response.OK(c, gin.H{"message": "supplier feature coming soon"})
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "invalid supplier id")
+		return
+	}
+
+	var req service.CreateSupplierInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	companyID := middleware.GetCompanyID(c)
+
+	supplier, err := h.supplier.Update(c.Request.Context(), id, companyID, req)
+	if err != nil {
+		response.NotFound(c, err.Error())
+		return
+	}
+
+	response.OK(c, supplier)
 }
 
-// DeleteSupplier handles DELETE /api/v1/withholding/suppliers/:id (stub).
+// DeleteSupplier handles DELETE /api/v1/withholding/suppliers/:id.
 func (h *WithholdingHandler) DeleteSupplier(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "invalid supplier id")
+		return
+	}
+
+	companyID := middleware.GetCompanyID(c)
+
+	if err := h.supplier.Delete(c.Request.Context(), id, companyID); err != nil {
+		response.NotFound(c, err.Error())
+		return
+	}
+
 	response.OK(c, gin.H{"deleted": true})
 }
 
-// DownloadCertificate handles GET /api/v1/withholding/certificates/:id/download (stub).
+// DownloadCertificate handles GET /api/v1/withholding/certificates/:id/download.
 func (h *WithholdingHandler) DownloadCertificate(c *gin.Context) {
-	response.BadRequest(c, "certificate download not yet implemented")
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "invalid certificate id")
+		return
+	}
+
+	cert, err := h.svc.GetCertificate(c.Request.Context(), id)
+	if err != nil {
+		response.NotFound(c, err.Error())
+		return
+	}
+
+	// Get supplier info
+	sup, _ := h.supplier.GetByID(c.Request.Context(), cert.SupplierID)
+
+	// Export as CSV (BIR 2307 PDF can be added later)
+	c.Header("Content-Type", "text/csv")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=BIR2307_%s_%s.csv", cert.Period, cert.Quarter))
+
+	w := csv.NewWriter(c.Writer)
+	_ = w.Write([]string{"Field", "Value"})
+	_ = w.Write([]string{"Certificate ID", cert.ID.String()})
+	_ = w.Write([]string{"Period", cert.Period})
+	_ = w.Write([]string{"Quarter", cert.Quarter})
+	_ = w.Write([]string{"ATC Code", cert.AtcCode})
+	_ = w.Write([]string{"Income Type", cert.IncomeType})
+
+	incAmt := "0.00"
+	if f, err := cert.IncomeAmount.Float64Value(); err == nil {
+		incAmt = fmt.Sprintf("%.2f", f.Float64)
+	}
+	_ = w.Write([]string{"Income Amount", incAmt})
+
+	ewtRate := "0.00"
+	if f, err := cert.EwtRate.Float64Value(); err == nil {
+		ewtRate = fmt.Sprintf("%.2f", f.Float64)
+	}
+	_ = w.Write([]string{"EWT Rate (%)", ewtRate})
+
+	taxWithheld := "0.00"
+	if f, err := cert.TaxWithheld.Float64Value(); err == nil {
+		taxWithheld = fmt.Sprintf("%.2f", f.Float64)
+	}
+	_ = w.Write([]string{"Tax Withheld", taxWithheld})
+	_ = w.Write([]string{"Status", cert.Status})
+
+	if sup != nil {
+		_ = w.Write([]string{"Supplier Name", sup.Name})
+		_ = w.Write([]string{"Supplier TIN", sup.TIN})
+	}
+
+	w.Flush()
+	c.Status(http.StatusOK)
 }
 
-// GetSAWT handles GET /api/v1/withholding/sawt (stub).
+// GetSAWT handles GET /api/v1/withholding/sawt.
 func (h *WithholdingHandler) GetSAWT(c *gin.Context) {
-	response.OK(c, gin.H{"entries": []interface{}{}, "period": c.Query("period")})
+	companyID := middleware.GetCompanyID(c)
+	period := c.Query("period")
+
+	certs, total, err := h.svc.ListCertificates(c.Request.Context(), companyID, 1000, 0)
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	// Filter by period if specified, and aggregate by ATC code
+	type sawtEntry struct {
+		ATCCode      string  `json:"atc_code"`
+		IncomeType   string  `json:"income_type"`
+		TotalIncome  float64 `json:"total_income"`
+		TotalTax     float64 `json:"total_tax"`
+		EWTRate      float64 `json:"ewt_rate"`
+		Certificates int     `json:"certificates"`
+	}
+
+	byATC := make(map[string]*sawtEntry)
+	for _, cert := range certs {
+		if period != "" && cert.Period != period {
+			continue
+		}
+
+		entry, ok := byATC[cert.AtcCode]
+		if !ok {
+			rate := 0.0
+			if f, err := cert.EwtRate.Float64Value(); err == nil {
+				rate = f.Float64
+			}
+			entry = &sawtEntry{
+				ATCCode:    cert.AtcCode,
+				IncomeType: cert.IncomeType,
+				EWTRate:    rate,
+			}
+			byATC[cert.AtcCode] = entry
+		}
+
+		if f, err := cert.IncomeAmount.Float64Value(); err == nil {
+			entry.TotalIncome += f.Float64
+		}
+		if f, err := cert.TaxWithheld.Float64Value(); err == nil {
+			entry.TotalTax += f.Float64
+		}
+		entry.Certificates++
+	}
+
+	entries := make([]sawtEntry, 0, len(byATC))
+	for _, e := range byATC {
+		entries = append(entries, *e)
+	}
+
+	response.OK(c, gin.H{
+		"entries":              entries,
+		"period":               period,
+		"total_certificates":   total,
+		"total_income":         sumField(entries, func(e sawtEntry) float64 { return e.TotalIncome }),
+		"total_tax_withheld":   sumField(entries, func(e sawtEntry) float64 { return e.TotalTax }),
+	})
 }
 
-// DownloadSAWT handles GET /api/v1/withholding/sawt/download (stub).
+// DownloadSAWT handles GET /api/v1/withholding/sawt/download.
 func (h *WithholdingHandler) DownloadSAWT(c *gin.Context) {
-	response.BadRequest(c, "SAWT download not yet implemented")
+	companyID := middleware.GetCompanyID(c)
+	period := c.DefaultQuery("period", "all")
+
+	certs, _, err := h.svc.ListCertificates(c.Request.Context(), companyID, 10000, 0)
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	c.Header("Content-Type", "text/csv")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=SAWT_%s.csv", period))
+
+	w := csv.NewWriter(c.Writer)
+	_ = w.Write([]string{"Supplier TIN", "Supplier Name", "ATC Code", "Income Type", "Income Amount", "EWT Rate (%)", "Tax Withheld", "Period", "Quarter"})
+
+	for _, cert := range certs {
+		if period != "all" && cert.Period != period {
+			continue
+		}
+
+		supName := ""
+		supTIN := ""
+		if sup, err := h.supplier.GetByID(c.Request.Context(), cert.SupplierID); err == nil {
+			supName = sup.Name
+			supTIN = sup.TIN
+		}
+
+		incAmt := "0.00"
+		if f, err := cert.IncomeAmount.Float64Value(); err == nil {
+			incAmt = fmt.Sprintf("%.2f", f.Float64)
+		}
+		ewtRate := "0.00"
+		if f, err := cert.EwtRate.Float64Value(); err == nil {
+			ewtRate = fmt.Sprintf("%.2f", f.Float64)
+		}
+		taxWithheld := "0.00"
+		if f, err := cert.TaxWithheld.Float64Value(); err == nil {
+			taxWithheld = fmt.Sprintf("%.2f", f.Float64)
+		}
+
+		_ = w.Write([]string{supTIN, supName, cert.AtcCode, cert.IncomeType, incAmt, ewtRate, taxWithheld, cert.Period, cert.Quarter})
+	}
+
+	w.Flush()
+	c.Status(http.StatusOK)
+}
+
+func sumField[T any](items []T, fn func(T) float64) float64 {
+	var total float64
+	for _, item := range items {
+		total += fn(item)
+	}
+	return total
 }

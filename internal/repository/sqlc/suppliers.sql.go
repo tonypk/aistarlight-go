@@ -70,6 +70,20 @@ func (q *Queries) CreateSupplier(ctx context.Context, arg CreateSupplierParams) 
 	return i, err
 }
 
+const deleteSupplier = `-- name: DeleteSupplier :exec
+DELETE FROM suppliers WHERE id = $1 AND company_id = $2
+`
+
+type DeleteSupplierParams struct {
+	ID        uuid.UUID `json:"id"`
+	CompanyID uuid.UUID `json:"company_id"`
+}
+
+func (q *Queries) DeleteSupplier(ctx context.Context, arg DeleteSupplierParams) error {
+	_, err := q.db.Exec(ctx, deleteSupplier, arg.ID, arg.CompanyID)
+	return err
+}
+
 const getSupplierByID = `-- name: GetSupplierByID :one
 SELECT id, company_id, tin, name, address, supplier_type, default_ewt_rate, default_atc_code, is_vat_registered, created_at, updated_at FROM suppliers WHERE id = $1
 `
@@ -134,6 +148,57 @@ type ListSuppliersByCompanyParams struct {
 
 func (q *Queries) ListSuppliersByCompany(ctx context.Context, arg ListSuppliersByCompanyParams) ([]Supplier, error) {
 	rows, err := q.db.Query(ctx, listSuppliersByCompany, arg.CompanyID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Supplier{}
+	for rows.Next() {
+		var i Supplier
+		if err := rows.Scan(
+			&i.ID,
+			&i.CompanyID,
+			&i.Tin,
+			&i.Name,
+			&i.Address,
+			&i.SupplierType,
+			&i.DefaultEwtRate,
+			&i.DefaultAtcCode,
+			&i.IsVatRegistered,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const searchSuppliersByCompany = `-- name: SearchSuppliersByCompany :many
+SELECT id, company_id, tin, name, address, supplier_type, default_ewt_rate, default_atc_code, is_vat_registered, created_at, updated_at FROM suppliers
+WHERE company_id = $1
+  AND (name ILIKE '%' || $2 || '%' OR tin ILIKE '%' || $2 || '%')
+ORDER BY name LIMIT $3 OFFSET $4
+`
+
+type SearchSuppliersByCompanyParams struct {
+	CompanyID uuid.UUID `json:"company_id"`
+	Column2   *string   `json:"column_2"`
+	Limit     int32     `json:"limit"`
+	Offset    int32     `json:"offset"`
+}
+
+func (q *Queries) SearchSuppliersByCompany(ctx context.Context, arg SearchSuppliersByCompanyParams) ([]Supplier, error) {
+	rows, err := q.db.Query(ctx, searchSuppliersByCompany,
+		arg.CompanyID,
+		arg.Column2,
+		arg.Limit,
+		arg.Offset,
+	)
 	if err != nil {
 		return nil, err
 	}

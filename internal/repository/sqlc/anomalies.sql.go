@@ -12,6 +12,35 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countAnomaliesBySession = `-- name: CountAnomaliesBySession :one
+SELECT COUNT(*) FROM anomalies WHERE session_id = $1
+`
+
+func (q *Queries) CountAnomaliesBySession(ctx context.Context, sessionID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countAnomaliesBySession, sessionID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countAnomaliesBySessionFiltered = `-- name: CountAnomaliesBySessionFiltered :one
+SELECT COUNT(*) FROM anomalies
+WHERE session_id = $1
+  AND ($2::varchar = '' OR status = $2)
+`
+
+type CountAnomaliesBySessionFilteredParams struct {
+	SessionID uuid.UUID `json:"session_id"`
+	Column2   string    `json:"column_2"`
+}
+
+func (q *Queries) CountAnomaliesBySessionFiltered(ctx context.Context, arg CountAnomaliesBySessionFilteredParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countAnomaliesBySessionFiltered, arg.SessionID, arg.Column2)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createAnomaly = `-- name: CreateAnomaly :one
 INSERT INTO anomalies (id, company_id, session_id, transaction_id, anomaly_type, severity, description, details, status, created_at, updated_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
@@ -62,6 +91,41 @@ func (q *Queries) CreateAnomaly(ctx context.Context, arg CreateAnomalyParams) (A
 	return i, err
 }
 
+const deleteAnomaliesBySession = `-- name: DeleteAnomaliesBySession :exec
+DELETE FROM anomalies WHERE session_id = $1
+`
+
+func (q *Queries) DeleteAnomaliesBySession(ctx context.Context, sessionID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteAnomaliesBySession, sessionID)
+	return err
+}
+
+const getAnomalyByID = `-- name: GetAnomalyByID :one
+SELECT id, company_id, session_id, transaction_id, anomaly_type, severity, description, details, status, resolved_by, resolved_at, resolution_note, created_at, updated_at FROM anomalies WHERE id = $1
+`
+
+func (q *Queries) GetAnomalyByID(ctx context.Context, id uuid.UUID) (Anomaly, error) {
+	row := q.db.QueryRow(ctx, getAnomalyByID, id)
+	var i Anomaly
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.SessionID,
+		&i.TransactionID,
+		&i.AnomalyType,
+		&i.Severity,
+		&i.Description,
+		&i.Details,
+		&i.Status,
+		&i.ResolvedBy,
+		&i.ResolvedAt,
+		&i.ResolutionNote,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const listAnomaliesBySession = `-- name: ListAnomaliesBySession :many
 SELECT id, company_id, session_id, transaction_id, anomaly_type, severity, description, details, status, resolved_by, resolved_at, resolution_note, created_at, updated_at FROM anomalies WHERE session_id = $1
 ORDER BY created_at
@@ -69,6 +133,61 @@ ORDER BY created_at
 
 func (q *Queries) ListAnomaliesBySession(ctx context.Context, sessionID uuid.UUID) ([]Anomaly, error) {
 	rows, err := q.db.Query(ctx, listAnomaliesBySession, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Anomaly{}
+	for rows.Next() {
+		var i Anomaly
+		if err := rows.Scan(
+			&i.ID,
+			&i.CompanyID,
+			&i.SessionID,
+			&i.TransactionID,
+			&i.AnomalyType,
+			&i.Severity,
+			&i.Description,
+			&i.Details,
+			&i.Status,
+			&i.ResolvedBy,
+			&i.ResolvedAt,
+			&i.ResolutionNote,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAnomaliesBySessionFiltered = `-- name: ListAnomaliesBySessionFiltered :many
+SELECT id, company_id, session_id, transaction_id, anomaly_type, severity, description, details, status, resolved_by, resolved_at, resolution_note, created_at, updated_at FROM anomalies
+WHERE session_id = $1
+  AND ($4::varchar = '' OR status = $4)
+ORDER BY created_at
+LIMIT $2 OFFSET $3
+`
+
+type ListAnomaliesBySessionFilteredParams struct {
+	SessionID uuid.UUID `json:"session_id"`
+	Limit     int32     `json:"limit"`
+	Offset    int32     `json:"offset"`
+	Column4   string    `json:"column_4"`
+}
+
+func (q *Queries) ListAnomaliesBySessionFiltered(ctx context.Context, arg ListAnomaliesBySessionFilteredParams) ([]Anomaly, error) {
+	rows, err := q.db.Query(ctx, listAnomaliesBySessionFiltered,
+		arg.SessionID,
+		arg.Limit,
+		arg.Offset,
+		arg.Column4,
+	)
 	if err != nil {
 		return nil, err
 	}

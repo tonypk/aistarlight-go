@@ -172,6 +172,29 @@ func (h *CorrectionHandler) ListRules(c *gin.Context) {
 
 // UpdateRule handles PATCH /api/v1/corrections/rules/:ruleId.
 func (h *CorrectionHandler) UpdateRule(c *gin.Context) {
-	// Stub: update a correction rule's active status
-	response.OK(c, gin.H{"message": "rule updated"})
+	ruleID, err := uuid.Parse(c.Param("ruleId"))
+	if err != nil {
+		response.BadRequest(c, "invalid rule id")
+		return
+	}
+
+	var req struct {
+		IsActive *bool `json:"is_active"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	isActive := true
+	if req.IsActive != nil {
+		isActive = *req.IsActive
+	}
+
+	if err := h.analyzer.UpdateRule(c.Request.Context(), ruleID, isActive); err != nil {
+		response.NotFound(c, err.Error())
+		return
+	}
+
+	response.OK(c, gin.H{"updated": true})
 }

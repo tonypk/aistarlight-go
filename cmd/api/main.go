@@ -126,10 +126,12 @@ type services struct {
 	ColMapper   *service.ColumnMapperService
 	Knowledge   *service.KnowledgeService
 	Augmenter   *service.PromptAugmenter
+	Session     *service.SessionService
 	BankRecon   *service.BankReconService
 	Compliance  *service.ComplianceService
 	Corrections *service.CorrectionService
 	Analyzer    *service.CorrectionAnalyzer
+	Supplier    *service.SupplierService
 	Withholding *service.WithholdingService
 	Dashboard   *service.DashboardService
 	Receipt     *service.ReceiptService
@@ -162,13 +164,16 @@ func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxp
 		}
 	}
 
+	classifierSvc := service.NewClassifierService(ai, q)
+
 	return services{
 		Auth:        service.NewAuthService(q, cfg.JWT),
 		Org:         service.NewOrgService(q),
 		Company:     service.NewCompanyService(q),
 		Report:      service.NewReportService(q),
 		Chat:        service.NewChatService(ai, q, knowledge),
-		Classifier:  service.NewClassifierService(ai, q),
+		Session:     service.NewSessionService(q, classifierSvc),
+		Classifier:  classifierSvc,
 		ColMapper:   service.NewColumnMapperService(ai),
 		Knowledge:   knowledge,
 		Augmenter:   service.NewPromptAugmenter(q),
@@ -176,6 +181,7 @@ func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxp
 		Compliance:  service.NewComplianceService(q, knowledge),
 		Corrections: service.NewCorrectionService(q),
 		Analyzer:    service.NewCorrectionAnalyzer(q),
+		Supplier:    service.NewSupplierService(q),
 		Withholding: service.NewWithholdingService(q),
 		Dashboard:   service.NewDashboardService(q),
 		Receipt:     service.NewReceiptService(q, ocrclient.NewClient(cfg.OCR.ServiceURL)),
@@ -197,6 +203,7 @@ type handlers struct {
 	Report         *handler.ReportHandler
 	Chat           *handler.ChatHandler
 	Reconciliation *handler.ReconciliationHandler
+	Session        *handler.SessionHandler
 	Compliance     *handler.ComplianceHandler
 	Correction     *handler.CorrectionHandler
 	Withholding    *handler.WithholdingHandler
@@ -213,6 +220,7 @@ type handlers struct {
 	Period         *handler.AccountingPeriodHandler
 	GL             *handler.GLHandler
 	QBO            *handler.QBOHandler
+	Settings       *handler.SettingsHandler
 }
 
 func newHandlers(svc services, cfg *config.Config) handlers {
@@ -223,9 +231,10 @@ func newHandlers(svc services, cfg *config.Config) handlers {
 		Report:         handler.NewReportHandler(svc.Report, svc.Company),
 		Chat:           handler.NewChatHandler(svc.Chat),
 		Reconciliation: handler.NewReconciliationHandler(svc.BankRecon),
+		Session:        handler.NewSessionHandler(svc.Session, svc.Report),
 		Compliance:     handler.NewComplianceHandler(svc.Compliance),
 		Correction:     handler.NewCorrectionHandler(svc.Corrections, svc.Analyzer),
-		Withholding:    handler.NewWithholdingHandler(svc.Withholding),
+		Withholding:    handler.NewWithholdingHandler(svc.Withholding, svc.Supplier),
 		Dashboard:      handler.NewDashboardHandler(svc.Dashboard),
 		Receipt:        handler.NewReceiptHandler(svc.Receipt, cfg),
 		Audit:          handler.NewAuditHandler(svc.Audit),
@@ -239,6 +248,7 @@ func newHandlers(svc services, cfg *config.Config) handlers {
 		Period:         handler.NewAccountingPeriodHandler(svc.Period),
 		GL:             handler.NewGLHandler(svc.GL),
 		QBO:            handler.NewQBOHandler(svc.QBO, svc.Account),
+		Settings:       handler.NewSettingsHandler(svc.Company),
 	}
 }
 
@@ -265,6 +275,7 @@ func newGinEngine(cfg *config.Config, rdb *redis.Client, svc services, h handler
 		Report:         h.Report,
 		Chat:           h.Chat,
 		Reconciliation: h.Reconciliation,
+		Session:        h.Session,
 		Compliance:     h.Compliance,
 		Correction:     h.Correction,
 		Withholding:    h.Withholding,
@@ -281,6 +292,7 @@ func newGinEngine(cfg *config.Config, rdb *redis.Client, svc services, h handler
 		Period:         h.Period,
 		GL:             h.GL,
 		QBO:            h.QBO,
+		Settings:       h.Settings,
 		AuthSvc:        svc.Auth,
 		OrgSvc:         svc.Org,
 		CompanySvc:     svc.Company,

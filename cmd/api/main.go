@@ -16,9 +16,14 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/tonypk/aistarlight-go/internal/config"
+	"github.com/tonypk/aistarlight-go/internal/handler"
 	"github.com/tonypk/aistarlight-go/internal/handler/middleware"
+	ocrclient "github.com/tonypk/aistarlight-go/internal/platform/ocr"
+	oai "github.com/tonypk/aistarlight-go/internal/platform/openai"
 	pg "github.com/tonypk/aistarlight-go/internal/platform/postgres"
 	rd "github.com/tonypk/aistarlight-go/internal/platform/redis"
+	"github.com/tonypk/aistarlight-go/internal/repository/sqlc"
+	"github.com/tonypk/aistarlight-go/internal/service"
 )
 
 func main() {
@@ -28,7 +33,11 @@ func main() {
 			newLogger,
 			newPostgres,
 			newRedis,
-			newRouter,
+			newQueries,
+			newOpenAI,
+			newServices,
+			newHandlers,
+			newGinEngine,
 		),
 		fx.Invoke(startServer),
 	)
@@ -37,7 +46,7 @@ func main() {
 }
 
 func newLogger(cfg *config.Config) *slog.Logger {
-	var handler slog.Handler
+	var h slog.Handler
 	opts := &slog.HandlerOptions{}
 
 	switch cfg.Log.Level {
@@ -52,12 +61,12 @@ func newLogger(cfg *config.Config) *slog.Logger {
 	}
 
 	if cfg.Log.Format == "json" {
-		handler = slog.NewJSONHandler(os.Stdout, opts)
+		h = slog.NewJSONHandler(os.Stdout, opts)
 	} else {
-		handler = slog.NewTextHandler(os.Stdout, opts)
+		h = slog.NewTextHandler(os.Stdout, opts)
 	}
 
-	logger := slog.New(handler)
+	logger := slog.New(h)
 	slog.SetDefault(logger)
 	return logger
 }
@@ -93,7 +102,105 @@ func newRedis(lc fx.Lifecycle, cfg *config.Config) (*redis.Client, error) {
 	return client, nil
 }
 
-func newRouter(cfg *config.Config, rdb *redis.Client) *gin.Engine {
+func newQueries(pool *pgxpool.Pool) *sqlc.Queries {
+	return sqlc.New(pool)
+}
+
+func newOpenAI(cfg *config.Config) *oai.Client {
+	if cfg.OpenAI.APIKey == "" {
+		slog.Warn("OPENAI_API_KEY not set, AI features disabled")
+		return nil
+	}
+	return oai.New(cfg.OpenAI)
+}
+
+type services struct {
+	Auth        *service.AuthService
+	Org         *service.OrgService
+	Company     *service.CompanyService
+	Report      *service.ReportService
+	Chat        *service.ChatService
+	Classifier  *service.ClassifierService
+	ColMapper   *service.ColumnMapperService
+	Knowledge   *service.KnowledgeService
+	Augmenter   *service.PromptAugmenter
+	BankRecon   *service.BankReconService
+	Compliance  *service.ComplianceService
+	Corrections *service.CorrectionService
+	Analyzer    *service.CorrectionAnalyzer
+	Withholding *service.WithholdingService
+	Dashboard   *service.DashboardService
+	Receipt     *service.ReceiptService
+	Audit       *service.AuditService
+	Memory      *service.MemoryService
+	Task        *service.TaskService
+}
+
+func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client) services {
+	knowledge := service.NewKnowledgeService(ai, q)
+	matchAnalyzer := service.NewMatchAnalyzer(ai)
+	return services{
+		Auth:        service.NewAuthService(q, cfg.JWT),
+		Org:         service.NewOrgService(q),
+		Company:     service.NewCompanyService(q),
+		Report:      service.NewReportService(q),
+		Chat:        service.NewChatService(ai, q, knowledge),
+		Classifier:  service.NewClassifierService(ai, q),
+		ColMapper:   service.NewColumnMapperService(ai),
+		Knowledge:   knowledge,
+		Augmenter:   service.NewPromptAugmenter(q),
+		BankRecon:   service.NewBankReconService(q, matchAnalyzer),
+		Compliance:  service.NewComplianceService(q, knowledge),
+		Corrections: service.NewCorrectionService(q),
+		Analyzer:    service.NewCorrectionAnalyzer(q),
+		Withholding: service.NewWithholdingService(q),
+		Dashboard:   service.NewDashboardService(q),
+		Receipt:     service.NewReceiptService(q, ocrclient.NewClient(cfg.OCR.ServiceURL)),
+		Audit:       service.NewAuditService(q),
+		Memory:      service.NewMemoryService(q),
+		Task:        service.NewTaskService(q, cfg.Redis.URL),
+	}
+}
+
+type handlers struct {
+	Auth           *handler.AuthHandler
+	Org            *handler.OrgHandler
+	Company        *handler.CompanyHandler
+	Report         *handler.ReportHandler
+	Chat           *handler.ChatHandler
+	Reconciliation *handler.ReconciliationHandler
+	Compliance     *handler.ComplianceHandler
+	Correction     *handler.CorrectionHandler
+	Withholding    *handler.WithholdingHandler
+	Dashboard      *handler.DashboardHandler
+	Receipt        *handler.ReceiptHandler
+	Audit          *handler.AuditHandler
+	Memory         *handler.MemoryHandler
+	Task           *handler.TaskHandler
+	Data           *handler.DataHandler
+}
+
+func newHandlers(svc services, cfg *config.Config) handlers {
+	return handlers{
+		Auth:           handler.NewAuthHandler(svc.Auth, svc.Company),
+		Org:            handler.NewOrgHandler(svc.Org),
+		Company:        handler.NewCompanyHandler(svc.Company),
+		Report:         handler.NewReportHandler(svc.Report, svc.Company),
+		Chat:           handler.NewChatHandler(svc.Chat),
+		Reconciliation: handler.NewReconciliationHandler(svc.BankRecon),
+		Compliance:     handler.NewComplianceHandler(svc.Compliance),
+		Correction:     handler.NewCorrectionHandler(svc.Corrections, svc.Analyzer),
+		Withholding:    handler.NewWithholdingHandler(svc.Withholding),
+		Dashboard:      handler.NewDashboardHandler(svc.Dashboard),
+		Receipt:        handler.NewReceiptHandler(svc.Receipt, cfg),
+		Audit:          handler.NewAuditHandler(svc.Audit),
+		Memory:         handler.NewMemoryHandler(svc.Memory),
+		Task:           handler.NewTaskHandler(svc.Task),
+		Data:           handler.NewDataHandler(svc.ColMapper, cfg),
+	}
+}
+
+func newGinEngine(cfg *config.Config, rdb *redis.Client, svc services, h handlers) *gin.Engine {
 	gin.SetMode(cfg.Server.Mode)
 
 	r := gin.New()
@@ -108,20 +215,42 @@ func newRouter(cfg *config.Config, rdb *redis.Client) *gin.Engine {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
-	// API v1 group
-	// TODO: Register handlers as they are implemented
-	_ = r.Group("/api/v1")
+	// Wire up all routes
+	rt := &handler.Router{
+		Auth:       h.Auth,
+		Org:        h.Org,
+		Company:    h.Company,
+		Report:         h.Report,
+		Chat:           h.Chat,
+		Reconciliation: h.Reconciliation,
+		Compliance:     h.Compliance,
+		Correction:     h.Correction,
+		Withholding:    h.Withholding,
+		Dashboard:      h.Dashboard,
+		Receipt:        h.Receipt,
+		Audit:          h.Audit,
+		Memory:         h.Memory,
+		Task:           h.Task,
+		Data:           h.Data,
+		AuthSvc:        svc.Auth,
+		OrgSvc:     svc.Org,
+		CompanySvc: svc.Company,
+		Config:     cfg,
+		Redis:      rdb,
+	}
+	rt.Setup(r)
 
 	return r
 }
 
 func startServer(lc fx.Lifecycle, cfg *config.Config, r *gin.Engine) {
 	srv := &http.Server{
-		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
-		Handler:      r,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 60 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		Addr:              fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
+		Handler:           r,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       120 * time.Second,
+		WriteTimeout:      120 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	lc.Append(fx.Hook{
@@ -134,7 +263,6 @@ func startServer(lc fx.Lifecycle, cfg *config.Config, r *gin.Engine) {
 				}
 			}()
 
-			// Graceful shutdown on signal
 			go func() {
 				quit := make(chan os.Signal, 1)
 				signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)

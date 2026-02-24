@@ -11,10 +11,11 @@ import (
 
 // Server wraps asynq.Server with task handler dependencies.
 type Server struct {
-	srv  *asynq.Server
-	mux  *asynq.ServeMux
-	q    *sqlc.Queries
-	svc  *Services
+	srv       *asynq.Server
+	mux       *asynq.ServeMux
+	q         *sqlc.Queries
+	svc       *Services
+	uploadDir string
 }
 
 // Services holds all service dependencies for task handlers.
@@ -27,7 +28,7 @@ type Services struct {
 }
 
 // NewServer creates an asynq worker server.
-func NewServer(redisAddr string, q *sqlc.Queries, svc *Services) *Server {
+func NewServer(redisAddr string, q *sqlc.Queries, svc *Services, uploadDir string) *Server {
 	srv := asynq.NewServer(
 		asynq.RedisClientOpt{Addr: redisAddr},
 		asynq.Config{
@@ -48,10 +49,11 @@ func NewServer(redisAddr string, q *sqlc.Queries, svc *Services) *Server {
 	)
 
 	s := &Server{
-		srv: srv,
-		mux: asynq.NewServeMux(),
-		q:   q,
-		svc: svc,
+		srv:       srv,
+		mux:       asynq.NewServeMux(),
+		q:         q,
+		svc:       svc,
+		uploadDir: uploadDir,
 	}
 
 	s.registerHandlers()

@@ -26,20 +26,19 @@ var editableStatuses = map[ReportStatus]bool{
 	StatusRejected: true,
 }
 
-func IsValidTransition(from, to string) bool {
-	allowed, ok := validTransitions[ReportStatus(from)]
+func IsValidTransition(from, to ReportStatus) bool {
+	allowed, ok := validTransitions[from]
 	if !ok {
 		return false
 	}
-	target := ReportStatus(to)
 	for _, s := range allowed {
-		if s == target {
+		if s == to {
 			return true
 		}
 	}
 	return false
 }
 
-func IsEditable(status string) bool {
-	return editableStatuses[ReportStatus(status)]
+func IsEditable(status ReportStatus) bool {
+	return editableStatuses[status]
 }

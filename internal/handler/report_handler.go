@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -13,11 +15,12 @@ import (
 )
 
 type ReportHandler struct {
-	svc *service.ReportService
+	svc        *service.ReportService
+	companySvc *service.CompanyService
 }
 
-func NewReportHandler(svc *service.ReportService) *ReportHandler {
-	return &ReportHandler{svc: svc}
+func NewReportHandler(svc *service.ReportService, companySvc *service.CompanyService) *ReportHandler {
+	return &ReportHandler{svc: svc, companySvc: companySvc}
 }
 
 type createReportRequest struct {
@@ -248,4 +251,95 @@ func (h *ReportHandler) Calculate(c *gin.Context) {
 	}
 
 	response.OK(c, result)
+}
+
+// DownloadPDF handles GET /api/v1/reports/:id/pdf
+func (h *ReportHandler) DownloadPDF(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "invalid report ID")
+		return
+	}
+
+	report, err := h.svc.GetByID(c.Request.Context(), id)
+	if err != nil {
+		response.NotFound(c, err.Error())
+		return
+	}
+
+	companyID := middleware.GetCompanyID(c)
+	if report.CompanyID != companyID {
+		response.Forbidden(c, "no access to this report")
+		return
+	}
+
+	// Parse calculated data for PDF generation.
+	var calcData map[string]string
+	if err := json.Unmarshal(report.CalculatedData, &calcData); err != nil {
+		response.InternalError(c, "invalid report data")
+		return
+	}
+	calcData["period"] = report.Period
+
+	// Get company info.
+	company, err := h.companySvc.GetByID(c.Request.Context(), companyID)
+	if err != nil {
+		response.InternalError(c, "company not found")
+		return
+	}
+
+	companyInfo := service.CompanyInfo{
+		CompanyName: company.CompanyName,
+	}
+	if company.TINNumber != nil {
+		companyInfo.TINNumber = *company.TINNumber
+	}
+	if company.RDOCode != nil {
+		companyInfo.RDOCode = *company.RDOCode
+	}
+
+	filename := fmt.Sprintf("%s_%s.pdf", report.ReportType, report.Period)
+	c.Header("Content-Type", "application/pdf")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+
+	if err := service.GeneratePDFReport(c.Writer, report.ReportType, calcData, companyInfo); err != nil {
+		response.InternalError(c, "PDF generation failed")
+		return
+	}
+}
+
+// DownloadCSV handles GET /api/v1/reports/:id/csv
+func (h *ReportHandler) DownloadCSV(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "invalid report ID")
+		return
+	}
+
+	report, err := h.svc.GetByID(c.Request.Context(), id)
+	if err != nil {
+		response.NotFound(c, err.Error())
+		return
+	}
+
+	companyID := middleware.GetCompanyID(c)
+	if report.CompanyID != companyID {
+		response.Forbidden(c, "no access to this report")
+		return
+	}
+
+	var calcData map[string]string
+	if err := json.Unmarshal(report.CalculatedData, &calcData); err != nil {
+		response.InternalError(c, "invalid report data")
+		return
+	}
+
+	filename := fmt.Sprintf("%s_%s.csv", report.ReportType, report.Period)
+	c.Header("Content-Type", "text/csv")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+
+	if err := service.GenerateCSVExport(c.Writer, calcData); err != nil {
+		response.InternalError(c, "CSV generation failed")
+		return
+	}
 }

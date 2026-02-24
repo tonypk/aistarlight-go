@@ -7,16 +7,17 @@ import (
 )
 
 type Config struct {
-	Server   ServerConfig
-	Database DatabaseConfig
-	Redis    RedisConfig
-	JWT      JWTConfig
-	OpenAI   OpenAIConfig
-	GCS      GCSConfig
-	OCR      OCRConfig
-	CORS     CORSConfig
-	Rate     RateConfig
-	Log      LogConfig
+	Server    ServerConfig
+	Database  DatabaseConfig
+	Redis     RedisConfig
+	JWT       JWTConfig
+	OpenAI    OpenAIConfig
+	GCS       GCSConfig
+	OCR       OCRConfig
+	CORS      CORSConfig
+	Rate      RateConfig
+	Log       LogConfig
+	UploadDir string
 }
 
 type ServerConfig struct {
@@ -43,8 +44,9 @@ type JWTConfig struct {
 }
 
 type OpenAIConfig struct {
-	APIKey string
-	Model  string
+	APIKey         string
+	Model          string
+	EmbeddingModel string
 }
 
 type GCSConfig struct {
@@ -86,13 +88,15 @@ func Load() (*Config, error) {
 	v.SetDefault("DATABASE_MAX_LIFETIME", "1h")
 	v.SetDefault("JWT_EXPIRY_HOURS", 24)
 	v.SetDefault("JWT_REFRESH_EXPIRY_HOURS", 168)
-	v.SetDefault("OPENAI_MODEL", "gpt-4o-mini")
+	v.SetDefault("OPENAI_MODEL", "gpt-4.1-mini")
+	v.SetDefault("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
 	v.SetDefault("OCR_SERVICE_URL", "http://localhost:8010")
 	v.SetDefault("CORS_ORIGINS", "http://localhost:5173")
 	v.SetDefault("RATE_LIMIT_RPS", 10)
 	v.SetDefault("RATE_LIMIT_BURST", 20)
 	v.SetDefault("LOG_LEVEL", "info")
 	v.SetDefault("LOG_FORMAT", "text")
+	v.SetDefault("UPLOAD_DIR", "/tmp/aistarlight-uploads")
 
 	// Try reading .env, ignore if not found
 	_ = v.ReadInConfig()
@@ -123,8 +127,9 @@ func Load() (*Config, error) {
 			RefreshExpiryHours: v.GetInt("JWT_REFRESH_EXPIRY_HOURS"),
 		},
 		OpenAI: OpenAIConfig{
-			APIKey: v.GetString("OPENAI_API_KEY"),
-			Model:  v.GetString("OPENAI_MODEL"),
+			APIKey:         v.GetString("OPENAI_API_KEY"),
+			Model:          v.GetString("OPENAI_MODEL"),
+			EmbeddingModel: v.GetString("OPENAI_EMBEDDING_MODEL"),
 		},
 		GCS: GCSConfig{
 			Bucket:          v.GetString("GCS_BUCKET"),
@@ -144,6 +149,7 @@ func Load() (*Config, error) {
 			Level:  v.GetString("LOG_LEVEL"),
 			Format: v.GetString("LOG_FORMAT"),
 		},
+		UploadDir: v.GetString("UPLOAD_DIR"),
 	}
 
 	return cfg, nil

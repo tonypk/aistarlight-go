@@ -23,6 +23,7 @@ type Router struct {
 	Audit          *AuditHandler
 	Memory         *MemoryHandler
 	Task           *TaskHandler
+	Data           *DataHandler
 
 	AuthSvc    *service.AuthService
 	OrgSvc     *service.OrgService
@@ -107,6 +108,8 @@ func (rt *Router) Setup(r *gin.Engine) {
 		reportByID := reports.Group("/:id")
 		{
 			reportByID.GET("", rt.Report.Get)
+			reportByID.GET("/pdf", rt.Report.DownloadPDF)
+			reportByID.GET("/csv", rt.Report.DownloadCSV)
 			reportByID.DELETE("", rt.Report.Delete)
 			reportByID.PATCH("/status", rt.Report.UpdateStatus)
 			reportByID.POST("/recalculate", rt.Report.Recalculate)
@@ -182,7 +185,8 @@ func (rt *Router) Setup(r *gin.Engine) {
 	receipts := api.Group("/receipts")
 	receipts.Use(authMw)
 	{
-		receipts.POST("/upload", rt.Receipt.Upload)
+		receipts.POST("/upload", rt.Receipt.Upload)          // multipart + auto-compress
+		receipts.POST("/upload-json", rt.Receipt.UploadJSON) // legacy: pre-saved image paths
 		receipts.GET("/batches", rt.Receipt.List)
 		receipts.GET("/batches/:id", rt.Receipt.Get)
 	}
@@ -201,6 +205,16 @@ func (rt *Router) Setup(r *gin.Engine) {
 	{
 		memory.GET("/preferences/:reportType", rt.Memory.GetPreference)
 		memory.PUT("/preferences/:reportType", rt.Memory.UpsertPreference)
+	}
+
+	// Data upload routes
+	data := api.Group("/data")
+	data.Use(authMw)
+	{
+		data.POST("/upload", rt.Data.Upload)
+		data.POST("/upload-parsed", rt.Data.UploadParsed)
+		data.POST("/preview", rt.Data.Preview)
+		data.POST("/mapping", rt.Data.SuggestMapping)
 	}
 
 	// Async task polling routes

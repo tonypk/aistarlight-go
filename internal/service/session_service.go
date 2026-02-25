@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -314,23 +315,8 @@ func (s *SessionService) AddFile(ctx context.Context, sessionID, companyID uuid.
 			"purchase_domestic_goods", "purchase_importation", "purchase_domestic_services",
 		}
 		amt := firstNonZeroAmount(row, amtKeys...)
-		if i < 3 {
-			// Debug: log row keys and amount extraction for first 3 rows
-			rowKeys := make([]string, 0, len(row))
-			for k := range row {
-				rowKeys = append(rowKeys, k)
-			}
-			slog.Info("AddFile amount debug",
-				"row", i,
-				"amt", amt,
-				"row_keys", rowKeys,
-				"gross_purchase", fmt.Sprintf("%v (type=%T)", row["gross_purchase"], row["gross_purchase"]),
-				"gross_amount", fmt.Sprintf("%v (type=%T)", row["gross_amount"], row["gross_amount"]),
-				"gross_sales", fmt.Sprintf("%v (type=%T)", row["gross_sales"], row["gross_sales"]),
-			)
-		}
 		amountNum := pgtype.Numeric{}
-		_ = amountNum.Scan(fmt.Sprintf("%v", amt))
+		scanNumeric(&amountNum, amt)
 
 		// Extract VAT/tax amount: output_tax for sales, input_tax for purchases, tax_withheld for EWT/ITR
 		vat := firstNonZeroAmount(row,
@@ -342,7 +328,7 @@ func (s *SessionService) AddFile(ctx context.Context, sessionID, companyID uuid.
 			"vat_paid_imports",
 		)
 		vatNum := pgtype.Numeric{}
-		_ = vatNum.Scan(fmt.Sprintf("%v", vat))
+		scanNumeric(&vatNum, vat)
 		confNum := pgtype.Numeric{}
 		_ = confNum.Scan("0")
 
@@ -388,11 +374,11 @@ func (s *SessionService) AddFile(ctx context.Context, sessionID, companyID uuid.
 		// Extract EWT and ATC fields if mapped
 		ewtRateNum := pgtype.Numeric{}
 		if v := parseAmount(row["ewt_rate"]); v != 0 {
-			_ = ewtRateNum.Scan(fmt.Sprintf("%v", v))
+			scanNumeric(&ewtRateNum, v)
 		}
 		ewtAmountNum := pgtype.Numeric{}
 		if v := parseAmount(row["ewt_amount"]); v != 0 {
-			_ = ewtAmountNum.Scan(fmt.Sprintf("%v", v))
+			scanNumeric(&ewtAmountNum, v)
 		}
 		atcCode := toStringPtr(row["atc_code"])
 
@@ -1039,5 +1025,12 @@ func toStringPtr(v interface{}) *string {
 		return nil
 	}
 	return &s
+}
+
+// scanNumeric safely scans a float64 into pgtype.Numeric.
+// Uses strconv.FormatFloat to avoid scientific notation (e.g. 1.43e+07)
+// which pgtype.Numeric.Scan cannot parse.
+func scanNumeric(n *pgtype.Numeric, f float64) {
+	_ = n.Scan(strconv.FormatFloat(f, 'f', -1, 64))
 }
 

@@ -127,7 +127,7 @@ func (s *SupplierService) Create(ctx context.Context, companyID uuid.UUID, input
 	}
 
 	var ewtRate pgtype.Numeric
-	_ = ewtRate.Scan(fmt.Sprintf("%v", input.DefaultEWTRate))
+	scanNumeric(&ewtRate, input.DefaultEWTRate)
 
 	supplier, err := s.q.CreateSupplier(ctx, sqlc.CreateSupplierParams{
 		ID:              uuid.New(),
@@ -178,7 +178,7 @@ func (s *SupplierService) Update(ctx context.Context, id, companyID uuid.UUID, i
 
 	var ewtRate pgtype.Numeric
 	if input.DefaultEWTRate > 0 {
-		_ = ewtRate.Scan(fmt.Sprintf("%v", input.DefaultEWTRate))
+		scanNumeric(&ewtRate, input.DefaultEWTRate)
 	} else {
 		ewtRate = existing.DefaultEwtRate
 	}

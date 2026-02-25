@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -283,6 +284,19 @@ func (s *SessionService) AddFile(ctx context.Context, sessionID, companyID uuid.
 
 	imported := 0
 	for i, row := range input.Rows {
+		// Apply column mappings: translate raw column names to standardized field names
+		if len(input.ColumnMappings) > 0 {
+			mapped := make(map[string]interface{}, len(row))
+			for rawCol, val := range row {
+				if fieldName, ok := input.ColumnMappings[rawCol]; ok {
+					mapped[fieldName] = val
+				} else {
+					mapped[rawCol] = val // preserve unmapped keys (e.g. _source)
+				}
+			}
+			row = mapped
+		}
+
 		sourceType := input.SourceType
 		if st := toString(row["_source"]); st == "sales" {
 			sourceType = "sales_record"
@@ -290,21 +304,57 @@ func (s *SessionService) AddFile(ctx context.Context, sessionID, companyID uuid.
 			sourceType = "purchase_record"
 		}
 
+		// Extract amount from multiple possible mapped field names (fallback chain)
+		amt := parseAmount(row["amount"])
+		if amt == 0 {
+			for _, key := range []string{
+				"gross_amount", "gross_sales", "gross_purchase",
+				"taxable_amount", "taxable_sales", "taxable_purchase",
+				"gross_taxable_sales", "gross_taxable_purchase",
+				"landed_cost", "income_payment",
+			} {
+				if v := parseAmount(row[key]); v != 0 {
+					amt = v
+					break
+				}
+			}
+		}
 		amountNum := pgtype.Numeric{}
-		_ = amountNum.Scan(fmt.Sprintf("%v", parseAmount(row["amount"])))
+		_ = amountNum.Scan(fmt.Sprintf("%v", amt))
+
+		// Extract VAT amount from multiple possible fields
+		vat := parseAmount(row["vat_amount"])
+		if vat == 0 {
+			for _, key := range []string{"output_tax", "input_tax", "vat_paid"} {
+				if v := parseAmount(row[key]); v != 0 {
+					vat = v
+					break
+				}
+			}
+		}
 		vatNum := pgtype.Numeric{}
-		_ = vatNum.Scan(fmt.Sprintf("%v", parseAmount(row["vat_amount"])))
+		_ = vatNum.Scan(fmt.Sprintf("%v", vat))
 		confNum := pgtype.Numeric{}
 		_ = confNum.Scan("0")
 
+		// Extract date from multiple possible mapped field names
 		var txDate pgtype.Date
-		if d := toString(row["date"]); d != "" && len(d) >= 10 {
-			if t, err := time.Parse("2006-01-02", d[:10]); err == nil {
-				txDate = pgtype.Date{Time: t, Valid: true}
+		for _, key := range []string{"date", "taxable_month", "assessment_date", "importation_date", "vat_payment_date"} {
+			if d := toString(row[key]); d != "" {
+				txDate = parseFlexDate(d)
+				if txDate.Valid {
+					break
+				}
 			}
 		}
 
 		desc := toStringPtr(row["description"])
+		if desc == nil {
+			desc = toStringPtr(row["supplier_name"])
+		}
+		if desc == nil {
+			desc = toStringPtr(row["registered_name"])
+		}
 		tin := toStringPtr(row["tin"])
 		rawData, _ := json.Marshal(row)
 
@@ -904,6 +954,42 @@ func txnToMap(t sqlc.Transaction) map[string]interface{} {
 		m["tin"] = *t.Tin
 	}
 	return m
+}
+
+// parseFlexDate tries multiple date formats common in Philippine business documents.
+func parseFlexDate(s string) pgtype.Date {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return pgtype.Date{}
+	}
+	formats := []string{
+		"2006-01-02",   // ISO
+		"01-02-06",     // MM-DD-YY
+		"01/02/06",     // MM/DD/YY
+		"01-02-2006",   // MM-DD-YYYY
+		"01/02/2006",   // MM/DD/YYYY
+		"1/2/2006",     // M/D/YYYY
+		"1/2/06",       // M/D/YY
+		"Jan 2, 2006",  // Mon D, YYYY
+		"2 Jan 2006",   // D Mon YYYY
+		"2006/01/02",   // YYYY/MM/DD
+	}
+	for _, layout := range formats {
+		if t, err := time.Parse(layout, s); err == nil {
+			// Fix 2-digit year: 00-49 → 2000s, 50-99 → 1900s (Go default)
+			if t.Year() < 100 {
+				t = t.AddDate(2000, 0, 0)
+			}
+			return pgtype.Date{Time: t, Valid: true}
+		}
+	}
+	// Try parsing just the first 10 chars for ISO format with trailing time
+	if len(s) >= 10 {
+		if t, err := time.Parse("2006-01-02", s[:10]); err == nil {
+			return pgtype.Date{Time: t, Valid: true}
+		}
+	}
+	return pgtype.Date{}
 }
 
 func toStringPtr(v interface{}) *string {

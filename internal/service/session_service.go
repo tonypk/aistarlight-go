@@ -304,42 +304,33 @@ func (s *SessionService) AddFile(ctx context.Context, sessionID, companyID uuid.
 			sourceType = "purchase_record"
 		}
 
-		// Extract amount from multiple possible mapped field names (fallback chain)
-		amt := parseAmount(row["amount"])
-		if amt == 0 {
-			for _, key := range []string{
-				"gross_amount", "gross_sales", "gross_purchase",
-				"taxable_amount", "taxable_sales", "taxable_purchase",
-				"gross_taxable_sales", "gross_taxable_purchase",
-				"landed_cost", "income_payment",
-			} {
-				if v := parseAmount(row[key]); v != 0 {
-					amt = v
-					break
-				}
-			}
-		}
+		// Extract amount: try BIR-specific fields first, then generic fallbacks
+		amt := firstNonZeroAmount(row,
+			"gross_sales", "vatable_sales", "total_sales", "gross_purchase",
+			"gross_amount", "amount", "landed_cost", "income_payment",
+			"purchase_domestic_goods", "purchase_importation", "purchase_domestic_services",
+		)
 		amountNum := pgtype.Numeric{}
 		_ = amountNum.Scan(fmt.Sprintf("%v", amt))
 
-		// Extract VAT amount from multiple possible fields
-		vat := parseAmount(row["vat_amount"])
-		if vat == 0 {
-			for _, key := range []string{"output_tax", "input_tax", "vat_paid"} {
-				if v := parseAmount(row[key]); v != 0 {
-					vat = v
-					break
-				}
-			}
-		}
+		// Extract VAT amount: output_tax for sales, input_tax for purchases
+		vat := firstNonZeroAmount(row,
+			"output_tax", "input_tax", "vat_amount",
+			"input_tax_capital_goods", "input_tax_domestic_goods",
+			"input_tax_importation", "input_tax_domestic_services",
+			"vat_paid_imports",
+		)
 		vatNum := pgtype.Numeric{}
 		_ = vatNum.Scan(fmt.Sprintf("%v", vat))
 		confNum := pgtype.Numeric{}
 		_ = confNum.Scan("0")
 
-		// Extract date from multiple possible mapped field names
+		// Extract date: BIR fields first, then generic
 		var txDate pgtype.Date
-		for _, key := range []string{"date", "taxable_month", "assessment_date", "importation_date", "vat_payment_date"} {
+		for _, key := range []string{
+			"sales_date", "purchase_date", "date",
+			"taxable_month", "importation_date", "assessment_date",
+		} {
 			if d := toString(row[key]); d != "" {
 				txDate = parseFlexDate(d)
 				if txDate.Valid {
@@ -348,14 +339,18 @@ func (s *SessionService) AddFile(ctx context.Context, sessionID, companyID uuid.
 			}
 		}
 
-		desc := toStringPtr(row["description"])
-		if desc == nil {
-			desc = toStringPtr(row["supplier_name"])
-		}
-		if desc == nil {
-			desc = toStringPtr(row["registered_name"])
-		}
-		tin := toStringPtr(row["tin"])
+		// Extract description: try multiple name fields
+		desc := firstNonEmptyStr(row,
+			"description", "supplier_name", "customer_name",
+			"registered_name", "employee_name", "payee_name",
+		)
+
+		// Extract TIN: try specific then generic
+		tin := firstNonEmptyStr(row,
+			"supplier_tin", "customer_tin", "tin",
+		)
+
+		// invoice_number is preserved in rawData JSON for report generation
 		rawData, _ := json.Marshal(row)
 
 		vatType := toString(row["vat_type"])
@@ -990,6 +985,26 @@ func parseFlexDate(s string) pgtype.Date {
 		}
 	}
 	return pgtype.Date{}
+}
+
+// firstNonZeroAmount returns the first non-zero amount from the given row keys.
+func firstNonZeroAmount(row map[string]interface{}, keys ...string) float64 {
+	for _, k := range keys {
+		if v := parseAmount(row[k]); v != 0 {
+			return v
+		}
+	}
+	return 0
+}
+
+// firstNonEmptyStr returns the first non-empty string pointer from the given row keys.
+func firstNonEmptyStr(row map[string]interface{}, keys ...string) *string {
+	for _, k := range keys {
+		if p := toStringPtr(row[k]); p != nil {
+			return p
+		}
+	}
+	return nil
 }
 
 func toStringPtr(v interface{}) *string {

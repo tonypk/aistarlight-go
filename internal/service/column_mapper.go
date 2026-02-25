@@ -11,26 +11,45 @@ import (
 	"github.com/tonypk/aistarlight-go/internal/platform/openai"
 )
 
-const columnMapperSystemPrompt = `Expert Philippine tax accountant assistant.
-Map spreadsheet column names to standard BIR form fields.
-Per RR 16-2005 Section 4.114-3, as amended by RR 1-2012.
+const columnMapperSystemPrompt = `Expert Philippine CPA assistant for BIR VAT Return filing.
+Map spreadsheet columns to official BIR 2550M/2550Q form fields.
+Per BIR Form 2550M/2550Q, RR 16-2005, RR 1-2012.
 
-Target fields by report type:
+=== Target fields by report type ===
 
-BIR_2550M / BIR_2550Q (VAT) — covers SLS, SLP, SLI:
-  General: date, taxable_month, description, tin, registered_name, supplier_name, address, invoice_number
-  Amounts: amount, gross_amount, vat_amount, taxable_amount, exempt_amount, zero_rated_amount
-  Classification: vat_type (vatable/exempt/zero_rated/government), category (goods/services/capital/imports)
-  SLP (Purchases): gross_purchase, exempt_purchase, zero_rated_purchase, taxable_purchase, purchase_services, purchase_goods, purchase_capital_goods, input_tax, gross_taxable_purchase
-  SLS (Sales): gross_sales, exempt_sales, zero_rated_sales, taxable_sales, output_tax, gross_taxable_sales
-  SLI (Importations): import_entry_number, assessment_date, importation_date, country_of_origin, landed_cost, dutiable_value, customs_charges, taxable_imports, exempt_imports, vat_paid, vat_payment_date
-  EWT: ewt_rate, ewt_amount, atc_code
+BIR_2550M / BIR_2550Q (VAT Return):
+
+  Sales (Output):
+    sales_date, sales_invoice_number, customer_name, customer_tin, customer_address,
+    gross_sales, vatable_sales, sales_to_government, zero_rated_sales, exempt_sales,
+    total_sales, output_tax
+
+  Purchases (Input):
+    supplier_name, supplier_tin, supplier_address, purchase_date, purchase_invoice_number,
+    gross_purchase, purchase_capital_goods_below_1m, purchase_capital_goods_above_1m,
+    purchase_domestic_goods, purchase_importation, purchase_domestic_services,
+    purchase_non_resident_services, purchase_not_qualified,
+    input_tax, input_tax_capital_goods, input_tax_domestic_goods,
+    input_tax_importation, input_tax_domestic_services, input_tax_non_resident_services
+
+  VAT Deductions:
+    input_tax_carried_over, deferred_input_tax_capital, transitional_input_tax,
+    presumptive_input_tax, other_input_tax, total_allowable_input_tax
+
+  Details:
+    tin, registered_name, address, description, taxable_month
+
+  Importation (SLI):
+    import_entry_number, importation_date, assessment_date, country_of_origin,
+    landed_cost, dutiable_value, customs_charges, vat_paid_imports
+
+  EWT:
+    ewt_rate, ewt_amount, atc_code
 
 BIR_1601C (Withholding on Compensation):
   employee_name, tin, total_compensation, statutory_minimum_wage,
-  basic_pay, overtime_pay, holiday_pay,
-  nontaxable_13th_month, nontaxable_deminimis,
-  sss_gsis_phic_hdmf, sss, philhealth, pagibig,
+  basic_pay, overtime_pay, holiday_pay, nontaxable_13th_month,
+  nontaxable_deminimis, sss_gsis_phic_hdmf, sss, philhealth, pagibig,
   other_nontaxable, taxable_compensation, tax_withheld
 
 BIR_0619E (Expanded Withholding):
@@ -40,12 +59,33 @@ BIR_0619E (Expanded Withholding):
 Bank_Statement:
   date, description, amount, debit, credit, reference, balance
 
-Rules:
-- Match column headers to the closest target field based on meaning, not exact name.
-- Common aliases: "OR No." / "Receipt No." -> invoice_number, "Vendor" / "Payee" -> supplier_name, "Net of VAT" -> taxable_amount, "VAT" -> vat_amount, "Gross" -> gross_amount.
-- For purchase/expense sheets: prefer SLP fields (gross_purchase, taxable_purchase, input_tax).
-- For sales/revenue sheets: prefer SLS fields (gross_sales, taxable_sales, output_tax).
-- If a column clearly contains TIN numbers (###-###-###-###), map to "tin".
+=== Mapping Rules ===
+
+For SALES sheets (SLS — Summary List of Sales):
+- "Gross Sales" / "Gross Amount" / "Total Sales" → gross_sales
+- "Vatable" / "Taxable Sales" / "Net of VAT" → vatable_sales
+- "Zero Rated" / "Zero-Rated" → zero_rated_sales
+- "Exempt" / "VAT Exempt" → exempt_sales
+- "Output Tax" / "Output VAT" / "VAT Due" → output_tax
+- "Gov Sales" / "Govt" → sales_to_government
+- "Date" / "Invoice Date" / "Sales Date" → sales_date
+- "SI No." / "Invoice No." / "OR No." / "Receipt No." → sales_invoice_number
+- "Customer" / "Buyer" / "Client" → customer_name
+
+For PURCHASE sheets (SLP — Summary List of Purchases):
+- "Gross Purchase" / "Total Purchase" / "Gross Amount" → gross_purchase
+- "Input Tax" / "Input VAT" / "VAT Input" → input_tax
+- "Supplier" / "Vendor" / "Payee" → supplier_name
+- "Date" / "Purchase Date" → purchase_date
+- "Invoice No." / "OR No." / "Receipt No." → purchase_invoice_number
+- "Capital Goods" → purchase_capital_goods_below_1m or purchase_capital_goods_above_1m
+- "Domestic Goods" / "Local Purchase" → purchase_domestic_goods
+- "Import" / "Importation" → purchase_importation
+- "Services" / "Service Purchase" → purchase_domestic_services
+
+For TIN columns (###-###-###-###): map to customer_tin (sales) or supplier_tin (purchases) or tin (general).
+
+IMPORTANT: Use field names EXACTLY as listed above. Do not invent new field names.
 
 Respond ONLY with valid JSON:
 {

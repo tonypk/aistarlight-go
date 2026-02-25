@@ -52,9 +52,20 @@ BIR_1601C (Withholding on Compensation):
   nontaxable_deminimis, sss_gsis_phic_hdmf, sss, philhealth, pagibig,
   other_nontaxable, taxable_compensation, tax_withheld
 
-BIR_0619E (Expanded Withholding):
-  payee_name, tin, address, atc_code, nature_of_income,
-  income_payment, ewt_rate, tax_withheld
+BIR_0619E (Monthly Remittance of Creditable Withholding Tax — Expanded):
+
+  Payee Info:
+    supplier_name, supplier_tin, supplier_address
+
+  Transaction:
+    invoice_date, invoice_number, description, expense_category
+
+  Withholding Tax (per ATC line):
+    atc_code, nature_of_income, tax_base, ewt_rate, tax_withheld
+
+  Summary:
+    total_tax_withheld, tax_remitted_previous, tax_still_due,
+    penalty_surcharge, penalty_interest, penalty_compromise, total_amount_payable
 
 Bank_Statement:
   date, description, amount, debit, credit, reference, balance
@@ -84,6 +95,20 @@ For PURCHASE sheets (SLP — Summary List of Purchases):
 - "Services" / "Service Purchase" → purchase_domestic_services
 
 For TIN columns (###-###-###-###): map to customer_tin (sales) or supplier_tin (purchases) or tin (general).
+
+For EWT sheets (BIR 0619-E — Expanded Withholding):
+- "Supplier" / "Vendor" / "Payee" / "Payee Name" → supplier_name
+- "TIN" (of supplier/payee) → supplier_tin
+- "Address" (of supplier/payee) → supplier_address
+- "Date" / "Invoice Date" / "Payment Date" → invoice_date
+- "Invoice No." / "OR No." / "Receipt No." → invoice_number
+- "Description" / "Particulars" / "Remarks" → description
+- "Category" / "Expense Type" / "Account" → expense_category
+- "ATC" / "ATC Code" / "Tax Code" → atc_code
+- "Nature of Income" / "Income Type" / "Nature of Payment" → nature_of_income
+- "Tax Base" / "Gross Amount" / "Income Payment" → tax_base
+- "Rate" / "Tax Rate" / "EWT Rate" / "WTax Rate" → ewt_rate
+- "Tax Withheld" / "WTax" / "Withholding Tax" / "Tax Amount" → tax_withheld
 
 IMPORTANT: Use field names EXACTLY as listed above. Do not invent new field names.
 

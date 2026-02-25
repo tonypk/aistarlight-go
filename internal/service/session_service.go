@@ -307,18 +307,18 @@ func (s *SessionService) AddFile(ctx context.Context, sessionID, companyID uuid.
 		// Extract amount: try BIR-specific fields first, then generic fallbacks
 		amt := firstNonZeroAmount(row,
 			"gross_sales", "vatable_sales", "total_sales", "gross_purchase",
-			"gross_amount", "amount", "landed_cost", "income_payment",
+			"gross_amount", "amount", "landed_cost", "tax_base",
 			"purchase_domestic_goods", "purchase_importation", "purchase_domestic_services",
 		)
 		amountNum := pgtype.Numeric{}
 		_ = amountNum.Scan(fmt.Sprintf("%v", amt))
 
-		// Extract VAT amount: output_tax for sales, input_tax for purchases
+		// Extract VAT/tax amount: output_tax for sales, input_tax for purchases, tax_withheld for EWT
 		vat := firstNonZeroAmount(row,
-			"output_tax", "input_tax", "vat_amount",
+			"output_tax", "input_tax", "vat_amount", "tax_withheld",
 			"input_tax_capital_goods", "input_tax_domestic_goods",
 			"input_tax_importation", "input_tax_domestic_services",
-			"vat_paid_imports",
+			"vat_paid_imports", "total_tax_withheld",
 		)
 		vatNum := pgtype.Numeric{}
 		_ = vatNum.Scan(fmt.Sprintf("%v", vat))
@@ -328,7 +328,7 @@ func (s *SessionService) AddFile(ctx context.Context, sessionID, companyID uuid.
 		// Extract date: BIR fields first, then generic
 		var txDate pgtype.Date
 		for _, key := range []string{
-			"sales_date", "purchase_date", "date",
+			"sales_date", "purchase_date", "invoice_date", "date",
 			"taxable_month", "importation_date", "assessment_date",
 		} {
 			if d := toString(row[key]); d != "" {

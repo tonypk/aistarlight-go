@@ -129,3 +129,12 @@ func WithModel(m string) RequestOption {
 		req.Model = m
 	}
 }
+
+// WithJSONResponse enables JSON mode for structured responses.
+func WithJSONResponse() RequestOption {
+	return func(req *oai.ChatCompletionRequest) {
+		req.ResponseFormat = &oai.ChatCompletionResponseFormat{
+			Type: oai.ChatCompletionResponseFormatTypeJSONObject,
+		}
+	}
+}

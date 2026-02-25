@@ -15,6 +15,8 @@ import (
 	"github.com/tonypk/aistarlight-go/internal/config"
 	"github.com/tonypk/aistarlight-go/internal/handler/middleware"
 	"github.com/tonypk/aistarlight-go/internal/handler/response"
+	"github.com/tonypk/aistarlight-go/internal/platform/openai"
+	"github.com/tonypk/aistarlight-go/internal/repository/sqlc"
 	"github.com/tonypk/aistarlight-go/internal/service"
 )
 
@@ -22,12 +24,14 @@ import (
 type DataHandler struct {
 	colMapper *service.ColumnMapperService
 	memorySvc *service.MemoryService
+	ai        *openai.Client
 	cfg       *config.Config
+	q         *sqlc.Queries
 }
 
 // NewDataHandler creates a new data handler.
-func NewDataHandler(colMapper *service.ColumnMapperService, memorySvc *service.MemoryService, cfg *config.Config) *DataHandler {
-	return &DataHandler{colMapper: colMapper, memorySvc: memorySvc, cfg: cfg}
+func NewDataHandler(colMapper *service.ColumnMapperService, memorySvc *service.MemoryService, ai *openai.Client, cfg *config.Config, q *sqlc.Queries) *DataHandler {
+	return &DataHandler{colMapper: colMapper, memorySvc: memorySvc, ai: ai, cfg: cfg, q: q}
 }
 
 var allowedExtensions = map[string]bool{
@@ -83,8 +87,11 @@ func (h *DataHandler) Upload(c *gin.Context) {
 		return
 	}
 
-	// Parse file.
-	parsed, err := service.ParseUploadedFile(content, header.Filename)
+	// Parse file with cleaning pipeline (falls back to AI/heuristic).
+	companyID := middleware.GetCompanyID(c)
+	cleaningParsed, err := service.ParseUploadedFileWithCleaning(
+		c.Request.Context(), h.ai, h.q, content, header.Filename, companyID, "",
+	)
 	if err != nil {
 		slog.Error("file parse failed", "error", err, "filename", header.Filename)
 		response.BadRequest(c, "Could not parse file. Ensure it is a valid, non-corrupted .xlsx, .xls, or .csv file with a header row.")
@@ -111,20 +118,28 @@ func (h *DataHandler) Upload(c *gin.Context) {
 	// Extract first sheet info for convenience.
 	var columns []string
 	var sampleRows []map[string]interface{}
-	for _, sheet := range parsed.Sheets {
+	var cleaningReport interface{}
+	for sheetName, sheet := range cleaningParsed.Sheets {
 		columns = sheet.Columns
 		sampleRows = sheet.Preview
+		if cr, ok := cleaningParsed.CleaningResults[sheetName]; ok {
+			cleaningReport = cr.Report
+		}
 		break
 	}
 
-	response.OK(c, gin.H{
+	resp := gin.H{
 		"file_id":     fileID,
 		"filename":    header.Filename,
 		"size":        len(content),
 		"columns":     columns,
 		"sample_rows": sampleRows,
-		"sheets":      parsed.Sheets,
-	})
+		"sheets":      cleaningParsed.Sheets,
+	}
+	if cleaningReport != nil {
+		resp["cleaning_report"] = cleaningReport
+	}
+	response.OK(c, resp)
 }
 
 // Preview handles POST /api/v1/data/preview.
@@ -151,14 +166,29 @@ func (h *DataHandler) Preview(c *gin.Context) {
 		return
 	}
 
-	parsed, err := service.ParseUploadedFile(content, header.Filename)
+	companyID := middleware.GetCompanyID(c)
+	cleaningParsed, err := service.ParseUploadedFileWithCleaning(
+		c.Request.Context(), h.ai, h.q, content, header.Filename, companyID, "",
+	)
 	if err != nil {
 		slog.Error("file preview parse failed", "error", err, "filename", header.Filename)
 		response.BadRequest(c, "Could not parse file. Ensure it is a valid, non-corrupted spreadsheet.")
 		return
 	}
 
-	response.OK(c, parsed)
+	resp := gin.H{
+		"type":   cleaningParsed.Type,
+		"sheets": cleaningParsed.Sheets,
+	}
+	// Include cleaning reports if available
+	if len(cleaningParsed.CleaningResults) > 0 {
+		reports := make(map[string]interface{})
+		for name, cr := range cleaningParsed.CleaningResults {
+			reports[name] = cr.Report
+		}
+		resp["cleaning_reports"] = reports
+	}
+	response.OK(c, resp)
 }
 
 type suggestMappingRequest struct {

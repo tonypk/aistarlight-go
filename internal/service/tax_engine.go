@@ -60,69 +60,103 @@ func CalculateBIR2550M(input map[string]interface{}) (TaxResult, error) {
 	taxCredits := toDecimal(input["tax_credits"])
 	penalties := toDecimal(input["penalties"])
 
-	// --- Part II: Sales Classification ---
-	vatableSales := decimal.Zero
-	salesToGovernment := decimal.Zero
-	zeroRatedSales := decimal.Zero
-	vatExemptSales := decimal.Zero
+	// --- Check if input is a pre-aggregated VATSummary (from session) ---
+	// If sales_data is empty but we have VATSummary fields, use those directly.
+	hasSummaryFields := !toDecimal(input["vatable_sales"]).IsZero() ||
+		!toDecimal(input["total_sales"]).IsZero() ||
+		!toDecimal(input["output_vat"]).IsZero() ||
+		!toDecimal(input["total_output_vat"]).IsZero() ||
+		!toDecimal(input["total_input_vat"]).IsZero()
 
-	for _, row := range salesData {
-		amount := toDecimal(row["amount"])
-		vatType := strings.ToLower(strings.TrimSpace(toString(row["vat_type"])))
-		if vatType == "" {
-			vatType = "vatable"
+	var vatableSales, salesToGovernment, zeroRatedSales, vatExemptSales decimal.Decimal
+	var totalSales decimal.Decimal
+	var outputVAT, outputVATGovt, totalOutputVAT decimal.Decimal
+	var inputVATGoods, inputVATCapital, inputVATServices, inputVATImports decimal.Decimal
+	var totalInputVAT decimal.Decimal
+
+	if len(salesData) == 0 && len(purchasesData) == 0 && hasSummaryFields {
+		// Use pre-aggregated VATSummary fields directly
+		vatableSales = toDecimal(input["vatable_sales"])
+		salesToGovernment = toDecimal(input["sales_to_government"])
+		zeroRatedSales = toDecimal(input["zero_rated_sales"])
+		vatExemptSales = toDecimal(input["vat_exempt_sales"])
+		totalSales = toDecimal(input["total_sales"])
+		if totalSales.IsZero() {
+			totalSales = vatableSales.Add(salesToGovernment).Add(zeroRatedSales).Add(vatExemptSales)
 		}
-		switch vatType {
-		case "government":
-			salesToGovernment = salesToGovernment.Add(amount)
-		case "zero_rated":
-			zeroRatedSales = zeroRatedSales.Add(amount)
-		case "exempt":
-			vatExemptSales = vatExemptSales.Add(amount)
-		default:
-			vatableSales = vatableSales.Add(amount)
+
+		outputVAT = toDecimal(input["output_vat"])
+		outputVATGovt = toDecimal(input["output_vat_government"])
+		totalOutputVAT = toDecimal(input["total_output_vat"])
+		if totalOutputVAT.IsZero() {
+			totalOutputVAT = outputVAT.Add(outputVATGovt)
 		}
+
+		inputVATGoods = toDecimal(input["input_vat_goods"])
+		inputVATCapital = toDecimal(input["input_vat_capital"])
+		inputVATServices = toDecimal(input["input_vat_services"])
+		inputVATImports = toDecimal(input["input_vat_imports"])
+		totalInputVAT = toDecimal(input["total_input_vat"])
+		if totalInputVAT.IsZero() {
+			totalInputVAT = inputVATGoods.Add(inputVATCapital).Add(inputVATServices).Add(inputVATImports)
+		}
+	} else {
+		// Calculate from raw sales_data / purchases_data rows
+
+		// --- Part II: Sales Classification ---
+		for _, row := range salesData {
+			amount := toDecimal(row["amount"])
+			vatType := strings.ToLower(strings.TrimSpace(toString(row["vat_type"])))
+			if vatType == "" {
+				vatType = "vatable"
+			}
+			switch vatType {
+			case "government":
+				salesToGovernment = salesToGovernment.Add(amount)
+			case "zero_rated":
+				zeroRatedSales = zeroRatedSales.Add(amount)
+			case "exempt":
+				vatExemptSales = vatExemptSales.Add(amount)
+			default:
+				vatableSales = vatableSales.Add(amount)
+			}
+		}
+
+		totalSales = vatableSales.Add(salesToGovernment).Add(zeroRatedSales).Add(vatExemptSales)
+
+		// --- Part III: Output Tax ---
+		outputVAT = vatableSales.Mul(birforms.VATRate)
+		outputVATGovt = salesToGovernment.Mul(birforms.GovtVATRate)
+		totalOutputVAT = outputVAT.Add(outputVATGovt)
+
+		// --- Part IV: Input Tax ---
+		for _, row := range purchasesData {
+			amount := toDecimal(row["amount"])
+			vatAmount := toDecimal(row["vat_amount"])
+			category := strings.ToLower(strings.TrimSpace(toString(row["category"])))
+			if category == "" {
+				category = "goods"
+			}
+
+			inputVAT := vatAmount
+			if inputVAT.IsZero() {
+				inputVAT = amount.Mul(birforms.VATRate)
+			}
+
+			switch category {
+			case "capital":
+				inputVATCapital = inputVATCapital.Add(inputVAT)
+			case "services":
+				inputVATServices = inputVATServices.Add(inputVAT)
+			case "imports":
+				inputVATImports = inputVATImports.Add(inputVAT)
+			default:
+				inputVATGoods = inputVATGoods.Add(inputVAT)
+			}
+		}
+
+		totalInputVAT = inputVATGoods.Add(inputVATCapital).Add(inputVATServices).Add(inputVATImports)
 	}
-
-	totalSales := vatableSales.Add(salesToGovernment).Add(zeroRatedSales).Add(vatExemptSales)
-
-	// --- Part III: Output Tax ---
-	outputVAT := vatableSales.Mul(birforms.VATRate)
-	outputVATGovt := salesToGovernment.Mul(birforms.GovtVATRate)
-	totalOutputVAT := outputVAT.Add(outputVATGovt)
-
-	// --- Part IV: Input Tax ---
-	inputVATGoods := decimal.Zero
-	inputVATCapital := decimal.Zero
-	inputVATServices := decimal.Zero
-	inputVATImports := decimal.Zero
-
-	for _, row := range purchasesData {
-		amount := toDecimal(row["amount"])
-		vatAmount := toDecimal(row["vat_amount"])
-		category := strings.ToLower(strings.TrimSpace(toString(row["category"])))
-		if category == "" {
-			category = "goods"
-		}
-
-		inputVAT := vatAmount
-		if inputVAT.IsZero() {
-			inputVAT = amount.Mul(birforms.VATRate)
-		}
-
-		switch category {
-		case "capital":
-			inputVATCapital = inputVATCapital.Add(inputVAT)
-		case "services":
-			inputVATServices = inputVATServices.Add(inputVAT)
-		case "imports":
-			inputVATImports = inputVATImports.Add(inputVAT)
-		default:
-			inputVATGoods = inputVATGoods.Add(inputVAT)
-		}
-	}
-
-	totalInputVAT := inputVATGoods.Add(inputVATCapital).Add(inputVATServices).Add(inputVATImports)
 
 	// --- Part V: Tax Due ---
 	vatPayable := totalOutputVAT.Sub(totalInputVAT)

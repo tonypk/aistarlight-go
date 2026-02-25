@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/go-pdf/fpdf"
+	"github.com/tonypk/aistarlight-go/internal/service/birpdf"
 	"github.com/tonypk/aistarlight-go/pkg/birforms"
 )
 
@@ -18,23 +19,29 @@ type CompanyInfo struct {
 	RDOCode     string
 }
 
-// GeneratePDFReport generates a BIR form PDF and writes it to w.
+// GeneratePDFReport generates a BIR form PDF using the official-style layout.
 func GeneratePDFReport(w io.Writer, reportType string, data map[string]string, company CompanyInfo) error {
+	co := birpdf.CompanyData{
+		Name:    company.CompanyName,
+		TIN:     company.TINNumber,
+		RDOCode: company.RDOCode,
+	}
+
 	switch reportType {
 	case birforms.FormBIR2550M:
-		return generateBIR2550MPDF(w, data, company)
+		return birpdf.Generate2550M(w, data, co)
 	case birforms.FormBIR2550Q:
-		return generateBIR2550QPDF(w, data, company)
+		return birpdf.Generate2550Q(w, data, co)
 	case birforms.FormBIR1601C:
-		return generateBIR1601CPDF(w, data, company)
+		return birpdf.Generate1601C(w, data, co)
 	case birforms.FormBIR0619E:
-		return generateBIR0619EPDF(w, data, company)
+		return birpdf.Generate0619E(w, data, co)
 	case birforms.FormBIR1701:
-		return generateBIR1701PDF(w, data, company)
+		return birpdf.Generate1701(w, data, co)
 	case birforms.FormBIR1702:
-		return generateBIR1702PDF(w, data, company)
+		return birpdf.Generate1702(w, data, co)
 	case birforms.FormBIR2316:
-		return generateBIR2316PDF(w, data, company)
+		return birpdf.Generate2316(w, data, co)
 	default:
 		return generateGenericPDF(w, reportType, data, company)
 	}

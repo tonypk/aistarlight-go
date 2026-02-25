@@ -9,6 +9,7 @@ import (
 
 	oai "github.com/sashabaranov/go-openai"
 	"github.com/tonypk/aistarlight-go/internal/platform/openai"
+	"github.com/tonypk/aistarlight-go/internal/service/cleaning"
 )
 
 const columnMapperSystemPrompt = `Expert Philippine CPA assistant for BIR tax return filing.
@@ -374,4 +375,46 @@ func allColumnsMapped(columns []string, mappings map[string]string) bool {
 		}
 	}
 	return true
+}
+
+// AutoMapColumnsFromCleaning converts cleaning pipeline FieldMappings into a
+// ColumnMapping result compatible with the existing API.
+func AutoMapColumnsFromCleaning(cleaningMapping map[string]cleaning.FieldMapping, columns []string) *ColumnMapping {
+	if len(cleaningMapping) == 0 {
+		return &ColumnMapping{
+			Mappings:   map[string]string{},
+			Unmapped:   columns,
+			Confidence: 0,
+		}
+	}
+
+	mappings := make(map[string]string, len(cleaningMapping))
+	fieldConf := make(map[string]float64, len(cleaningMapping))
+	var unmapped []string
+	totalConf := 0.0
+	mappedCount := 0
+
+	for _, col := range columns {
+		fm, ok := cleaningMapping[col]
+		if ok && fm.TargetField != "" {
+			mappings[col] = fm.TargetField
+			fieldConf[col] = fm.Confidence
+			totalConf += fm.Confidence
+			mappedCount++
+		} else {
+			unmapped = append(unmapped, col)
+		}
+	}
+
+	confidence := 0.0
+	if mappedCount > 0 {
+		confidence = totalConf / float64(mappedCount)
+	}
+
+	return &ColumnMapping{
+		Mappings:        mappings,
+		Unmapped:        unmapped,
+		Confidence:      confidence,
+		FieldConfidence: fieldConf,
+	}
 }

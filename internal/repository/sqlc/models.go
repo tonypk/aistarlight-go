@@ -117,6 +117,17 @@ type ChatMessage struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type CleaningTemplate struct {
+	ID              uuid.UUID `json:"id"`
+	CompanyID       uuid.UUID `json:"company_id"`
+	SignatureHash   string    `json:"signature_hash"`
+	HeaderSignature []byte    `json:"header_signature"`
+	AiResult        []byte    `json:"ai_result"`
+	HitCount        int32     `json:"hit_count"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
 type Company struct {
 	ID                uuid.UUID   `json:"id"`
 	OrganizationID    pgtype.UUID `json:"organization_id"`

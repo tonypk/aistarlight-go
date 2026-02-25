@@ -284,6 +284,7 @@ func (s *SessionService) AddFile(ctx context.Context, sessionID, companyID uuid.
 	}
 
 	imported := 0
+	var warnings []map[string]interface{}
 	for i, row := range input.Rows {
 		// Apply column mappings: translate raw column names to standardized field names
 		if len(input.ColumnMappings) > 0 {
@@ -297,6 +298,10 @@ func (s *SessionService) AddFile(ctx context.Context, sessionID, companyID uuid.
 			}
 			row = mapped
 		}
+
+		// Normalize keys: lowercase + spaces→underscores so that raw headers
+		// like "TAXABLE MONTH" match expected keys like "taxable_month".
+		row = normalizeRowKeys(row)
 
 		sourceType := input.SourceType
 		if st := toString(row["_source"]); st == "sales" {
@@ -334,6 +339,7 @@ func (s *SessionService) AddFile(ctx context.Context, sessionID, companyID uuid.
 
 		// Extract date: BIR fields first, then generic
 		var txDate pgtype.Date
+		var rawDateStr string
 		for _, key := range []string{
 			"sales_date", "purchase_date", "invoice_date", "income_date",
 			"expense_date", "revenue_date", "date_hired", "date",
@@ -342,9 +348,26 @@ func (s *SessionService) AddFile(ctx context.Context, sessionID, companyID uuid.
 			if d := toString(row[key]); d != "" {
 				txDate = parseFlexDate(d)
 				if txDate.Valid {
+					rawDateStr = ""
 					break
 				}
+				if rawDateStr == "" {
+					rawDateStr = d // remember first non-empty date string that failed to parse
+				}
 			}
+		}
+		// If we found a date string but couldn't parse it, record a warning
+		if !txDate.Valid && rawDateStr != "" {
+			descStr := ""
+			if d := firstNonEmptyStr(row, "description", "supplier_name", "customer_name", "registered_name"); d != nil {
+				descStr = *d
+			}
+			warnings = append(warnings, map[string]interface{}{
+				"row":         i + 1,
+				"description": descStr,
+				"raw_date":    rawDateStr,
+				"message":     fmt.Sprintf("Row %d: invalid date \"%s\" — please correct this date value", i+1, rawDateStr),
+			})
 		}
 
 		// Extract description: try multiple name fields
@@ -436,10 +459,14 @@ func (s *SessionService) AddFile(ctx context.Context, sessionID, companyID uuid.
 		CompletedAt:          session.CompletedAt,
 	})
 
-	return map[string]interface{}{
-		"file":                   fileInfo,
+	result := map[string]interface{}{
+		"file":                  fileInfo,
 		"transactions_imported": imported,
-	}, nil
+	}
+	if len(warnings) > 0 {
+		result["warnings"] = warnings
+	}
+	return result, nil
 }
 
 // ClassifySession runs AI classification on session transactions.
@@ -961,6 +988,8 @@ func txnToMap(t sqlc.Transaction) map[string]interface{} {
 }
 
 // parseFlexDate tries multiple date formats common in Philippine business documents.
+// It also handles invalid day-of-month values (e.g. 11/31/2024 → 11/30/2024) by
+// clamping to the last day of the month.
 func parseFlexDate(s string) pgtype.Date {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -1025,6 +1054,23 @@ func toStringPtr(v interface{}) *string {
 		return nil
 	}
 	return &s
+}
+
+// normalizeRowKeys lowercases keys and replaces spaces/hyphens with underscores.
+// This ensures raw column headers like "TAXABLE MONTH" or "Gross Purchase"
+// match expected field names like "taxable_month" or "gross_purchase".
+func normalizeRowKeys(row map[string]interface{}) map[string]interface{} {
+	out := make(map[string]interface{}, len(row))
+	for k, v := range row {
+		nk := strings.ToLower(strings.TrimSpace(k))
+		nk = strings.ReplaceAll(nk, " ", "_")
+		nk = strings.ReplaceAll(nk, "-", "_")
+		// Keep the first occurrence if there are duplicates after normalization.
+		if _, exists := out[nk]; !exists {
+			out[nk] = v
+		}
+	}
+	return out
 }
 
 // scanNumeric safely scans a float64 into pgtype.Numeric.

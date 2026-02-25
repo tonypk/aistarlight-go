@@ -247,7 +247,7 @@ type handlers struct {
 	TaxBridge      *handler.TaxBridgeHandler
 }
 
-func newHandlers(svc services, cfg *config.Config, q *sqlc.Queries) handlers {
+func newHandlers(svc services, cfg *config.Config, ai *oai.Client, q *sqlc.Queries) handlers {
 	return handlers{
 		Auth:           handler.NewAuthHandler(svc.Auth, svc.Company),
 		Org:            handler.NewOrgHandler(svc.Org),
@@ -255,7 +255,7 @@ func newHandlers(svc services, cfg *config.Config, q *sqlc.Queries) handlers {
 		Report:         handler.NewReportHandler(svc.Report, svc.Company),
 		Chat:           handler.NewChatHandler(svc.Chat),
 		Reconciliation: handler.NewReconciliationHandler(svc.BankRecon),
-		Session:        handler.NewSessionHandler(svc.Session, svc.Report, cfg),
+		Session:        handler.NewSessionHandler(svc.Session, svc.Report, ai, cfg),
 		Compliance:     handler.NewComplianceHandler(svc.Compliance),
 		Correction:     handler.NewCorrectionHandler(svc.Corrections, svc.Analyzer),
 		Withholding:    handler.NewWithholdingHandler(svc.Withholding, svc.Supplier),
@@ -264,7 +264,7 @@ func newHandlers(svc services, cfg *config.Config, q *sqlc.Queries) handlers {
 		Audit:          handler.NewAuditHandler(svc.Audit),
 		Memory:         handler.NewMemoryHandler(svc.Memory),
 		Task:           handler.NewTaskHandler(svc.Task),
-		Data:           handler.NewDataHandler(svc.ColMapper, svc.Memory, cfg),
+		Data:           handler.NewDataHandler(svc.ColMapper, svc.Memory, ai, cfg, q),
 		Form:           handler.NewFormHandler(svc.Report),
 		Knowledge:      handler.NewKnowledgeHandler(svc.Knowledge),
 		Account:        handler.NewAccountHandler(svc.Account),

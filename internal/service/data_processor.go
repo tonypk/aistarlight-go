@@ -120,17 +120,72 @@ func parseCSV(content []byte) (*ParsedFile, error) {
 	}, nil
 }
 
+// headerKeywords are words commonly found in column headers of BIR forms and
+// Philippine financial documents. A row containing several of these is very
+// likely the header row.
+var headerKeywords = map[string]struct{}{
+	"name": {}, "registered name": {}, "tin": {}, "address": {},
+	"date": {}, "invoice": {}, "amount": {}, "gross": {}, "net": {},
+	"tax": {}, "vat": {}, "rate": {}, "total": {}, "description": {},
+	"supplier": {}, "customer": {}, "buyer": {}, "vendor": {}, "payee": {},
+	"employee": {}, "employer": {}, "salary": {}, "compensation": {},
+	"purchase": {}, "sales": {}, "revenue": {}, "expense": {},
+	"debit": {}, "credit": {}, "balance": {}, "reference": {},
+	"no.": {}, "no": {}, "number": {}, "code": {}, "type": {},
+	"status": {}, "remarks": {}, "period": {}, "month": {}, "year": {},
+	"exempt": {}, "zero rated": {}, "taxable": {}, "vatable": {},
+	"input": {}, "output": {}, "withholding": {}, "creditable": {},
+}
+
+// looksNumeric returns true if the string looks like a number, date, or
+// TIN-like pattern — i.e. NOT a header label.
+func looksNumeric(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return false
+	}
+	// Strip common formatting
+	cleaned := strings.NewReplacer(",", "", "$", "", "₱", "", "PHP", "", "%", "", " ", "").Replace(s)
+	// Pure number (possibly negative/decimal)
+	digitDot := 0
+	for _, c := range cleaned {
+		if (c >= '0' && c <= '9') || c == '.' || c == '-' {
+			digitDot++
+		}
+	}
+	if len(cleaned) > 0 && float64(digitDot)/float64(len(cleaned)) > 0.7 {
+		return true
+	}
+	return false
+}
+
 // detectHeaderRow scans the first N rows and returns the index of the most
-// likely header row.  BIR forms have merged title cells at the top
+// likely header row.  BIR forms often have merged title cells at the top
 // (e.g. "PURCHASE TRANSACTION") followed by metadata rows before the real
-// column headers appear.  The header row is the one with the highest ratio
-// of non-empty, unique cells.
+// column headers appear.
+//
+// Scoring considers:
+//   - Fill ratio: fraction of non-empty cells
+//   - Uniqueness: fraction of unique values among non-empty cells
+//   - Text ratio: headers should be mostly text, not numbers
+//   - Keyword hits: bonus for containing common header words
 func detectHeaderRow(rows [][]string) int {
 	const headerScanLimit = 20
-	const minFillRatio = 0.4
+	const minFillRatio = 0.3
 
 	bestRow := 0
 	bestScore := 0.0
+
+	// Find the widest row once.
+	totalCols := 0
+	for _, r := range rows {
+		if len(r) > totalCols {
+			totalCols = len(r)
+		}
+	}
+	if totalCols == 0 {
+		return 0
+	}
 
 	limit := headerScanLimit
 	if limit > len(rows) {
@@ -143,32 +198,55 @@ func detectHeaderRow(rows [][]string) int {
 			continue
 		}
 
-		// Count the maximum possible columns (widest row in the sheet).
-		totalCols := 0
-		for _, r := range rows {
-			if len(r) > totalCols {
-				totalCols = len(r)
+		nonEmpty := 0
+		numericCount := 0
+		keywordHits := 0
+		unique := make(map[string]struct{})
+
+		for _, cell := range row {
+			v := strings.TrimSpace(cell)
+			if v == "" {
+				continue
+			}
+			nonEmpty++
+			unique[v] = struct{}{}
+
+			if looksNumeric(v) {
+				numericCount++
+			}
+
+			// Check keywords (case-insensitive, check full cell and individual words)
+			lower := strings.ToLower(v)
+			if _, ok := headerKeywords[lower]; ok {
+				keywordHits++
+			} else {
+				// Check if any keyword is a substring of the cell
+				for kw := range headerKeywords {
+					if strings.Contains(lower, kw) {
+						keywordHits++
+						break
+					}
+				}
 			}
 		}
-		if totalCols == 0 {
+
+		if nonEmpty == 0 {
 			continue
 		}
 
-		nonEmpty := 0
-		unique := make(map[string]struct{})
-		for _, cell := range row {
-			v := strings.TrimSpace(cell)
-			if v != "" {
-				nonEmpty++
-				unique[v] = struct{}{}
-			}
+		fillRatio := float64(nonEmpty) / float64(totalCols)
+		if fillRatio < minFillRatio {
+			continue
 		}
 
-		fillRatio := float64(nonEmpty) / float64(totalCols)
-		uniqueness := float64(len(unique)) / float64(max(nonEmpty, 1))
-		score := fillRatio * uniqueness
+		uniqueness := float64(len(unique)) / float64(nonEmpty)
+		textRatio := 1.0 - float64(numericCount)/float64(nonEmpty)
+		keywordRatio := float64(keywordHits) / float64(nonEmpty)
 
-		if fillRatio >= minFillRatio && score > bestScore {
+		// Combined score: fill × uniqueness × text-heaviness + keyword bonus
+		score := fillRatio * uniqueness * (0.5 + 0.5*textRatio) * (1.0 + keywordRatio)
+
+		if score > bestScore {
 			bestScore = score
 			bestRow = i
 		}

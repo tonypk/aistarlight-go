@@ -21,6 +21,7 @@ type Config struct {
 	Log        LogConfig
 	QBO        QBOConfig
 	Encryption EncryptionConfig
+	Telegram   TelegramConfig
 	UploadDir  string
 }
 
@@ -123,6 +124,11 @@ type EncryptionConfig struct {
 	Key string // 32-byte hex-encoded AES-256 key
 }
 
+type TelegramConfig struct {
+	BotToken    string
+	BotUsername string
+}
+
 func Load() (*Config, error) {
 	v := viper.New()
 
@@ -215,6 +221,10 @@ func Load() (*Config, error) {
 		},
 		Encryption: EncryptionConfig{
 			Key: v.GetString("ENCRYPTION_KEY"),
+		},
+		Telegram: TelegramConfig{
+			BotToken:    v.GetString("TELEGRAM_BOT_TOKEN"),
+			BotUsername: v.GetString("TELEGRAM_BOT_USERNAME"),
 		},
 		UploadDir: v.GetString("UPLOAD_DIR"),
 	}

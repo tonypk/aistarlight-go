@@ -10,6 +10,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-aistarlight}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aistarlight}?sslmode=disable
       REDIS_URL: redis://redis:6379/0
       OCR_SERVICE_URL: http://ocr:8001
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-AIStarlightbot}
       GIN_MODE: release
       LOG_FORMAT: json
       LOG_LEVEL: info
@@ -60,6 +61,32 @@ services:
       driver: json-file
       options:
         max-size: "10m"
+        max-file: "3"
+
+  bot:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.bot.prebuilt
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-aistarlight}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aistarlight}?sslmode=disable
+      OCR_SERVICE_URL: http://ocr:8001
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-AIStarlightbot}
+      LOG_FORMAT: json
+      LOG_LEVEL: info
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
         max-file: "3"
 
   migrate:

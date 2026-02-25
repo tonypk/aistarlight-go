@@ -234,6 +234,16 @@ type KnowledgeChunk struct {
 	CreatedAt time.Time        `json:"created_at"`
 }
 
+type LinkToken struct {
+	ID        uuid.UUID `json:"id"`
+	UserID    uuid.UUID `json:"user_id"`
+	CompanyID uuid.UUID `json:"company_id"`
+	Token     string    `json:"token"`
+	ExpiresAt time.Time `json:"expires_at"`
+	Used      bool      `json:"used"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type OrgMember struct {
 	OrganizationID uuid.UUID `json:"organization_id"`
 	UserID         uuid.UUID `json:"user_id"`
@@ -359,6 +369,16 @@ type Supplier struct {
 	IsVatRegistered bool           `json:"is_vat_registered"`
 	CreatedAt       time.Time      `json:"created_at"`
 	UpdatedAt       time.Time      `json:"updated_at"`
+}
+
+type TelegramUser struct {
+	TelegramID int64     `json:"telegram_id"`
+	UserID     uuid.UUID `json:"user_id"`
+	CompanyID  uuid.UUID `json:"company_id"`
+	ChatID     int64     `json:"chat_id"`
+	Username   *string   `json:"username"`
+	FullName   *string   `json:"full_name"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 type Transaction struct {

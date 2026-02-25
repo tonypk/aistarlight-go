@@ -305,14 +305,30 @@ func (s *SessionService) AddFile(ctx context.Context, sessionID, companyID uuid.
 		}
 
 		// Extract amount: try BIR-specific fields first, then generic fallbacks
-		amt := firstNonZeroAmount(row,
+		amtKeys := []string{
 			"gross_sales", "vatable_sales", "total_sales", "gross_purchase",
 			"gross_amount", "amount", "landed_cost", "tax_base",
 			"gross_sales_receipts", "net_sales", "gross_income", "total_gross_income",
 			"expense_amount", "gross_compensation", "basic_salary",
 			"taxable_income", "taxable_compensation",
 			"purchase_domestic_goods", "purchase_importation", "purchase_domestic_services",
-		)
+		}
+		amt := firstNonZeroAmount(row, amtKeys...)
+		if i < 3 {
+			// Debug: log row keys and amount extraction for first 3 rows
+			rowKeys := make([]string, 0, len(row))
+			for k := range row {
+				rowKeys = append(rowKeys, k)
+			}
+			slog.Info("AddFile amount debug",
+				"row", i,
+				"amt", amt,
+				"row_keys", rowKeys,
+				"gross_purchase", fmt.Sprintf("%v (type=%T)", row["gross_purchase"], row["gross_purchase"]),
+				"gross_amount", fmt.Sprintf("%v (type=%T)", row["gross_amount"], row["gross_amount"]),
+				"gross_sales", fmt.Sprintf("%v (type=%T)", row["gross_sales"], row["gross_sales"]),
+			)
+		}
 		amountNum := pgtype.Numeric{}
 		_ = amountNum.Scan(fmt.Sprintf("%v", amt))
 

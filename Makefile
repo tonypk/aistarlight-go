@@ -7,13 +7,16 @@ GOFLAGS := -race
 DOCKER_COMPOSE := docker compose
 
 # Build targets
-build: build-api build-worker build-migrate build-datamigrate
+build: build-api build-worker build-bot build-migrate build-datamigrate
 
 build-api:
 	$(GO) build -o bin/api ./cmd/api
 
 build-worker:
 	$(GO) build -o bin/worker ./cmd/worker
+
+build-bot:
+	$(GO) build -o bin/bot ./cmd/bot
 
 build-migrate:
 	$(GO) build -o bin/migrate ./cmd/migrate
@@ -27,6 +30,9 @@ run-api:
 
 run-worker:
 	$(GO) run ./cmd/worker
+
+run-bot:
+	$(GO) run ./cmd/bot
 
 # Test
 test:
@@ -101,8 +107,9 @@ datamigrate-verify:
 build-linux:
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -ldflags="-s -w" -o aistarlight-api ./cmd/api
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -ldflags="-s -w" -o aistarlight-worker ./cmd/worker
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -ldflags="-s -w" -o aistarlight-bot ./cmd/bot
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -ldflags="-s -w" -o aistarlight-migrate ./cmd/migrate
 
 # Clean
 clean:
-	rm -rf bin/ coverage.out coverage.html aistarlight-api aistarlight-worker aistarlight-migrate
+	rm -rf bin/ coverage.out coverage.html aistarlight-api aistarlight-worker aistarlight-bot aistarlight-migrate

@@ -239,6 +239,7 @@ type handlers struct {
 	GL             *handler.GLHandler
 	QBO            *handler.QBOHandler
 	Settings       *handler.SettingsHandler
+	Telegram       *handler.TelegramHandler
 	// Pipeline bridge handlers
 	ReceiptBridge  *handler.ReceiptBridgeHandler
 	JournalBridge  *handler.JournalBridgeHandler
@@ -246,7 +247,7 @@ type handlers struct {
 	TaxBridge      *handler.TaxBridgeHandler
 }
 
-func newHandlers(svc services, cfg *config.Config) handlers {
+func newHandlers(svc services, cfg *config.Config, q *sqlc.Queries) handlers {
 	return handlers{
 		Auth:           handler.NewAuthHandler(svc.Auth, svc.Company),
 		Org:            handler.NewOrgHandler(svc.Org),
@@ -272,6 +273,7 @@ func newHandlers(svc services, cfg *config.Config) handlers {
 		GL:             handler.NewGLHandler(svc.GL),
 		QBO:            handler.NewQBOHandler(svc.QBO, svc.Account),
 		Settings:       handler.NewSettingsHandler(svc.Company),
+		Telegram:       handler.NewTelegramHandler(q, cfg.Telegram.BotUsername),
 		// Pipeline bridges
 		ReceiptBridge:  handler.NewReceiptBridgeHandler(svc.ReceiptBridge),
 		JournalBridge:  handler.NewJournalBridgeHandler(svc.JournalGen),
@@ -321,6 +323,7 @@ func newGinEngine(cfg *config.Config, rdb *redis.Client, svc services, h handler
 		GL:             h.GL,
 		QBO:            h.QBO,
 		Settings:       h.Settings,
+		Telegram:       h.Telegram,
 		ReceiptBridge:  h.ReceiptBridge,
 		JournalBridge:  h.JournalBridge,
 		FinStatement:   h.FinStatement,

@@ -33,6 +33,7 @@ type Router struct {
 	GL             *GLHandler
 	QBO            *QBOHandler
 	Settings       *SettingsHandler
+	Telegram       *TelegramHandler
 	// Pipeline bridge handlers
 	ReceiptBridge  *ReceiptBridgeHandler
 	JournalBridge  *JournalBridgeHandler
@@ -321,6 +322,15 @@ func (rt *Router) Setup(r *gin.Engine) {
 		settings.PUT("/company", rt.Settings.UpdateCompanySettings)
 		settings.GET("/team", rt.Settings.ListTeam)
 		settings.PATCH("/team/:userId/role", rt.Settings.UpdateMemberRole)
+	}
+
+	// Telegram routes
+	if rt.Telegram != nil {
+		tg := api.Group("/telegram")
+		tg.Use(authMw)
+		{
+			tg.POST("/link-token", rt.Telegram.GenerateLinkToken)
+		}
 	}
 
 	// Data upload routes

@@ -308,17 +308,22 @@ func (s *SessionService) AddFile(ctx context.Context, sessionID, companyID uuid.
 		amt := firstNonZeroAmount(row,
 			"gross_sales", "vatable_sales", "total_sales", "gross_purchase",
 			"gross_amount", "amount", "landed_cost", "tax_base",
+			"gross_sales_receipts", "net_sales", "gross_income", "total_gross_income",
+			"expense_amount", "gross_compensation", "basic_salary",
+			"taxable_income", "taxable_compensation",
 			"purchase_domestic_goods", "purchase_importation", "purchase_domestic_services",
 		)
 		amountNum := pgtype.Numeric{}
 		_ = amountNum.Scan(fmt.Sprintf("%v", amt))
 
-		// Extract VAT/tax amount: output_tax for sales, input_tax for purchases, tax_withheld for EWT
+		// Extract VAT/tax amount: output_tax for sales, input_tax for purchases, tax_withheld for EWT/ITR
 		vat := firstNonZeroAmount(row,
 			"output_tax", "input_tax", "vat_amount", "tax_withheld",
+			"income_tax_due", "total_tax_withheld",
+			"creditable_withholding_tax", "tax_payable",
 			"input_tax_capital_goods", "input_tax_domestic_goods",
 			"input_tax_importation", "input_tax_domestic_services",
-			"vat_paid_imports", "total_tax_withheld",
+			"vat_paid_imports",
 		)
 		vatNum := pgtype.Numeric{}
 		_ = vatNum.Scan(fmt.Sprintf("%v", vat))
@@ -328,8 +333,9 @@ func (s *SessionService) AddFile(ctx context.Context, sessionID, companyID uuid.
 		// Extract date: BIR fields first, then generic
 		var txDate pgtype.Date
 		for _, key := range []string{
-			"sales_date", "purchase_date", "invoice_date", "date",
-			"taxable_month", "importation_date", "assessment_date",
+			"sales_date", "purchase_date", "invoice_date", "income_date",
+			"expense_date", "revenue_date", "date_hired", "date",
+			"taxable_month", "taxable_year", "importation_date", "assessment_date",
 		} {
 			if d := toString(row[key]); d != "" {
 				txDate = parseFlexDate(d)
@@ -341,13 +347,14 @@ func (s *SessionService) AddFile(ctx context.Context, sessionID, companyID uuid.
 
 		// Extract description: try multiple name fields
 		desc := firstNonEmptyStr(row,
-			"description", "supplier_name", "customer_name",
-			"registered_name", "employee_name", "payee_name",
+			"description", "expense_description", "expense_category",
+			"supplier_name", "customer_name", "income_source", "revenue_source",
+			"registered_name", "employee_name", "employer_name",
 		)
 
 		// Extract TIN: try specific then generic
 		tin := firstNonEmptyStr(row,
-			"supplier_tin", "customer_tin", "tin",
+			"supplier_tin", "customer_tin", "employee_tin", "employer_tin", "tin",
 		)
 
 		// invoice_number is preserved in rawData JSON for report generation

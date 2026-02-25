@@ -11,9 +11,9 @@ import (
 	"github.com/tonypk/aistarlight-go/internal/platform/openai"
 )
 
-const columnMapperSystemPrompt = `Expert Philippine CPA assistant for BIR VAT Return filing.
-Map spreadsheet columns to official BIR 2550M/2550Q form fields.
-Per BIR Form 2550M/2550Q, RR 16-2005, RR 1-2012.
+const columnMapperSystemPrompt = `Expert Philippine CPA assistant for BIR tax return filing.
+Map spreadsheet columns to official BIR form fields.
+Supports: 2550M/2550Q, 1601C, 0619E, 1701, 1702, 2316.
 
 === Target fields by report type ===
 
@@ -67,6 +67,95 @@ BIR_0619E (Monthly Remittance of Creditable Withholding Tax — Expanded):
     total_tax_withheld, tax_remitted_previous, tax_still_due,
     penalty_surcharge, penalty_interest, penalty_compromise, total_amount_payable
 
+BIR_1701 (Annual Income Tax Return — Individuals / Self-Employed / Professionals):
+
+  Taxpayer Info:
+    tin, registered_name, trade_name, rdo_code, address, zip_code,
+    taxpayer_type, taxable_year
+
+  Gross Income:
+    income_date, income_source, or_si_number,
+    gross_sales_receipts, sales_returns, net_sales,
+    cost_of_sales, gross_income, other_taxable_income,
+    compensation_income, total_gross_income
+
+  Deductions:
+    expense_date, expense_description, expense_category, expense_amount,
+    deduction_method, optional_standard_deduction,
+    salaries_wages, rent_expense, depreciation, utilities,
+    taxes_licenses, insurance, professional_fees, repairs_maintenance,
+    representation, transportation, communication, supplies,
+    bad_debts, interest_expense, other_deductions, total_deductions
+
+  Tax Computation:
+    taxable_income, income_tax_due
+
+  Tax Credits:
+    prior_year_excess_credits, quarterly_tax_payments,
+    creditable_withholding_tax, tax_withheld_per_2316,
+    foreign_tax_credits, other_tax_credits, total_tax_credits,
+    tax_payable, penalty_surcharge, penalty_interest,
+    penalty_compromise, total_amount_payable
+
+BIR_1702 (Annual Income Tax Return — Corporations / Partnerships):
+
+  Corporate Info:
+    tin, registered_name, trade_name, rdo_code, address, zip_code,
+    sec_registration, industry_classification, taxable_year, tax_regime
+
+  Revenue:
+    revenue_date, revenue_source, or_si_number,
+    gross_sales_receipts, sales_returns, net_sales,
+    cost_of_sales, gross_income, other_income, total_gross_income
+
+  Operating Expenses:
+    expense_date, expense_description, expense_category, expense_amount,
+    salaries_wages, rent_expense, depreciation, utilities,
+    taxes_licenses, insurance, professional_fees, repairs_maintenance,
+    representation, transportation, communication, supplies,
+    bad_debts, interest_expense, charitable_contributions,
+    research_development, other_deductions, total_operating_expenses
+
+  Tax Computation:
+    net_income_before_tax, taxable_income,
+    regular_income_tax, mcit, income_tax_due
+
+  Tax Credits:
+    prior_year_excess_credits, excess_mcit, quarterly_tax_payments,
+    creditable_withholding_tax, foreign_tax_credits,
+    other_tax_credits, total_tax_credits, tax_payable,
+    penalty_surcharge, penalty_interest, penalty_compromise,
+    total_amount_payable
+
+BIR_2316 (Certificate of Compensation Payment / Tax Withheld):
+
+  Employer Info:
+    employer_tin, employer_name, employer_address, employer_zip_code, rdo_code
+
+  Employee Info:
+    employee_tin, employee_name, employee_address, employee_zip_code,
+    date_of_birth, nationality, civil_status, employment_status,
+    date_hired, date_separated
+
+  Compensation:
+    basic_salary, overtime_pay, holiday_pay, night_differential,
+    hazard_pay, thirteenth_month_pay, other_benefits, gross_compensation
+
+  Non-Taxable:
+    nontaxable_13th_month, nontaxable_deminimis,
+    sss_gsis_contribution, philhealth_contribution, pagibig_contribution,
+    union_dues, other_nontaxable, total_nontaxable
+
+  Tax Computation:
+    taxable_compensation, income_tax_due,
+    tax_withheld_jan_nov, tax_withheld_december,
+    total_tax_withheld, tax_adjustment
+
+  Previous Employer:
+    prev_employer_tin, prev_employer_name,
+    prev_gross_compensation, prev_nontaxable,
+    prev_taxable_compensation, prev_tax_withheld
+
 Bank_Statement:
   date, description, amount, debit, credit, reference, balance
 
@@ -95,6 +184,55 @@ For PURCHASE sheets (SLP — Summary List of Purchases):
 - "Services" / "Service Purchase" → purchase_domestic_services
 
 For TIN columns (###-###-###-###): map to customer_tin (sales) or supplier_tin (purchases) or tin (general).
+
+For ITR sheets (BIR 1701/1702 — Income Tax Return):
+- "Sales" / "Revenue" / "Receipts" / "Gross Sales" → gross_sales_receipts
+- "Cost of Sales" / "COGS" / "Cost of Services" → cost_of_sales
+- "Gross Income" / "Gross Profit" → gross_income
+- "Net Sales" / "Net Revenue" → net_sales
+- "Returns" / "Discounts" / "Allowances" → sales_returns
+- "Other Income" / "Non-Operating Income" / "Miscellaneous" → other_taxable_income (1701) or other_income (1702)
+- "Compensation" / "Salary Income" → compensation_income
+- "Expense" / "Amount" (in expense sheets) → expense_amount
+- "Category" / "Account" / "GL Account" → expense_category
+- "Salaries" / "Wages" / "Payroll" → salaries_wages
+- "Rent" / "Lease" → rent_expense
+- "Depreciation" / "Amortization" → depreciation
+- "Utilities" / "Light & Water" → utilities
+- "Taxes" / "Licenses" / "Permits" → taxes_licenses
+- "Insurance" / "Premiums" → insurance
+- "Professional Fees" / "Consultant" → professional_fees
+- "Repairs" / "Maintenance" → repairs_maintenance
+- "Representation" / "Entertainment" → representation
+- "Transportation" / "Travel" → transportation
+- "Communication" / "Telephone" / "Internet" → communication
+- "Supplies" / "Office Supplies" → supplies
+- "Bad Debts" / "Doubtful Accounts" → bad_debts
+- "Interest" / "Interest Expense" / "Finance Cost" → interest_expense
+- "Taxable Income" / "Net Income" → taxable_income
+- "Income Tax" / "Tax Due" → income_tax_due
+- "CWT" / "Creditable Withholding" / "2307" → creditable_withholding_tax
+- "Quarterly Payment" / "1701Q" / "1702Q" → quarterly_tax_payments
+
+For PAYROLL/2316 sheets (BIR 2316 — Certificate of Compensation):
+- "Employee" / "Name" / "Employee Name" → employee_name
+- "Employee TIN" / "TIN" (of employee) → employee_tin
+- "Basic Salary" / "Basic Pay" / "Monthly Salary" → basic_salary
+- "Overtime" / "OT Pay" → overtime_pay
+- "Holiday" / "Holiday Pay" → holiday_pay
+- "Night Diff" / "Night Differential" / "NSD" → night_differential
+- "Hazard" / "Hazard Pay" → hazard_pay
+- "13th Month" / "13th Month Pay" / "Thirteenth" → thirteenth_month_pay
+- "Bonus" / "Other Benefits" / "Allowances" → other_benefits
+- "Gross Compensation" / "Gross Pay" / "Total Compensation" → gross_compensation
+- "De Minimis" / "Deminimis" → nontaxable_deminimis
+- "SSS" / "GSIS" → sss_gsis_contribution
+- "PhilHealth" / "PHIC" → philhealth_contribution
+- "Pag-IBIG" / "HDMF" / "PAGIBIG" → pagibig_contribution
+- "Taxable Compensation" / "Taxable Pay" / "Net Taxable" → taxable_compensation
+- "Tax Withheld" / "WHT" / "Withholding Tax" → total_tax_withheld
+- "Employer" / "Employer Name" / "Company" → employer_name
+- "Employer TIN" → employer_tin
 
 For EWT sheets (BIR 0619-E — Expanded Withholding):
 - "Supplier" / "Vendor" / "Payee" / "Payee Name" → supplier_name

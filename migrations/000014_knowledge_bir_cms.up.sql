@@ -1,7 +1,8 @@
 -- BIR Official CMS content scraped via Playwright from bir.gov.ph
 -- Source: bir-cms-ws.bir.gov.ph API (BIR CMS)
 
-INSERT INTO knowledge_chunks (source, category, content, embedding) VALUES (
+INSERT INTO knowledge_chunks (id, source, category, content, metadata) VALUES (
+    uuid_generate_v4(),
     'BIR Official - NIRC Title I - Organization of BIR',
     'compliance',
     'TITLE I
@@ -26,10 +27,10 @@ SEC. 5. Power of the Commissioner to Obtain Information, and to Summon, Examine,
 (B) To obtain on a regular basis from any person other than the person whose internal revenue tax liability is subject to audit or investigation, or from any office or officer of the national and local governments, government agencies and instrumentalities, including the Bangko Sentral ng Pilipinas and government-owned or -controlled corporations, any information such as, but not limited to, costs and volume of production, receipts or sales and gross incomes of taxpayers, and the names, addresses, and financial statements of corporations, mutual fund companies, insurance companies, regional operating headquarters of multinational companies, joint accounts, associations, joint ventures of consortia and registered partnerships, and their members; Provided, That the Cooperative Development Authority shall submit to the Bureau a tax incentive report, which shall include information on the income tax, value added tax, and other tax incentives availed of by cooperatives registered and enjoying incentives under Republic Act No. 6938, as amended: Provided, further, That the information submitted by the Cooperative Development Authority to the Bureau shall be submitted to the Department of Finance and shall be included in the database created under Republic Act No. 10708, otherwise known as "The Tax Incentives Management and Transparency Act (TIMTA).
 
 [... Full text available in NIRC ...]',
-    ARRAY[]::vector(1024)
-);
+    '{"source_type": "bir_cms", "scraped_from": "bir-cms-ws.bir.gov.ph"}');
 
-INSERT INTO knowledge_chunks (source, category, content, embedding) VALUES (
+INSERT INTO knowledge_chunks (id, source, category, content, metadata) VALUES (
+    uuid_generate_v4(),
     'BIR Official - NIRC Title II - Tax on Income',
     'income_tax',
     'TITLE II
@@ -78,10 +79,10 @@ SEC. 22. Definitions. - When used in this Title:
 (L) The term ''shares of stock'' shall refer to shares of stock of a corporation, warrants, options, as well as units of participation in partnerships (except general professional partnerships), joint stock companies, joint accounts, joint ventures taxable as corporations, associations, and recreation or amusement clubs (such as golf, polo or similar clubs), and mutual fund certificates.
 
 [... Full text available in NIRC ...]',
-    ARRAY[]::vector(1024)
-);
+    '{"source_type": "bir_cms", "scraped_from": "bir-cms-ws.bir.gov.ph"}');
 
-INSERT INTO knowledge_chunks (source, category, content, embedding) VALUES (
+INSERT INTO knowledge_chunks (id, source, category, content, metadata) VALUES (
+    uuid_generate_v4(),
     'BIR Official - NIRC Title III - Estate and Donors Taxes',
     'general',
     'TITLE III
@@ -109,10 +110,10 @@ SEC. 85. Gross Estate. - the value of the gross estate of the decedent shall be 
 (D) Property Passing Under General Power of Appointment.
 
 [... Full text available in NIRC ...]',
-    ARRAY[]::vector(1024)
-);
+    '{"source_type": "bir_cms", "scraped_from": "bir-cms-ws.bir.gov.ph"}');
 
-INSERT INTO knowledge_chunks (source, category, content, embedding) VALUES (
+INSERT INTO knowledge_chunks (id, source, category, content, metadata) VALUES (
+    uuid_generate_v4(),
     'BIR Official - NIRC Title IV - Value-Added Tax',
     'vat',
     'TITLE IV
@@ -154,10 +155,10 @@ For the purpose of this section,The term "gross sales" means the total amount of
 (a) Export Sales.
 
 [... Full text available in NIRC ...]',
-    ARRAY[]::vector(1024)
-);
+    '{"source_type": "bir_cms", "scraped_from": "bir-cms-ws.bir.gov.ph"}');
 
-INSERT INTO knowledge_chunks (source, category, content, embedding) VALUES (
+INSERT INTO knowledge_chunks (id, source, category, content, metadata) VALUES (
+    uuid_generate_v4(),
     'BIR Official - NIRC Title V - Other Percentage Taxes',
     'general',
     'TITLE V
@@ -195,10 +196,10 @@ SEC. 120. Tax on Overseas Dispatch, Message or Conversation Originating from the
 (A) Persons Liable.
 
 [... Full text available in NIRC ...]',
-    ARRAY[]::vector(1024)
-);
+    '{"source_type": "bir_cms", "scraped_from": "bir-cms-ws.bir.gov.ph"}');
 
-INSERT INTO knowledge_chunks (source, category, content, embedding) VALUES (
+INSERT INTO knowledge_chunks (id, source, category, content, metadata) VALUES (
+    uuid_generate_v4(),
     'BIR Official - NIRC Title VII - Documentary Stamp Tax',
     'general',
     'TITLE VII
@@ -218,10 +219,10 @@ SEC. 177. Stamp Tax on Certificates of Profits or Interest in Property or Accumu
 SEC. 178.
 
 [... Full text available in NIRC ...]',
-    ARRAY[]::vector(1024)
-);
+    '{"source_type": "bir_cms", "scraped_from": "bir-cms-ws.bir.gov.ph"}');
 
-INSERT INTO knowledge_chunks (source, category, content, embedding) VALUES (
+INSERT INTO knowledge_chunks (id, source, category, content, metadata) VALUES (
+    uuid_generate_v4(),
     'BIR Official - NIRC Title VIII - Tax Remedies',
     'compliance',
     'TITLE VIII
@@ -265,10 +266,10 @@ All criminal violations may be compromised except: (a) those already filed in co
 (C) Credit or refund taxes erroneously or illegally received or penalties imposed without authority, refund the value of internal revenue stamps when they are returned in good condition by the purchaser, and, in his discretion, redeem or change unused stamps that have been rendered unfit for use and refund their value upon proof of destruction. No credit or refund of taxes or penalties shall be allowed unless the taxpayer files in writing with the Commissioner a claim for credit or refund within two (2) years after the payment of the tax or penalty as provided under Section 229 of this Code: Provided, however, That a return filed showing an overpayment shall be considered as a written claim for credit or refund:[201] Provided, further, that the Commissioner shall process and decide the refund under this provision within one hundred eighty (180) days from date of submission of complete documents in support of the application filed: Provided, furthermore, That should the Commissioner deny, in full or in part, the claim for refund, the Commissioner shall state the legal and/or factual basis for the denial: Provided, finally, That failure on the part of any official, agent, or employee of the BIR to process and decide on the application within the one hundred eighty (180)-day period shall be punishable under Section 269 of this Code.
 
 [... Full text available in NIRC ...]',
-    ARRAY[]::vector(1024)
-);
+    '{"source_type": "bir_cms", "scraped_from": "bir-cms-ws.bir.gov.ph"}');
 
-INSERT INTO knowledge_chunks (source, category, content, embedding) VALUES (
+INSERT INTO knowledge_chunks (id, source, category, content, metadata) VALUES (
+    uuid_generate_v4(),
     'BIR Official - NIRC Title IX - Compliance Requirements',
     'compliance',
     'TITLE IX
@@ -292,10 +293,10 @@ SEC. 234. Language in which Books are to be Kept; Translation. - All such corpor
 SEC. 235. Preservation of Books and Accounts and Other Accounting Records. - All the books of accounts, including the subsidiary books and other accounting records of corporations, partnerships, or persons, shall be preserved by them for a period of five (5) years reckoned from the day following the deadline in filing a return, or if filed after the deadline, from the date of the filing of the return, for the taxable year when the last entry was made in the books of accounts.
 
 [... Full text available in NIRC ...]',
-    ARRAY[]::vector(1024)
-);
+    '{"source_type": "bir_cms", "scraped_from": "bir-cms-ws.bir.gov.ph"}');
 
-INSERT INTO knowledge_chunks (source, category, content, embedding) VALUES (
+INSERT INTO knowledge_chunks (id, source, category, content, metadata) VALUES (
+    uuid_generate_v4(),
     'BIR Official - NIRC Title X - Offenses and Penalties',
     'compliance',
     'TITLE X
@@ -335,10 +336,10 @@ SEC. 249. Interest. -
 (C) Delinquency Interest.
 
 [... Full text available in NIRC ...]',
-    ARRAY[]::vector(1024)
-);
+    '{"source_type": "bir_cms", "scraped_from": "bir-cms-ws.bir.gov.ph"}');
 
-INSERT INTO knowledge_chunks (source, category, content, embedding) VALUES (
+INSERT INTO knowledge_chunks (id, source, category, content, metadata) VALUES (
+    uuid_generate_v4(),
     'BIR Official - NIRC Title XIII - Tax Incentives (CREATE/CREATE MORE)',
     'income_tax',
     'TITLE XIII [234]
@@ -370,10 +371,10 @@ SEC. 293. Definitions. - When used in this Title:
 (F) Domestic input refers to purchases of locally manufactured goods or locally produced raw materials or domestically outsourced services known as services embedded in manufacturing that are used directly in the production of goods under the registered project or activity.
 
 [... Full text available in NIRC ...]',
-    ARRAY[]::vector(1024)
-);
+    '{"source_type": "bir_cms", "scraped_from": "bir-cms-ws.bir.gov.ph"}');
 
-INSERT INTO knowledge_chunks (source, category, content, embedding) VALUES (
+INSERT INTO knowledge_chunks (id, source, category, content, metadata) VALUES (
+    uuid_generate_v4(),
     'BIR Official - Penalties for Late Filing',
     'compliance',
     'PENALTIES FOR LATE FILING OF TAX RETURNS
@@ -563,10 +564,10 @@ x x x
  | 
 
 B. For late filing of Tax Returns',
-    ARRAY[]::vector(1024)
-);
+    '{"source_type": "bir_cms", "scraped_from": "bir-cms-ws.bir.gov.ph"}');
 
-INSERT INTO knowledge_chunks (source, category, content, embedding) VALUES (
+INSERT INTO knowledge_chunks (id, source, category, content, metadata) VALUES (
+    uuid_generate_v4(),
     'BIR Official - Payment and Remittance Forms',
     'compliance',
     'BIR Payment and Remittance Forms:
@@ -577,10 +578,10 @@ INSERT INTO knowledge_chunks (source, category, content, embedding) VALUES (
 0619-E: Monthly Remittance Form of Creditable Income Taxes Withheld (Expanded)
 0619-F: Monthly Remittance Form of Final Income Taxes Withheld
 0620: Monthly Remittance Form of Tax Withheld on the Amount Withdrawn from the Decedent''s Deposit Account',
-    ARRAY[]::vector(1024)
-);
+    '{"source_type": "bir_cms", "scraped_from": "bir-cms-ws.bir.gov.ph"}');
 
-INSERT INTO knowledge_chunks (source, category, content, embedding) VALUES (
+INSERT INTO knowledge_chunks (id, source, category, content, metadata) VALUES (
+    uuid_generate_v4(),
     'BIR Official - Withholding Tax Forms',
     'withholding',
     'BIR Withholding Tax Forms:
@@ -598,10 +599,10 @@ INSERT INTO knowledge_chunks (source, category, content, embedding) VALUES (
 1604-E: Annual Information Return of Creditable Income Taxes Withheld (Expanded)/ Income Payments Exempt from Withholding Tax
 1606: Withholding Tax Remittance Return For Onerous Transfer of Real Property Other Than Capital Asset (Including Taxable and Exempt)
 1621: Quarterly Remittance Return of Tax Withheld on the Amount Withdrawn from Decedent''s Deposit Account',
-    ARRAY[]::vector(1024)
-);
+    '{"source_type": "bir_cms", "scraped_from": "bir-cms-ws.bir.gov.ph"}');
 
-INSERT INTO knowledge_chunks (source, category, content, embedding) VALUES (
+INSERT INTO knowledge_chunks (id, source, category, content, metadata) VALUES (
+    uuid_generate_v4(),
     'BIR Official - Income Tax Return Forms',
     'income_tax',
     'BIR Income Tax Return Forms:
@@ -618,10 +619,10 @@ INSERT INTO knowledge_chunks (source, category, content, embedding) VALUES (
 1707: Capital Gains Tax Return for Onerous Transfer of Shares of Stocks Not Traded Through the Local Stock Exchange
 1707-A: Annual Capital Gains Tax Return for Onerous Transfer of Shares of Stock Not Traded Through the Local Stock Exchange
 1709: Information Return on Transactions with Related Party (Foreign and/or Domestic)',
-    ARRAY[]::vector(1024)
-);
+    '{"source_type": "bir_cms", "scraped_from": "bir-cms-ws.bir.gov.ph"}');
 
-INSERT INTO knowledge_chunks (source, category, content, embedding) VALUES (
+INSERT INTO knowledge_chunks (id, source, category, content, metadata) VALUES (
+    uuid_generate_v4(),
     'BIR Official - VAT and Percentage Tax Forms',
     'vat',
     'BIR VAT and Percentage Tax Forms:
@@ -631,10 +632,10 @@ INSERT INTO knowledge_chunks (source, category, content, embedding) VALUES (
 2551Q: Quarterly Percentage Tax Return
 2552: Percentage Tax Return for Transactions Involving Shares of Stock Listed and Traded Through the Local Stock Exchange (LSE) or Through Initial and/or Secondary Public Offering
 2553: Return of Percentage Tax Payable Under Special Laws',
-    ARRAY[]::vector(1024)
-);
+    '{"source_type": "bir_cms", "scraped_from": "bir-cms-ws.bir.gov.ph"}');
 
-INSERT INTO knowledge_chunks (source, category, content, embedding) VALUES (
+INSERT INTO knowledge_chunks (id, source, category, content, metadata) VALUES (
+    uuid_generate_v4(),
     'BIR Official - Registration Forms',
     'compliance',
     'BIR Registration Forms:
@@ -646,10 +647,10 @@ INSERT INTO knowledge_chunks (source, category, content, embedding) VALUES (
 1904: Application for Registration For One-Time Taxpayer and Persons Registering under E.O. 98 (Securing a TIN to be able to transact with any Government Office)
 1905: Application for Registration Information Update/Correction/Cancellation
 1906: Application for Authority to Print Invoices',
-    ARRAY[]::vector(1024)
-);
+    '{"source_type": "bir_cms", "scraped_from": "bir-cms-ws.bir.gov.ph"}');
 
-INSERT INTO knowledge_chunks (source, category, content, embedding) VALUES (
+INSERT INTO knowledge_chunks (id, source, category, content, metadata) VALUES (
+    uuid_generate_v4(),
     'BIR Official - Other BIR Forms (DST, Excise, Certificates)',
     'general',
     'BIR Other Forms (Documentary Stamp Tax, Excise Tax, Certificates, etc.):
@@ -670,10 +671,10 @@ INSERT INTO knowledge_chunks (source, category, content, embedding) VALUES (
 2306: Certificate of Final Tax Withheld At Source
 2307: Certificate of Creditable Tax Withheld At Source
 2316: Certificate of Compensation Payment/Tax Withheld For Compensation Payment With or Without Tax Withheld',
-    ARRAY[]::vector(1024)
-);
+    '{"source_type": "bir_cms", "scraped_from": "bir-cms-ws.bir.gov.ph"}');
 
-INSERT INTO knowledge_chunks (source, category, content, embedding) VALUES (
+INSERT INTO knowledge_chunks (id, source, category, content, metadata) VALUES (
+    uuid_generate_v4(),
     'BIR Official - EOPT Act (EOPT Act)',
     'compliance',
     'Revenue Regulations
@@ -774,10 +775,10 @@ August 14, 2024 |
 
 RMC No. 87-2024 | 
 Answers frequently-asked questions relative to the filing of tax ',
-    ARRAY[]::vector(1024)
-);
+    '{"source_type": "bir_cms", "scraped_from": "bir-cms-ws.bir.gov.ph"}');
 
-INSERT INTO knowledge_chunks (source, category, content, embedding) VALUES (
+INSERT INTO knowledge_chunks (id, source, category, content, metadata) VALUES (
+    uuid_generate_v4(),
     'BIR Official - CREATE MORE Act Revenue Issuances',
     'income_tax',
     'Revenue Regulations
@@ -861,10 +862,10 @@ May 20, 2025 |
 
 RMO No. 26-2025 | 
 Modification of Alphanumeric Tax Code (ATC) of Selec',
-    ARRAY[]::vector(1024)
-);
+    '{"source_type": "bir_cms", "scraped_from": "bir-cms-ws.bir.gov.ph"}');
 
-INSERT INTO knowledge_chunks (source, category, content, embedding) VALUES (
+INSERT INTO knowledge_chunks (id, source, category, content, metadata) VALUES (
+    uuid_generate_v4(),
     'BIR Official - VAT on Digital Services (Content)',
     'vat',
     'Revenue Regulations
@@ -954,10 +955,10 @@ Circularizing Republic Act No. 12023, titled "An Act Amending Sections 105, 108,
 
 Digest | Full Text | RA No. 12023 | 
 November 15, 2024 |',
-    ARRAY[]::vector(1024)
-);
+    '{"source_type": "bir_cms", "scraped_from": "bir-cms-ws.bir.gov.ph"}');
 
-INSERT INTO knowledge_chunks (source, category, content, embedding) VALUES (
+INSERT INTO knowledge_chunks (id, source, category, content, metadata) VALUES (
+    uuid_generate_v4(),
     'BIR Official - CMEPA (CMEPA)',
     'general',
     'Revenue Regulations
@@ -1056,10 +1057,10 @@ June 11, 2025 |
 RMC No. 55-2025 | 
 
 Clarifying Section 24 of Republic Act No. 12214, entitled ',
-    ARRAY[]::vector(1024)
-);
+    '{"source_type": "bir_cms", "scraped_from": "bir-cms-ws.bir.gov.ph"}');
 
-INSERT INTO knowledge_chunks (source, category, content, embedding) VALUES (
+INSERT INTO knowledge_chunks (id, source, category, content, metadata) VALUES (
+    uuid_generate_v4(),
     'BIR Official - Tax Amnesty (Tax Amnesty Act v2)',
     'general',
     'Revenue Regulations
@@ -1190,10 +1191,10 @@ DATE OF ISSUE |
 RMC No. 30-2025 | 
 
 Circularizing the Implementing Rules and Regu',
-    ARRAY[]::vector(1024)
-);
+    '{"source_type": "bir_cms", "scraped_from": "bir-cms-ws.bir.gov.ph"}');
 
-INSERT INTO knowledge_chunks (source, category, content, embedding) VALUES (
+INSERT INTO knowledge_chunks (id, source, category, content, metadata) VALUES (
+    uuid_generate_v4(),
     'BIR Official - Tax Amnesty (Tax Amnesty Act)',
     'general',
     'FORM NO. | 
@@ -1218,6 +1219,5 @@ Form Title: Deductions for Estate Tax |
 2118-EA Guidelines
  | 
 Form Title : Estate Tax Amnesty Return |',
-    ARRAY[]::vector(1024)
-);
+    '{"source_type": "bir_cms", "scraped_from": "bir-cms-ws.bir.gov.ph"}');
 

@@ -251,15 +251,26 @@ For EWT sheets (BIR 0619-E — Expanded Withholding):
 
 IMPORTANT: Use field names EXACTLY as listed above. Do not invent new field names.
 
+When multiple source columns could map to the SAME target field, or a column has confidence < 0.85:
+- Still pick the best mapping in "mappings"
+- Add "candidates" with up to 3 options per ambiguous column:
+  {"column_name": [{"target_field":"...", "confidence":0.8, "reason":"..."}]}
+- Add "conflicts" when 2+ source columns compete for the same target:
+  [{"target_field":"gross_sales", "columns":["Amount","Gross Amt"]}]
+
 Respond ONLY with valid JSON:
 {
   "mappings": {"source_column_name": "target_field_name", ...},
   "unmapped": ["column_names_that_dont_map"],
   "confidence": 0.95,
-  "field_confidence": {"source_column_name": 0.95, ...}
+  "field_confidence": {"source_column_name": 0.95, ...},
+  "candidates": {"ambiguous_column": [{"target_field":"...", "confidence":0.8, "reason":"header contains Gross"}]},
+  "conflicts": [{"target_field":"gross_sales", "columns":["Amount","Gross Amt"]}]
 }
 
-field_confidence: per-column confidence (0.0-1.0) indicating how sure you are about each mapping.`
+field_confidence: per-column confidence (0.0-1.0) indicating how sure you are about each mapping.
+candidates: per-column list of up to 3 possible target fields with confidence and reasoning (only for ambiguous columns).
+conflicts: groups of source columns that compete for the same target field.`
 
 // ColumnMapperService handles AI-powered column mapping.
 type ColumnMapperService struct {
@@ -271,21 +282,38 @@ func NewColumnMapperService(ai *openai.Client) *ColumnMapperService {
 	return &ColumnMapperService{ai: ai}
 }
 
+// FieldCandidate represents one possible target field for an ambiguous column.
+type FieldCandidate struct {
+	TargetField string  `json:"target_field"`
+	Confidence  float64 `json:"confidence"`
+	Reason      string  `json:"reason"`
+}
+
+// ConflictGroup represents multiple source columns competing for the same target field.
+type ConflictGroup struct {
+	TargetField string   `json:"target_field"`
+	Columns     []string `json:"columns"`
+}
+
 // ColumnMapping holds the result of column mapping.
 type ColumnMapping struct {
-	Mappings        map[string]string  `json:"mappings"`
-	Unmapped        []string           `json:"unmapped"`
-	Confidence      float64            `json:"confidence"`
-	FieldConfidence map[string]float64 `json:"field_confidence,omitempty"`
+	Mappings        map[string]string              `json:"mappings"`
+	Unmapped        []string                       `json:"unmapped"`
+	Confidence      float64                        `json:"confidence"`
+	FieldConfidence map[string]float64             `json:"field_confidence,omitempty"`
+	Candidates      map[string][]FieldCandidate    `json:"candidates,omitempty"`
+	Conflicts       []ConflictGroup                `json:"conflicts,omitempty"`
 }
 
 // AutoMapColumns maps spreadsheet columns to BIR form fields using AI.
+// correctionHints are optional past user corrections to feed into the AI prompt.
 func (s *ColumnMapperService) AutoMapColumns(
 	ctx context.Context,
 	columns []string,
 	sampleRows []map[string]interface{},
 	reportType string,
 	existingMappings map[string]string,
+	correctionHints ...MappingCorrection,
 ) (*ColumnMapping, error) {
 	// If existing mappings cover all columns, reuse them
 	if len(existingMappings) > 0 && allColumnsMapped(columns, existingMappings) {
@@ -299,6 +327,35 @@ func (s *ColumnMapperService) AutoMapColumns(
 			Confidence:      1.0,
 			FieldConfidence: fc,
 		}, nil
+	}
+
+	// Phase 5: Try fuzzy matching against saved template before calling AI
+	if len(existingMappings) > 0 {
+		fuzzyMatched, fuzzyConf := FuzzyMatchSavedMappings(columns, existingMappings)
+		if len(fuzzyMatched) > 0 {
+			coverage := float64(len(fuzzyMatched)) / float64(len(columns))
+			totalConf := 0.0
+			for _, c := range fuzzyConf {
+				totalConf += c
+			}
+			avgConf := totalConf / float64(len(fuzzyConf))
+
+			// If fuzzy match covers >80% columns with avg confidence >0.85, use directly
+			if coverage > 0.80 && avgConf > 0.85 {
+				var unmapped []string
+				for _, col := range columns {
+					if _, ok := fuzzyMatched[col]; !ok {
+						unmapped = append(unmapped, col)
+					}
+				}
+				return &ColumnMapping{
+					Mappings:        fuzzyMatched,
+					Unmapped:        unmapped,
+					Confidence:      avgConf,
+					FieldConfidence: fuzzyConf,
+				}, nil
+			}
+		}
 	}
 
 	// Build user prompt
@@ -319,6 +376,11 @@ func (s *ColumnMapperService) AutoMapColumns(
 	if len(existingMappings) > 0 {
 		existingJSON, _ := json.Marshal(existingMappings)
 		userPrompt += fmt.Sprintf("\n\nPrevious mappings (prefer reusing): %s", string(existingJSON))
+	}
+
+	// Phase 4: Append correction hints if available
+	if len(correctionHints) > 0 {
+		userPrompt += buildCorrectionHint(correctionHints)
 	}
 
 	resp, err := s.ai.ChatCompletion(ctx, []oai.ChatCompletionMessage{
@@ -365,7 +427,66 @@ func (s *ColumnMapperService) AutoMapColumns(
 		}, nil
 	}
 
+	// Programmatic conflict detection: scan for duplicate target fields
+	result.Conflicts = detectConflicts(result.Mappings, result.Conflicts)
+
 	return &result, nil
+}
+
+// detectConflicts scans mappings for duplicate target fields and merges with
+// any AI-reported conflicts. This ensures conflicts are always detected even
+// if the AI fails to report them.
+func detectConflicts(mappings map[string]string, existing []ConflictGroup) []ConflictGroup {
+	// Build target → columns index
+	targetCols := make(map[string][]string)
+	for col, target := range mappings {
+		if target == "" || target == "_skip" {
+			continue
+		}
+		targetCols[target] = append(targetCols[target], col)
+	}
+
+	// Merge with existing conflict set (keyed by target field)
+	conflictMap := make(map[string]ConflictGroup)
+	for _, cg := range existing {
+		conflictMap[cg.TargetField] = cg
+	}
+
+	for target, cols := range targetCols {
+		if len(cols) < 2 {
+			continue
+		}
+		if _, ok := conflictMap[target]; !ok {
+			conflictMap[target] = ConflictGroup{TargetField: target, Columns: cols}
+		} else {
+			// Merge: union the column lists
+			seen := make(map[string]bool)
+			merged := make([]string, 0)
+			for _, c := range conflictMap[target].Columns {
+				if !seen[c] {
+					seen[c] = true
+					merged = append(merged, c)
+				}
+			}
+			for _, c := range cols {
+				if !seen[c] {
+					seen[c] = true
+					merged = append(merged, c)
+				}
+			}
+			conflictMap[target] = ConflictGroup{TargetField: target, Columns: merged}
+		}
+	}
+
+	if len(conflictMap) == 0 {
+		return nil
+	}
+
+	conflicts := make([]ConflictGroup, 0, len(conflictMap))
+	for _, cg := range conflictMap {
+		conflicts = append(conflicts, cg)
+	}
+	return conflicts
 }
 
 func allColumnsMapped(columns []string, mappings map[string]string) bool {
@@ -375,6 +496,201 @@ func allColumnsMapped(columns []string, mappings map[string]string) bool {
 		}
 	}
 	return true
+}
+
+// abbreviations maps common abbreviations to their full forms for fuzzy matching.
+var abbreviations = map[string]string{
+	"amt":   "amount",
+	"inv":   "invoice",
+	"no":    "number",
+	"no.":   "number",
+	"num":   "number",
+	"addr":  "address",
+	"desc":  "description",
+	"qty":   "quantity",
+	"dt":    "date",
+	"val":   "value",
+	"tot":   "total",
+	"pmt":   "payment",
+	"txn":   "transaction",
+	"acct":  "account",
+	"bal":   "balance",
+	"ref":   "reference",
+	// Filipino abbreviations
+	"hal":   "halaga",   // Amount
+	"pet":   "petsa",    // Date
+	"bil":   "bilang",   // Count/Number
+	"kab":   "kabuuan",  // Total
+}
+
+// normalizeColumn normalizes a column name for comparison: lowercase, trim, collapse whitespace.
+func normalizeColumn(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	// Collapse multiple spaces/underscores to single space
+	parts := strings.FieldsFunc(s, func(r rune) bool {
+		return r == ' ' || r == '_' || r == '-'
+	})
+	return strings.Join(parts, " ")
+}
+
+// expandAbbreviations replaces known abbreviations in a normalized string.
+func expandAbbreviations(s string) string {
+	words := strings.Fields(s)
+	expanded := make([]string, len(words))
+	for i, w := range words {
+		if full, ok := abbreviations[w]; ok {
+			expanded[i] = full
+		} else {
+			// Strip trailing period for abbreviation lookup
+			trimmed := strings.TrimRight(w, ".")
+			if full, ok := abbreviations[trimmed]; ok {
+				expanded[i] = full
+			} else {
+				expanded[i] = w
+			}
+		}
+	}
+	return strings.Join(expanded, " ")
+}
+
+// levenshtein computes the edit distance between two strings.
+func levenshtein(a, b string) int {
+	la, lb := len(a), len(b)
+	if la == 0 { return lb }
+	if lb == 0 { return la }
+
+	prev := make([]int, lb+1)
+	curr := make([]int, lb+1)
+	for j := 0; j <= lb; j++ {
+		prev[j] = j
+	}
+	for i := 1; i <= la; i++ {
+		curr[0] = i
+		for j := 1; j <= lb; j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			del := prev[j] + 1
+			ins := curr[j-1] + 1
+			sub := prev[j-1] + cost
+			min := del
+			if ins < min { min = ins }
+			if sub < min { min = sub }
+			curr[j] = min
+		}
+		prev, curr = curr, prev
+	}
+	return prev[lb]
+}
+
+// FuzzyMatchSavedMappings attempts to match current columns to saved template
+// mappings using fuzzy matching. Returns matched mappings and per-field confidence.
+func FuzzyMatchSavedMappings(
+	currentColumns []string,
+	savedMappings map[string]string,
+) (matched map[string]string, confidence map[string]float64) {
+	matched = make(map[string]string)
+	confidence = make(map[string]float64)
+
+	if len(savedMappings) == 0 {
+		return
+	}
+
+	// Build normalized index of saved columns
+	type savedEntry struct {
+		original string
+		norm     string
+		expanded string
+		target   string
+	}
+	saved := make([]savedEntry, 0, len(savedMappings))
+	for col, target := range savedMappings {
+		norm := normalizeColumn(col)
+		saved = append(saved, savedEntry{
+			original: col,
+			norm:     norm,
+			expanded: expandAbbreviations(norm),
+			target:   target,
+		})
+	}
+
+	for _, col := range currentColumns {
+		norm := normalizeColumn(col)
+		expanded := expandAbbreviations(norm)
+
+		var bestTarget string
+		var bestConf float64
+
+		for _, s := range saved {
+			// Level 1: Exact match (after normalization)
+			if norm == s.norm {
+				bestTarget = s.target
+				bestConf = 1.0
+				break
+			}
+
+			// Level 2: Case + whitespace normalized match
+			if norm == s.norm {
+				if 0.95 > bestConf {
+					bestTarget = s.target
+					bestConf = 0.95
+				}
+				continue
+			}
+
+			// Level 3: Abbreviation expansion match
+			if expanded == s.expanded && expanded != "" {
+				if 0.75 > bestConf {
+					bestTarget = s.target
+					bestConf = 0.75
+				}
+				continue
+			}
+
+			// Level 4: Levenshtein distance ≤ 3
+			dist := levenshtein(norm, s.norm)
+			if dist <= 3 && dist > 0 {
+				conf := 0.80 - float64(dist)*0.05
+				if conf > bestConf {
+					bestTarget = s.target
+					bestConf = conf
+				}
+			}
+		}
+
+		if bestTarget != "" && bestConf > 0 {
+			matched[col] = bestTarget
+			confidence[col] = bestConf
+		}
+	}
+
+	return
+}
+
+// MappingCorrection represents a user correction to an AI column mapping.
+type MappingCorrection struct {
+	ColumnName   string        `json:"column_name"`
+	OldTarget    string        `json:"old_target"`
+	NewTarget    string        `json:"new_target"`
+	SampleValues []interface{} `json:"sample_values,omitempty"`
+}
+
+// buildCorrectionHint formats past correction records into a prompt hint for the AI.
+func buildCorrectionHint(corrections []MappingCorrection) string {
+	if len(corrections) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("\n\nUser previously corrected these column mappings (prefer these):\n")
+	for _, c := range corrections {
+		sb.WriteString(fmt.Sprintf("- \"%s\" should map to \"%s\"", c.ColumnName, c.NewTarget))
+		if c.OldTarget != "" {
+			sb.WriteString(fmt.Sprintf(" (not \"%s\")", c.OldTarget))
+		}
+		sb.WriteString("\n")
+	}
+	return sb.String()
 }
 
 // AutoMapColumnsFromCleaning converts cleaning pipeline FieldMappings into a

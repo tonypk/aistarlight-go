@@ -378,6 +378,7 @@ func (rt *Router) Setup(r *gin.Engine) {
 		data.POST("/upload-parsed", rt.Data.UploadParsed)
 		data.POST("/preview", rt.Data.Preview)
 		data.POST("/mapping", rt.Data.SuggestMapping)
+		data.POST("/mapping/corrections", rt.Data.RecordMappingCorrections)
 	}
 
 	// Async task polling routes

@@ -322,6 +322,50 @@ func (q *Queries) ListCorrectionsByEntity(ctx context.Context, arg ListCorrectio
 	return items, nil
 }
 
+const listMappingCorrections = `-- name: ListMappingCorrections :many
+SELECT id, company_id, user_id, entity_type, entity_id, field_name, old_value, new_value, reason, context_data, created_at FROM corrections
+WHERE company_id = $1 AND entity_type = $2
+ORDER BY created_at DESC LIMIT $3
+`
+
+type ListMappingCorrectionsParams struct {
+	CompanyID  uuid.UUID `json:"company_id"`
+	EntityType string    `json:"entity_type"`
+	Limit      int32     `json:"limit"`
+}
+
+func (q *Queries) ListMappingCorrections(ctx context.Context, arg ListMappingCorrectionsParams) ([]Correction, error) {
+	rows, err := q.db.Query(ctx, listMappingCorrections, arg.CompanyID, arg.EntityType, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Correction{}
+	for rows.Next() {
+		var i Correction
+		if err := rows.Scan(
+			&i.ID,
+			&i.CompanyID,
+			&i.UserID,
+			&i.EntityType,
+			&i.EntityID,
+			&i.FieldName,
+			&i.OldValue,
+			&i.NewValue,
+			&i.Reason,
+			&i.ContextData,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listValidationsByReport = `-- name: ListValidationsByReport :many
 SELECT id, report_id, company_id, overall_score, check_results, rag_findings, validated_at FROM validation_results WHERE report_id = $1
 ORDER BY validated_at DESC

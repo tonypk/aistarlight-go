@@ -329,7 +329,26 @@ func (h *DataHandler) SuggestMapping(c *gin.Context) {
 		}
 	}
 
-	result, err := h.colMapper.AutoMapColumns(c.Request.Context(), req.Columns, req.SampleRows, req.ReportType, existingMappings)
+	// Phase 4: Fetch past mapping corrections for this company
+	var correctionHints []service.MappingCorrection
+	if h.q != nil {
+		rows, err := h.q.ListMappingCorrections(c.Request.Context(), sqlc.ListMappingCorrectionsParams{
+			CompanyID:  companyID,
+			EntityType: "column_mapping",
+			Limit:      50,
+		})
+		if err == nil {
+			for _, row := range rows {
+				correctionHints = append(correctionHints, service.MappingCorrection{
+					ColumnName: row.FieldName,
+					OldTarget:  derefString(row.OldValue),
+					NewTarget:  row.NewValue,
+				})
+			}
+		}
+	}
+
+	result, err := h.colMapper.AutoMapColumns(c.Request.Context(), req.Columns, req.SampleRows, req.ReportType, existingMappings, correctionHints...)
 	if err != nil {
 		slog.Error("column mapping failed", "error", err)
 		response.InternalError(c, "Column mapping failed. Please try again.")
@@ -337,4 +356,68 @@ func (h *DataHandler) SuggestMapping(c *gin.Context) {
 	}
 
 	response.OK(c, result)
+}
+
+type mappingCorrectionRequest struct {
+	ReportType  string `json:"report_type" binding:"required"`
+	Corrections []struct {
+		ColumnName   string        `json:"column_name" binding:"required"`
+		OldTarget    string        `json:"old_target"`
+		NewTarget    string        `json:"new_target" binding:"required"`
+		SampleValues []interface{} `json:"sample_values,omitempty"`
+	} `json:"corrections" binding:"required"`
+}
+
+// RecordMappingCorrections handles POST /api/v1/data/mapping/corrections.
+// Records user corrections to AI column mappings for future learning.
+func (h *DataHandler) RecordMappingCorrections(c *gin.Context) {
+	var req mappingCorrectionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	companyID := middleware.GetCompanyID(c)
+	userID := middleware.GetUserID(c)
+
+	recorded := 0
+	for _, corr := range req.Corrections {
+		contextData := map[string]interface{}{
+			"report_type":   req.ReportType,
+			"sample_values": corr.SampleValues,
+		}
+		contextJSON, _ := json.Marshal(contextData)
+
+		var oldVal *string
+		if corr.OldTarget != "" {
+			oldVal = &corr.OldTarget
+		}
+
+		_, err := h.q.CreateCorrection(c.Request.Context(), sqlc.CreateCorrectionParams{
+			ID:          uuid.New(),
+			CompanyID:   companyID,
+			UserID:      userID,
+			EntityType:  "column_mapping",
+			EntityID:    uuid.New(), // No specific entity — use random ID
+			FieldName:   corr.ColumnName,
+			OldValue:    oldVal,
+			NewValue:    corr.NewTarget,
+			Reason:      nil,
+			ContextData: contextJSON,
+		})
+		if err != nil {
+			slog.Warn("failed to record mapping correction", "error", err, "column", corr.ColumnName)
+			continue
+		}
+		recorded++
+	}
+
+	response.OK(c, gin.H{"recorded": recorded})
+}
+
+func derefString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }

@@ -49,3 +49,8 @@ ORDER BY validated_at DESC LIMIT 1;
 -- name: ListValidationsByReport :many
 SELECT * FROM validation_results WHERE report_id = $1
 ORDER BY validated_at DESC;
+
+-- name: ListMappingCorrections :many
+SELECT * FROM corrections
+WHERE company_id = $1 AND entity_type = $2
+ORDER BY created_at DESC LIMIT $3;

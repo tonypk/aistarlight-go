@@ -37,11 +37,6 @@ SELECT * FROM correction_rules
 WHERE company_id = $1 AND is_active = true
 ORDER BY confidence DESC;
 
--- name: FindMatchingCorrectionRules :many
-SELECT * FROM correction_rules
-WHERE company_id = $1 AND rule_type = $2 AND correction_field = $3 AND is_active = true
-ORDER BY confidence DESC;
-
 -- name: CreateValidationResult :one
 INSERT INTO validation_results (id, report_id, company_id, overall_score, check_results, rag_findings, validated_at)
 VALUES ($1, $2, $3, $4, $5, $6, NOW())

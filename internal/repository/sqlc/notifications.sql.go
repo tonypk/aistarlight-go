@@ -12,6 +12,28 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countNotificationsByCompany = `-- name: CountNotificationsByCompany :one
+SELECT COUNT(*) FROM notifications WHERE company_id = $1
+`
+
+func (q *Queries) CountNotificationsByCompany(ctx context.Context, companyID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countNotificationsByCompany, companyID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countUnreadNotifications = `-- name: CountUnreadNotifications :one
+SELECT COUNT(*) FROM notifications WHERE company_id = $1 AND NOT is_read
+`
+
+func (q *Queries) CountUnreadNotifications(ctx context.Context, companyID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countUnreadNotifications, companyID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createNotification = `-- name: CreateNotification :one
 INSERT INTO notifications (id, company_id, user_id, notification_type, title, message, metadata, dedup_key)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -103,26 +125,14 @@ func (q *Queries) ListNotificationsByCompany(ctx context.Context, arg ListNotifi
 	return items, nil
 }
 
-const countNotificationsByCompany = `-- name: CountNotificationsByCompany :one
-SELECT COUNT(*) FROM notifications WHERE company_id = $1
+const markAllNotificationsRead = `-- name: MarkAllNotificationsRead :exec
+UPDATE notifications SET is_read = true, read_at = NOW()
+WHERE company_id = $1 AND NOT is_read
 `
 
-func (q *Queries) CountNotificationsByCompany(ctx context.Context, companyID uuid.UUID) (int64, error) {
-	row := q.db.QueryRow(ctx, countNotificationsByCompany, companyID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
-const countUnreadNotifications = `-- name: CountUnreadNotifications :one
-SELECT COUNT(*) FROM notifications WHERE company_id = $1 AND NOT is_read
-`
-
-func (q *Queries) CountUnreadNotifications(ctx context.Context, companyID uuid.UUID) (int64, error) {
-	row := q.db.QueryRow(ctx, countUnreadNotifications, companyID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
+func (q *Queries) MarkAllNotificationsRead(ctx context.Context, companyID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, markAllNotificationsRead, companyID)
+	return err
 }
 
 const markNotificationRead = `-- name: MarkNotificationRead :exec
@@ -138,32 +148,4 @@ type MarkNotificationReadParams struct {
 func (q *Queries) MarkNotificationRead(ctx context.Context, arg MarkNotificationReadParams) error {
 	_, err := q.db.Exec(ctx, markNotificationRead, arg.ID, arg.CompanyID)
 	return err
-}
-
-const markAllNotificationsRead = `-- name: MarkAllNotificationsRead :exec
-UPDATE notifications SET is_read = true, read_at = NOW()
-WHERE company_id = $1 AND NOT is_read
-`
-
-func (q *Queries) MarkAllNotificationsRead(ctx context.Context, companyID uuid.UUID) error {
-	_, err := q.db.Exec(ctx, markAllNotificationsRead, companyID)
-	return err
-}
-
-const checkNotificationExists = `-- name: CheckNotificationExists :one
-SELECT EXISTS(
-    SELECT 1 FROM notifications WHERE company_id = $1 AND dedup_key = $2
-) AS exists
-`
-
-type CheckNotificationExistsParams struct {
-	CompanyID uuid.UUID `json:"company_id"`
-	DedupKey  *string   `json:"dedup_key"`
-}
-
-func (q *Queries) CheckNotificationExists(ctx context.Context, arg CheckNotificationExistsParams) (bool, error) {
-	row := q.db.QueryRow(ctx, checkNotificationExists, arg.CompanyID, arg.DedupKey)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
 }

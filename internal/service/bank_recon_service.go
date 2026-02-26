@@ -30,27 +30,30 @@ func NewBankReconService(q *sqlc.Queries, analyzer *MatchAnalyzer) *BankReconSer
 
 // CreateBatchInput holds parameters for creating a new reconciliation batch.
 type CreateBatchInput struct {
-	CompanyID         uuid.UUID
-	CreatedBy         uuid.UUID
-	SessionID         *uuid.UUID
-	Period            string
-	AmountTolerance   float64
-	DateToleranceDays int
-	SourceFiles       []string
-	Records           []map[string]interface{}
-	BankColumns       []string
-	BankRows          []map[string]interface{}
+	CompanyID          uuid.UUID
+	CreatedBy          uuid.UUID
+	SessionID          *uuid.UUID
+	Period             string
+	AmountTolerance    float64
+	DateToleranceDays  int
+	SourceFiles        []string
+	Records            []map[string]interface{}
+	BankColumns        []string
+	BankRows           []map[string]interface{}
+	OpeningBalance     *float64
+	BankClosingBalance *float64
 }
 
 // BatchResult holds the complete result of a reconciliation run.
 type BatchResult struct {
-	BatchID      uuid.UUID        `json:"batch_id"`
-	Status       string           `json:"status"`
-	ParseSummary *ParseSummary    `json:"parse_summary"`
-	MatchResult  *MatchResult     `json:"match_result"`
-	Suggestions  []AISuggestion   `json:"ai_suggestions,omitempty"`
-	Explanations []AIExplanation  `json:"ai_explanations,omitempty"`
-	Error        string           `json:"error,omitempty"`
+	BatchID       uuid.UUID        `json:"batch_id"`
+	Status        string           `json:"status"`
+	ParseSummary  *ParseSummary    `json:"parse_summary"`
+	MatchResult   *MatchResult     `json:"match_result"`
+	BalanceResult *BalanceResult   `json:"balance_result,omitempty"`
+	Suggestions   []AISuggestion   `json:"ai_suggestions,omitempty"`
+	Explanations  []AIExplanation  `json:"ai_explanations,omitempty"`
+	Error         string           `json:"error,omitempty"`
 }
 
 // ParseSummary summarizes the bank statement parsing step.
@@ -183,7 +186,36 @@ func (s *BankReconService) RunReconciliation(ctx context.Context, input CreateBa
 	suggestionsJSON, _ := json.Marshal(suggestions)
 	explanationsJSON, _ := json.Marshal(explanations)
 
-	// Step 4: Persist final results
+	// Step 4: Balance tracking (if opening balance provided)
+	if input.OpeningBalance != nil {
+		bankClosing := 0.0
+		if input.BankClosingBalance != nil {
+			bankClosing = *input.BankClosingBalance
+		}
+		// Combine records and bank entries for balance calculation
+		allTxns := append(input.Records, bankMaps...)
+		balanceResult := TrackBalance(*input.OpeningBalance, bankClosing, allTxns)
+		result.BalanceResult = &balanceResult
+
+		// Persist balances to session if linked
+		if input.SessionID != nil {
+			closingNum := pgtype.Numeric{}
+			_ = closingNum.Scan(fmt.Sprintf("%.2f", balanceResult.ClosingBalance))
+			openingNum := pgtype.Numeric{}
+			_ = openingNum.Scan(fmt.Sprintf("%.2f", *input.OpeningBalance))
+			bankClosingNum := pgtype.Numeric{}
+			_ = bankClosingNum.Scan(fmt.Sprintf("%.2f", bankClosing))
+
+			_ = s.q.UpdateReconciliationSessionBalances(ctx, sqlc.UpdateReconciliationSessionBalancesParams{
+				ID:               *input.SessionID,
+				OpeningBalance:   openingNum,
+				ClosingBalance:   closingNum,
+				BankClosingBalance: bankClosingNum,
+			})
+		}
+	}
+
+	// Step 5: Persist final results
 	result.Status = "completed"
 	_ = s.q.UpdateBankReconBatch(ctx, sqlc.UpdateBankReconBatchParams{
 		ID:             batchID,
@@ -202,6 +234,7 @@ func (s *BankReconService) RunReconciliation(ctx context.Context, input CreateBa
 		"unmatched_bank", len(matchResult.UnmatchedBank),
 		"match_rate", matchResult.MatchRate,
 		"ai_suggestions", len(suggestions),
+		"balance_tracked", input.OpeningBalance != nil,
 	)
 
 	return result, nil

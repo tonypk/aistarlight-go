@@ -30,7 +30,7 @@ func (s *ReportService) AmendReport(ctx context.Context, reportID, userID uuid.U
 	}
 
 	// Get current max amendment number
-	maxAmendment, err := s.q.GetMaxAmendmentNumber(ctx, rootID)
+	maxAmendment, err := s.q.GetMaxAmendmentNumber(ctx, pgtype.UUID{Bytes: rootID, Valid: true})
 	if err != nil {
 		maxAmendment = 0
 	}

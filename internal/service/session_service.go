@@ -20,11 +20,12 @@ type SessionService struct {
 	q          *sqlc.Queries
 	classifier *ClassifierService
 	ai         *openai.Client
+	augmenter  *PromptAugmenter
 }
 
 // NewSessionService creates a SessionService.
-func NewSessionService(q *sqlc.Queries, classifier *ClassifierService, ai *openai.Client) *SessionService {
-	return &SessionService{q: q, classifier: classifier, ai: ai}
+func NewSessionService(q *sqlc.Queries, classifier *ClassifierService, ai *openai.Client, augmenter *PromptAugmenter) *SessionService {
+	return &SessionService{q: q, classifier: classifier, ai: ai, augmenter: augmenter}
 }
 
 // SessionResponse is the API response for a session.
@@ -535,8 +536,14 @@ func (s *SessionService) ClassifySession(ctx context.Context, sessionID, company
 		CompletedAt:          session.CompletedAt,
 	})
 
+	// Generate prompt supplement from learned correction rules
+	promptSupplement := ""
+	if s.augmenter != nil {
+		promptSupplement = s.augmenter.GeneratePromptSupplement(ctx, companyID)
+	}
+
 	// Run classification
-	results, err := s.classifier.ClassifyTransactions(ctx, txnDicts, companyID, "")
+	results, err := s.classifier.ClassifyTransactions(ctx, txnDicts, companyID, promptSupplement)
 	if err != nil {
 		return nil, fmt.Errorf("classification failed: %w", err)
 	}

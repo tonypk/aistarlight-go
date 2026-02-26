@@ -184,7 +184,7 @@ func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxp
 		Company:     service.NewCompanyService(q),
 		Report:      service.NewReportService(q, complianceSvc),
 		Chat:        service.NewChatService(ai, q, knowledge),
-		Session:     service.NewSessionService(q, classifierSvc, ai),
+		Session:     service.NewSessionService(q, classifierSvc, ai, service.NewPromptAugmenter(q)),
 		Classifier:  classifierSvc,
 		ColMapper:   service.NewColumnMapperService(ai),
 		Knowledge:   knowledge,
@@ -245,6 +245,7 @@ type handlers struct {
 	Settings       *handler.SettingsHandler
 	Telegram       *handler.TelegramHandler
 	Notification   *handler.NotificationHandler
+	Health         *handler.HealthHandler
 	// Pipeline bridge handlers
 	ReceiptBridge  *handler.ReceiptBridgeHandler
 	JournalBridge  *handler.JournalBridgeHandler
@@ -280,6 +281,7 @@ func newHandlers(svc services, cfg *config.Config, ai *oai.Client, q *sqlc.Queri
 		Settings:       handler.NewSettingsHandler(svc.Company),
 		Telegram:       handler.NewTelegramHandler(q, cfg.Telegram.BotUsername),
 		Notification:   handler.NewNotificationHandler(svc.Notification),
+		Health:         handler.NewHealthHandler(ai),
 		// Pipeline bridges
 		ReceiptBridge:  handler.NewReceiptBridgeHandler(svc.ReceiptBridge),
 		JournalBridge:  handler.NewJournalBridgeHandler(svc.JournalGen),
@@ -331,6 +333,7 @@ func newGinEngine(cfg *config.Config, rdb *redis.Client, svc services, h handler
 		Settings:       h.Settings,
 		Telegram:       h.Telegram,
 		Notification:   h.Notification,
+		Health:         h.Health,
 		ReceiptBridge:  h.ReceiptBridge,
 		JournalBridge:  h.JournalBridge,
 		FinStatement:   h.FinStatement,

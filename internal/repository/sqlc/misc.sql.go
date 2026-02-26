@@ -13,35 +13,12 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const cleanExpiredTokens = `-- name: CleanExpiredTokens :exec
-DELETE FROM revoked_tokens WHERE expires_at < NOW()
-`
-
-func (q *Queries) CleanExpiredTokens(ctx context.Context) error {
-	_, err := q.db.Exec(ctx, cleanExpiredTokens)
-	return err
-}
-
 const countBankReconBatchesByCompany = `-- name: CountBankReconBatchesByCompany :one
 SELECT COUNT(*) FROM bank_reconciliation_batches WHERE company_id = $1
 `
 
 func (q *Queries) CountBankReconBatchesByCompany(ctx context.Context, companyID uuid.UUID) (int64, error) {
 	row := q.db.QueryRow(ctx, countBankReconBatchesByCompany, companyID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
-const countCompletedUnlinkedReceipts = `-- name: CountCompletedUnlinkedReceipts :one
-SELECT COUNT(*) FROM receipt_batches
-WHERE company_id = $1
-    AND status = 'completed'
-    AND (transaction_ids IS NULL OR transaction_ids = '{}')
-`
-
-func (q *Queries) CountCompletedUnlinkedReceipts(ctx context.Context, companyID uuid.UUID) (int64, error) {
-	row := q.db.QueryRow(ctx, countCompletedUnlinkedReceipts, companyID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -113,36 +90,6 @@ func (q *Queries) CreateBankReconBatch(ctx context.Context, arg CreateBankReconB
 		&i.UpdatedAt,
 	)
 	return i, err
-}
-
-const createCorrectionHistory = `-- name: CreateCorrectionHistory :exec
-
-INSERT INTO correction_history (id, company_id, report_type, field_name, old_value, new_value, reason, created_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-`
-
-type CreateCorrectionHistoryParams struct {
-	ID         uuid.UUID `json:"id"`
-	CompanyID  uuid.UUID `json:"company_id"`
-	ReportType string    `json:"report_type"`
-	FieldName  *string   `json:"field_name"`
-	OldValue   *string   `json:"old_value"`
-	NewValue   *string   `json:"new_value"`
-	Reason     *string   `json:"reason"`
-}
-
-// ---- Correction History (legacy) ----
-func (q *Queries) CreateCorrectionHistory(ctx context.Context, arg CreateCorrectionHistoryParams) error {
-	_, err := q.db.Exec(ctx, createCorrectionHistory,
-		arg.ID,
-		arg.CompanyID,
-		arg.ReportType,
-		arg.FieldName,
-		arg.OldValue,
-		arg.NewValue,
-		arg.Reason,
-	)
-	return err
 }
 
 const createReceiptBatch = `-- name: CreateReceiptBatch :one
@@ -272,83 +219,6 @@ func (q *Queries) GetBankReconBatchByID(ctx context.Context, id uuid.UUID) (Bank
 	return i, err
 }
 
-const getCompletedUnlinkedReceipts = `-- name: GetCompletedUnlinkedReceipts :many
-
-SELECT id, company_id, user_id, status, total_images, processed_count, session_id, report_id, report_type, period, results, error_message, created_at, updated_at, transaction_ids FROM receipt_batches
-WHERE company_id = $1
-    AND status = 'completed'
-    AND (transaction_ids IS NULL OR transaction_ids = '{}')
-ORDER BY created_at ASC
-LIMIT $2 OFFSET $3
-`
-
-type GetCompletedUnlinkedReceiptsParams struct {
-	CompanyID uuid.UUID `json:"company_id"`
-	Limit     int32     `json:"limit"`
-	Offset    int32     `json:"offset"`
-}
-
-// ---- Receipt Bridge Queries ----
-func (q *Queries) GetCompletedUnlinkedReceipts(ctx context.Context, arg GetCompletedUnlinkedReceiptsParams) ([]ReceiptBatch, error) {
-	rows, err := q.db.Query(ctx, getCompletedUnlinkedReceipts, arg.CompanyID, arg.Limit, arg.Offset)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ReceiptBatch{}
-	for rows.Next() {
-		var i ReceiptBatch
-		if err := rows.Scan(
-			&i.ID,
-			&i.CompanyID,
-			&i.UserID,
-			&i.Status,
-			&i.TotalImages,
-			&i.ProcessedCount,
-			&i.SessionID,
-			&i.ReportID,
-			&i.ReportType,
-			&i.Period,
-			&i.Results,
-			&i.ErrorMessage,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.TransactionIds,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const getFormSchemaByType = `-- name: GetFormSchemaByType :one
-
-SELECT id, form_type, version, name, frequency, is_active, schema_def, calculation_rules, created_at, updated_at FROM form_schemas WHERE form_type = $1 AND is_active = true
-`
-
-// ---- Form Schemas ----
-func (q *Queries) GetFormSchemaByType(ctx context.Context, formType string) (FormSchema, error) {
-	row := q.db.QueryRow(ctx, getFormSchemaByType, formType)
-	var i FormSchema
-	err := row.Scan(
-		&i.ID,
-		&i.FormType,
-		&i.Version,
-		&i.Name,
-		&i.Frequency,
-		&i.IsActive,
-		&i.SchemaDef,
-		&i.CalculationRules,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
 const getReceiptBatchByID = `-- name: GetReceiptBatchByID :one
 SELECT id, company_id, user_id, status, total_images, processed_count, session_id, report_id, report_type, period, results, error_message, created_at, updated_at, transaction_ids FROM receipt_batches WHERE id = $1
 `
@@ -413,6 +283,7 @@ func (q *Queries) IsTokenRevoked(ctx context.Context, jti string) (bool, error) 
 }
 
 const linkReceiptToTransactions = `-- name: LinkReceiptToTransactions :exec
+
 UPDATE receipt_batches SET
     transaction_ids = $2,
     updated_at = NOW()
@@ -424,44 +295,10 @@ type LinkReceiptToTransactionsParams struct {
 	TransactionIds []uuid.UUID `json:"transaction_ids"`
 }
 
+// ---- Receipt Bridge Queries ----
 func (q *Queries) LinkReceiptToTransactions(ctx context.Context, arg LinkReceiptToTransactionsParams) error {
 	_, err := q.db.Exec(ctx, linkReceiptToTransactions, arg.ID, arg.TransactionIds)
 	return err
-}
-
-const listActiveFormSchemas = `-- name: ListActiveFormSchemas :many
-SELECT id, form_type, version, name, frequency, is_active, schema_def, calculation_rules, created_at, updated_at FROM form_schemas WHERE is_active = true ORDER BY form_type
-`
-
-func (q *Queries) ListActiveFormSchemas(ctx context.Context) ([]FormSchema, error) {
-	rows, err := q.db.Query(ctx, listActiveFormSchemas)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []FormSchema{}
-	for rows.Next() {
-		var i FormSchema
-		if err := rows.Scan(
-			&i.ID,
-			&i.FormType,
-			&i.Version,
-			&i.Name,
-			&i.Frequency,
-			&i.IsActive,
-			&i.SchemaDef,
-			&i.CalculationRules,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const listBankReconBatchesByCompany = `-- name: ListBankReconBatchesByCompany :many
@@ -657,44 +494,6 @@ func (q *Queries) UpdateReceiptBatch(ctx context.Context, arg UpdateReceiptBatch
 		arg.ProcessedCount,
 		arg.Results,
 		arg.ErrorMessage,
-	)
-	return err
-}
-
-const upsertFormSchema = `-- name: UpsertFormSchema :exec
-INSERT INTO form_schemas (id, form_type, version, name, frequency, is_active, schema_def, calculation_rules, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
-ON CONFLICT (form_type) DO UPDATE SET
-    version = EXCLUDED.version,
-    name = EXCLUDED.name,
-    frequency = EXCLUDED.frequency,
-    is_active = EXCLUDED.is_active,
-    schema_def = EXCLUDED.schema_def,
-    calculation_rules = EXCLUDED.calculation_rules,
-    updated_at = NOW()
-`
-
-type UpsertFormSchemaParams struct {
-	ID               uuid.UUID `json:"id"`
-	FormType         string    `json:"form_type"`
-	Version          int32     `json:"version"`
-	Name             string    `json:"name"`
-	Frequency        string    `json:"frequency"`
-	IsActive         bool      `json:"is_active"`
-	SchemaDef        []byte    `json:"schema_def"`
-	CalculationRules []byte    `json:"calculation_rules"`
-}
-
-func (q *Queries) UpsertFormSchema(ctx context.Context, arg UpsertFormSchemaParams) error {
-	_, err := q.db.Exec(ctx, upsertFormSchema,
-		arg.ID,
-		arg.FormType,
-		arg.Version,
-		arg.Name,
-		arg.Frequency,
-		arg.IsActive,
-		arg.SchemaDef,
-		arg.CalculationRules,
 	)
 	return err
 }

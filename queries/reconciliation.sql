@@ -1,6 +1,6 @@
 -- name: CreateReconciliationSession :one
-INSERT INTO reconciliation_sessions (id, company_id, created_by, period, status, report_id, source_files, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+INSERT INTO reconciliation_sessions (id, company_id, created_by, period, status, report_id, source_files, opening_balance, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
 RETURNING *;
 
 -- name: GetReconciliationSessionByID :one
@@ -14,6 +14,14 @@ UPDATE reconciliation_sessions SET
     summary = $5,
     reconciliation_result = $6,
     completed_at = $7,
+    updated_at = NOW()
+WHERE id = $1;
+
+-- name: UpdateReconciliationSessionBalances :exec
+UPDATE reconciliation_sessions SET
+    opening_balance = $2,
+    closing_balance = $3,
+    bank_closing_balance = $4,
     updated_at = NOW()
 WHERE id = $1;
 

@@ -4,19 +4,24 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 
 	"github.com/google/uuid"
 	"github.com/tonypk/aistarlight-go/internal/repository/sqlc"
 )
 
+const autoAnalyzeThreshold = 5 // min total corrections before auto-analyze
+const autoAnalyzeNewMin    = 3 // min new corrections since last analyze
+
 // CorrectionService records accountant corrections and tracks patterns.
 type CorrectionService struct {
-	q *sqlc.Queries
+	q        *sqlc.Queries
+	analyzer *CorrectionAnalyzer
 }
 
 // NewCorrectionService creates a CorrectionService.
 func NewCorrectionService(q *sqlc.Queries) *CorrectionService {
-	return &CorrectionService{q: q}
+	return &CorrectionService{q: q, analyzer: NewCorrectionAnalyzer(q)}
 }
 
 // RecordCorrectionInput holds input for recording a correction.
@@ -68,7 +73,7 @@ func (s *CorrectionService) RecordCorrection(ctx context.Context, input RecordCo
 		return nil, fmt.Errorf("create correction: %w", err)
 	}
 
-	return &CorrectionOutput{
+	output := &CorrectionOutput{
 		ID:          correction.ID,
 		CompanyID:   correction.CompanyID,
 		UserID:      correction.UserID,
@@ -80,7 +85,15 @@ func (s *CorrectionService) RecordCorrection(ctx context.Context, input RecordCo
 		Reason:      correction.Reason,
 		ContextData: contextData,
 		CreatedAt:   correction.CreatedAt.Format("2006-01-02T15:04:05Z"),
-	}, nil
+	}
+
+	// Auto-analyze: trigger rule learning when enough corrections accumulate
+	newRules := s.tryAutoAnalyze(ctx, input.CompanyID)
+	if newRules > 0 {
+		output.ContextData["auto_learned_rules"] = newRules
+	}
+
+	return output, nil
 }
 
 // GetEntityCorrections returns all corrections for a specific entity.
@@ -159,6 +172,59 @@ func (s *CorrectionService) buildContextSnapshot(ctx context.Context, entityType
 	}
 
 	return snapshot
+}
+
+// tryAutoAnalyze checks if enough new corrections accumulated and auto-generates rules.
+// Returns the number of new rules persisted (0 if skipped).
+func (s *CorrectionService) tryAutoAnalyze(ctx context.Context, companyID uuid.UUID) int {
+	if s.analyzer == nil {
+		return 0
+	}
+
+	total, err := s.q.CountCorrectionsByCompany(ctx, companyID)
+	if err != nil || total < int64(autoAnalyzeThreshold) {
+		return 0
+	}
+
+	// Check existing rules to estimate "new" corrections
+	existingRules, _ := s.q.ListActiveCorrectionRulesByCompany(ctx, companyID)
+	var coveredCount int32
+	for _, r := range existingRules {
+		coveredCount += r.SourceCorrectionCount
+	}
+	newCorrections := int(total) - int(coveredCount)
+	if newCorrections < autoAnalyzeNewMin {
+		return 0
+	}
+
+	candidates, err := s.analyzer.AnalyzeCorrections(ctx, companyID)
+	if err != nil || len(candidates) == 0 {
+		return 0
+	}
+
+	// Only persist high-confidence candidates
+	var highConf []RuleCandidate
+	for _, c := range candidates {
+		if c.Confidence >= 0.80 {
+			highConf = append(highConf, c)
+		}
+	}
+	if len(highConf) == 0 {
+		return 0
+	}
+
+	persisted, err := s.analyzer.PersistCandidateRules(ctx, companyID, highConf)
+	if err != nil {
+		slog.Warn("auto-analyze: persist rules failed", "error", err)
+		return 0
+	}
+
+	slog.Info("auto-analyze: learned new rules",
+		"company_id", companyID,
+		"candidates", len(highConf),
+		"persisted", len(persisted),
+	)
+	return len(persisted)
 }
 
 func (s *CorrectionService) toCorrectionOutputs(rows []sqlc.Correction) []CorrectionOutput {

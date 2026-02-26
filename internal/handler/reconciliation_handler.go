@@ -26,14 +26,16 @@ func NewReconciliationHandler(svc *service.BankReconService) *ReconciliationHand
 }
 
 type runReconciliationRequest struct {
-	Period            string                   `json:"period" binding:"required"`
-	AmountTolerance   float64                  `json:"amount_tolerance"`
-	DateToleranceDays int                      `json:"date_tolerance_days"`
-	SourceFiles       []string                 `json:"source_files"`
-	Records           []map[string]interface{} `json:"records" binding:"required"`
-	BankColumns       []string                 `json:"bank_columns" binding:"required"`
-	BankRows          []map[string]interface{} `json:"bank_rows" binding:"required"`
-	SessionID         *string                  `json:"session_id"`
+	Period             string                   `json:"period" binding:"required"`
+	AmountTolerance    float64                  `json:"amount_tolerance"`
+	DateToleranceDays  int                      `json:"date_tolerance_days"`
+	SourceFiles        []string                 `json:"source_files"`
+	Records            []map[string]interface{} `json:"records" binding:"required"`
+	BankColumns        []string                 `json:"bank_columns" binding:"required"`
+	BankRows           []map[string]interface{} `json:"bank_rows" binding:"required"`
+	SessionID          *string                  `json:"session_id"`
+	OpeningBalance     *float64                 `json:"opening_balance"`
+	BankClosingBalance *float64                 `json:"bank_closing_balance"`
 }
 
 // Run handles POST /api/v1/reconciliation/run.
@@ -48,15 +50,17 @@ func (h *ReconciliationHandler) Run(c *gin.Context) {
 	userID := middleware.GetUserID(c)
 
 	input := service.CreateBatchInput{
-		CompanyID:         companyID,
-		CreatedBy:         userID,
-		Period:            req.Period,
-		AmountTolerance:   req.AmountTolerance,
-		DateToleranceDays: req.DateToleranceDays,
-		SourceFiles:       req.SourceFiles,
-		Records:           req.Records,
-		BankColumns:       req.BankColumns,
-		BankRows:          req.BankRows,
+		CompanyID:          companyID,
+		CreatedBy:          userID,
+		Period:             req.Period,
+		AmountTolerance:    req.AmountTolerance,
+		DateToleranceDays:  req.DateToleranceDays,
+		SourceFiles:        req.SourceFiles,
+		Records:            req.Records,
+		BankColumns:        req.BankColumns,
+		BankRows:           req.BankRows,
+		OpeningBalance:     req.OpeningBalance,
+		BankClosingBalance: req.BankClosingBalance,
 	}
 
 	if req.SessionID != nil {
@@ -238,16 +242,31 @@ func (h *ReconciliationHandler) Process(c *gin.Context) {
 		return
 	}
 
+	var openingBalance *float64
+	if v := c.PostForm("opening_balance"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			openingBalance = &f
+		}
+	}
+	var bankClosingBalance *float64
+	if v := c.PostForm("bank_closing_balance"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			bankClosingBalance = &f
+		}
+	}
+
 	input := service.CreateBatchInput{
-		CompanyID:         companyID,
-		CreatedBy:         userID,
-		Period:            period,
-		AmountTolerance:   amountTolerance,
-		DateToleranceDays: dateToleranceDays,
-		SourceFiles:       sourceFiles,
-		Records:           records,
-		BankColumns:       bankColumns,
-		BankRows:          bankRows,
+		CompanyID:          companyID,
+		CreatedBy:          userID,
+		Period:             period,
+		AmountTolerance:    amountTolerance,
+		DateToleranceDays:  dateToleranceDays,
+		SourceFiles:        sourceFiles,
+		Records:            records,
+		BankColumns:        bankColumns,
+		BankRows:           bankRows,
+		OpeningBalance:     openingBalance,
+		BankClosingBalance: bankClosingBalance,
 	}
 
 	result, err := h.svc.RunReconciliation(c.Request.Context(), input)

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/shopspring/decimal"
 	"github.com/tonypk/aistarlight-go/internal/repository/sqlc"
+	"github.com/tonypk/aistarlight-go/internal/service/birpdf"
 )
 
 // EWT exempt keywords — transactions matching these are not subject to EWT.
@@ -180,6 +182,80 @@ func (s *WithholdingService) GetCertificate(ctx context.Context, id uuid.UUID) (
 		return nil, fmt.Errorf("certificate not found: %w", err)
 	}
 	return &cert, nil
+}
+
+// GenerateCertificatePDF writes BIR 2307 PDF for the given certificate to w.
+func (s *WithholdingService) GenerateCertificatePDF(ctx context.Context, cert *sqlc.WithholdingCertificate, company *sqlc.Company, supplier *sqlc.Supplier) ([]byte, error) {
+	data := map[string]string{
+		"period":  cert.Period,
+		"quarter": cert.Quarter,
+	}
+
+	// Payee (supplier) info
+	if supplier != nil {
+		data["payee_tin"] = supplier.Tin
+		data["payee_name"] = supplier.Name
+		if supplier.Address != nil {
+			data["payee_address"] = *supplier.Address
+		}
+	}
+
+	// Single line item from certificate
+	incAmt := "0.00"
+	if f, err := cert.IncomeAmount.Float64Value(); err == nil {
+		incAmt = fmt.Sprintf("%.2f", f.Float64)
+	}
+	ewtRate := "0.00"
+	if f, err := cert.EwtRate.Float64Value(); err == nil {
+		ewtRate = fmt.Sprintf("%.4f", f.Float64) // stored as decimal fraction
+	}
+	taxWithheld := "0.00"
+	if f, err := cert.TaxWithheld.Float64Value(); err == nil {
+		taxWithheld = fmt.Sprintf("%.2f", f.Float64)
+	}
+
+	data["total_items"] = "1"
+	data["item_1_seq_no"] = "1"
+	data["item_1_atc_code"] = cert.AtcCode
+	data["item_1_income_amount"] = incAmt
+	data["item_1_tax_rate"] = ewtRate
+	data["item_1_tax_withheld"] = taxWithheld
+	data["total_income_amount"] = incAmt
+	data["total_tax_withheld"] = taxWithheld
+
+	companyData := birpdf.CompanyData{}
+	if company != nil {
+		companyData.Name = company.CompanyName
+		if company.TinNumber != nil {
+			companyData.TIN = *company.TinNumber
+		}
+		if company.RdoCode != nil {
+			companyData.RDOCode = *company.RdoCode
+		}
+		if company.Address != nil {
+			companyData.Address = *company.Address
+		}
+	}
+
+	var buf bytes.Buffer
+	if err := birpdf.Generate2307(&buf, data, companyData); err != nil {
+		return nil, fmt.Errorf("generate 2307 PDF: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+// GetCompanyForPDF returns the company record for PDF generation.
+func (s *WithholdingService) GetCompanyForPDF(ctx context.Context, companyID uuid.UUID) (*sqlc.Company, error) {
+	company, err := s.q.GetCompanyByID(ctx, companyID)
+	if err != nil {
+		return nil, err
+	}
+	return &company, nil
+}
+
+// GetSupplierByID returns the raw supplier record.
+func (s *WithholdingService) GetSupplierByID(ctx context.Context, id uuid.UUID) (sqlc.Supplier, error) {
+	return s.q.GetSupplierByID(ctx, id)
 }
 
 func classifyEWTRuleBased(tx map[string]interface{}, suppliers map[string]sqlc.Supplier) *EWTClassificationResult {

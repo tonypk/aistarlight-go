@@ -12,6 +12,17 @@ import (
 	"github.com/google/uuid"
 )
 
+const countReportApprovals = `-- name: CountReportApprovals :one
+SELECT COUNT(*) FROM report_approvals WHERE report_id = $1
+`
+
+func (q *Queries) CountReportApprovals(ctx context.Context, reportID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countReportApprovals, reportID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createReportApproval = `-- name: CreateReportApproval :one
 INSERT INTO report_approvals (id, report_id, user_id, from_status, to_status, action, comment)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -102,15 +113,4 @@ func (q *Queries) ListReportApprovals(ctx context.Context, reportID uuid.UUID) (
 		return nil, err
 	}
 	return items, nil
-}
-
-const countReportApprovals = `-- name: CountReportApprovals :one
-SELECT COUNT(*) FROM report_approvals WHERE report_id = $1
-`
-
-func (q *Queries) CountReportApprovals(ctx context.Context, reportID uuid.UUID) (int64, error) {
-	row := q.db.QueryRow(ctx, countReportApprovals, reportID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
 }

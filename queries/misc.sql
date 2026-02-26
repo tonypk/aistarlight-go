@@ -1,23 +1,3 @@
--- ---- Form Schemas ----
-
--- name: GetFormSchemaByType :one
-SELECT * FROM form_schemas WHERE form_type = $1 AND is_active = true;
-
--- name: ListActiveFormSchemas :many
-SELECT * FROM form_schemas WHERE is_active = true ORDER BY form_type;
-
--- name: UpsertFormSchema :exec
-INSERT INTO form_schemas (id, form_type, version, name, frequency, is_active, schema_def, calculation_rules, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
-ON CONFLICT (form_type) DO UPDATE SET
-    version = EXCLUDED.version,
-    name = EXCLUDED.name,
-    frequency = EXCLUDED.frequency,
-    is_active = EXCLUDED.is_active,
-    schema_def = EXCLUDED.schema_def,
-    calculation_rules = EXCLUDED.calculation_rules,
-    updated_at = NOW();
-
 -- ---- User Preferences ----
 
 -- name: UpsertUserPreference :exec
@@ -106,30 +86,7 @@ VALUES ($1, $2, $3, $4, $5);
 -- name: IsTokenRevoked :one
 SELECT EXISTS(SELECT 1 FROM revoked_tokens WHERE jti = $1) AS is_revoked;
 
--- name: CleanExpiredTokens :exec
-DELETE FROM revoked_tokens WHERE expires_at < NOW();
-
--- ---- Correction History (legacy) ----
-
--- name: CreateCorrectionHistory :exec
-INSERT INTO correction_history (id, company_id, report_type, field_name, old_value, new_value, reason, created_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, NOW());
-
 -- ---- Receipt Bridge Queries ----
-
--- name: GetCompletedUnlinkedReceipts :many
-SELECT * FROM receipt_batches
-WHERE company_id = $1
-    AND status = 'completed'
-    AND (transaction_ids IS NULL OR transaction_ids = '{}')
-ORDER BY created_at ASC
-LIMIT $2 OFFSET $3;
-
--- name: CountCompletedUnlinkedReceipts :one
-SELECT COUNT(*) FROM receipt_batches
-WHERE company_id = $1
-    AND status = 'completed'
-    AND (transaction_ids IS NULL OR transaction_ids = '{}');
 
 -- name: LinkReceiptToTransactions :exec
 UPDATE receipt_batches SET

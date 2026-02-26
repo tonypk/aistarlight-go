@@ -24,19 +24,20 @@ func (q *Queries) CountReconciliationSessionsByCompany(ctx context.Context, comp
 }
 
 const createReconciliationSession = `-- name: CreateReconciliationSession :one
-INSERT INTO reconciliation_sessions (id, company_id, created_by, period, status, report_id, source_files, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
-RETURNING id, company_id, created_by, period, status, report_id, source_files, summary, reconciliation_result, completed_at, created_at, updated_at
+INSERT INTO reconciliation_sessions (id, company_id, created_by, period, status, report_id, source_files, opening_balance, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+RETURNING id, company_id, created_by, period, status, report_id, source_files, summary, reconciliation_result, completed_at, created_at, updated_at, opening_balance, closing_balance, bank_closing_balance
 `
 
 type CreateReconciliationSessionParams struct {
-	ID          uuid.UUID   `json:"id"`
-	CompanyID   uuid.UUID   `json:"company_id"`
-	CreatedBy   uuid.UUID   `json:"created_by"`
-	Period      string      `json:"period"`
-	Status      string      `json:"status"`
-	ReportID    pgtype.UUID `json:"report_id"`
-	SourceFiles []byte      `json:"source_files"`
+	ID             uuid.UUID      `json:"id"`
+	CompanyID      uuid.UUID      `json:"company_id"`
+	CreatedBy      uuid.UUID      `json:"created_by"`
+	Period         string         `json:"period"`
+	Status         string         `json:"status"`
+	ReportID       pgtype.UUID    `json:"report_id"`
+	SourceFiles    []byte         `json:"source_files"`
+	OpeningBalance pgtype.Numeric `json:"opening_balance"`
 }
 
 func (q *Queries) CreateReconciliationSession(ctx context.Context, arg CreateReconciliationSessionParams) (ReconciliationSession, error) {
@@ -48,6 +49,7 @@ func (q *Queries) CreateReconciliationSession(ctx context.Context, arg CreateRec
 		arg.Status,
 		arg.ReportID,
 		arg.SourceFiles,
+		arg.OpeningBalance,
 	)
 	var i ReconciliationSession
 	err := row.Scan(
@@ -63,6 +65,9 @@ func (q *Queries) CreateReconciliationSession(ctx context.Context, arg CreateRec
 		&i.CompletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.OpeningBalance,
+		&i.ClosingBalance,
+		&i.BankClosingBalance,
 	)
 	return i, err
 }
@@ -82,7 +87,7 @@ func (q *Queries) DeleteReconciliationSession(ctx context.Context, arg DeleteRec
 }
 
 const getReconciliationSessionByID = `-- name: GetReconciliationSessionByID :one
-SELECT id, company_id, created_by, period, status, report_id, source_files, summary, reconciliation_result, completed_at, created_at, updated_at FROM reconciliation_sessions WHERE id = $1
+SELECT id, company_id, created_by, period, status, report_id, source_files, summary, reconciliation_result, completed_at, created_at, updated_at, opening_balance, closing_balance, bank_closing_balance FROM reconciliation_sessions WHERE id = $1
 `
 
 func (q *Queries) GetReconciliationSessionByID(ctx context.Context, id uuid.UUID) (ReconciliationSession, error) {
@@ -101,12 +106,15 @@ func (q *Queries) GetReconciliationSessionByID(ctx context.Context, id uuid.UUID
 		&i.CompletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.OpeningBalance,
+		&i.ClosingBalance,
+		&i.BankClosingBalance,
 	)
 	return i, err
 }
 
 const listReconciliationSessionsByCompany = `-- name: ListReconciliationSessionsByCompany :many
-SELECT id, company_id, created_by, period, status, report_id, source_files, summary, reconciliation_result, completed_at, created_at, updated_at FROM reconciliation_sessions
+SELECT id, company_id, created_by, period, status, report_id, source_files, summary, reconciliation_result, completed_at, created_at, updated_at, opening_balance, closing_balance, bank_closing_balance FROM reconciliation_sessions
 WHERE company_id = $1
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3
@@ -140,6 +148,9 @@ func (q *Queries) ListReconciliationSessionsByCompany(ctx context.Context, arg L
 			&i.CompletedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.OpeningBalance,
+			&i.ClosingBalance,
+			&i.BankClosingBalance,
 		); err != nil {
 			return nil, err
 		}
@@ -182,6 +193,32 @@ func (q *Queries) UpdateReconciliationSession(ctx context.Context, arg UpdateRec
 		arg.Summary,
 		arg.ReconciliationResult,
 		arg.CompletedAt,
+	)
+	return err
+}
+
+const updateReconciliationSessionBalances = `-- name: UpdateReconciliationSessionBalances :exec
+UPDATE reconciliation_sessions SET
+    opening_balance = $2,
+    closing_balance = $3,
+    bank_closing_balance = $4,
+    updated_at = NOW()
+WHERE id = $1
+`
+
+type UpdateReconciliationSessionBalancesParams struct {
+	ID                 uuid.UUID      `json:"id"`
+	OpeningBalance     pgtype.Numeric `json:"opening_balance"`
+	ClosingBalance     pgtype.Numeric `json:"closing_balance"`
+	BankClosingBalance pgtype.Numeric `json:"bank_closing_balance"`
+}
+
+func (q *Queries) UpdateReconciliationSessionBalances(ctx context.Context, arg UpdateReconciliationSessionBalancesParams) error {
+	_, err := q.db.Exec(ctx, updateReconciliationSessionBalances,
+		arg.ID,
+		arg.OpeningBalance,
+		arg.ClosingBalance,
+		arg.BankClosingBalance,
 	)
 	return err
 }

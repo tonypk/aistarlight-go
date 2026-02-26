@@ -184,6 +184,45 @@ func (q *Queries) GetEffectiveRole(ctx context.Context, arg GetEffectiveRolePara
 	return effective_role, err
 }
 
+const listAllCompanies = `-- name: ListAllCompanies :many
+SELECT id, organization_id, company_name, tin_number, rdo_code, vat_classification, fiscal_year_end, industry, address, plan, settings, is_active, created_at, updated_at FROM companies WHERE is_active = true ORDER BY created_at
+`
+
+func (q *Queries) ListAllCompanies(ctx context.Context) ([]Company, error) {
+	rows, err := q.db.Query(ctx, listAllCompanies)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Company{}
+	for rows.Next() {
+		var i Company
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrganizationID,
+			&i.CompanyName,
+			&i.TinNumber,
+			&i.RdoCode,
+			&i.VatClassification,
+			&i.FiscalYearEnd,
+			&i.Industry,
+			&i.Address,
+			&i.Plan,
+			&i.Settings,
+			&i.IsActive,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCompaniesByOrg = `-- name: ListCompaniesByOrg :many
 SELECT id, organization_id, company_name, tin_number, rdo_code, vat_classification, fiscal_year_end, industry, address, plan, settings, is_active, created_at, updated_at FROM companies
 WHERE organization_id = $1 AND is_active = true
@@ -401,43 +440,4 @@ type UpdateCompanyMemberRoleParams struct {
 func (q *Queries) UpdateCompanyMemberRole(ctx context.Context, arg UpdateCompanyMemberRoleParams) error {
 	_, err := q.db.Exec(ctx, updateCompanyMemberRole, arg.CompanyID, arg.UserID, arg.Role)
 	return err
-}
-
-const listAllCompanies = `-- name: ListAllCompanies :many
-SELECT id, organization_id, company_name, tin_number, rdo_code, vat_classification, fiscal_year_end, industry, address, plan, settings, is_active, created_at, updated_at FROM companies WHERE is_active = true ORDER BY created_at
-`
-
-func (q *Queries) ListAllCompanies(ctx context.Context) ([]Company, error) {
-	rows, err := q.db.Query(ctx, listAllCompanies)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Company{}
-	for rows.Next() {
-		var i Company
-		if err := rows.Scan(
-			&i.ID,
-			&i.OrganizationID,
-			&i.CompanyName,
-			&i.TinNumber,
-			&i.RdoCode,
-			&i.VatClassification,
-			&i.FiscalYearEnd,
-			&i.Industry,
-			&i.Address,
-			&i.Plan,
-			&i.Settings,
-			&i.IsActive,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }

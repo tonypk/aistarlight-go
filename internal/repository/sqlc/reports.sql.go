@@ -170,11 +170,11 @@ FROM reports
 WHERE original_report_id = $1 OR id = $1
 `
 
-func (q *Queries) GetMaxAmendmentNumber(ctx context.Context, id uuid.UUID) (int32, error) {
-	row := q.db.QueryRow(ctx, getMaxAmendmentNumber, id)
-	var maxAmendment int32
-	err := row.Scan(&maxAmendment)
-	return maxAmendment, err
+func (q *Queries) GetMaxAmendmentNumber(ctx context.Context, originalReportID pgtype.UUID) (int32, error) {
+	row := q.db.QueryRow(ctx, getMaxAmendmentNumber, originalReportID)
+	var max_amendment int32
+	err := row.Scan(&max_amendment)
+	return max_amendment, err
 }
 
 const getReportByID = `-- name: GetReportByID :one

@@ -23,8 +23,3 @@ WHERE id = $1 AND company_id = $2;
 -- name: MarkAllNotificationsRead :exec
 UPDATE notifications SET is_read = true, read_at = NOW()
 WHERE company_id = $1 AND NOT is_read;
-
--- name: CheckNotificationExists :one
-SELECT EXISTS(
-    SELECT 1 FROM notifications WHERE company_id = $1 AND dedup_key = $2
-) AS exists;

@@ -13,7 +13,7 @@ import (
 )
 
 const getActiveSessionByCompanyAndPeriod = `-- name: GetActiveSessionByCompanyAndPeriod :one
-SELECT id, company_id, created_by, period, status, report_id, source_files, summary, reconciliation_result, completed_at, created_at, updated_at FROM reconciliation_sessions
+SELECT id, company_id, created_by, period, status, report_id, source_files, summary, reconciliation_result, completed_at, created_at, updated_at, opening_balance, closing_balance, bank_closing_balance FROM reconciliation_sessions
 WHERE company_id = $1 AND period = $2 AND status IN ('active', 'in_progress')
 ORDER BY created_at DESC
 LIMIT 1
@@ -40,6 +40,9 @@ func (q *Queries) GetActiveSessionByCompanyAndPeriod(ctx context.Context, arg Ge
 		&i.CompletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.OpeningBalance,
+		&i.ClosingBalance,
+		&i.BankClosingBalance,
 	)
 	return i, err
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/tonypk/aistarlight-go/internal/handler/middleware"
 	"github.com/tonypk/aistarlight-go/internal/handler/response"
+	"github.com/tonypk/aistarlight-go/internal/repository/sqlc"
 	"github.com/tonypk/aistarlight-go/internal/service"
 	"github.com/tonypk/aistarlight-go/pkg/pagination"
 )
@@ -236,6 +237,7 @@ func (h *WithholdingHandler) DeleteSupplier(c *gin.Context) {
 }
 
 // DownloadCertificate handles GET /api/v1/withholding/certificates/:id/download.
+// Default: PDF. Use ?format=csv for CSV export.
 func (h *WithholdingHandler) DownloadCertificate(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -252,7 +254,30 @@ func (h *WithholdingHandler) DownloadCertificate(c *gin.Context) {
 	// Get supplier info
 	sup, _ := h.supplier.GetByID(c.Request.Context(), cert.SupplierID)
 
-	// Export as CSV (BIR 2307 PDF can be added later)
+	format := c.DefaultQuery("format", "pdf")
+	if format == "csv" {
+		h.downloadCertificateCSV(c, cert, sup)
+		return
+	}
+
+	// PDF output (default)
+	companyID := middleware.GetCompanyID(c)
+	company, _ := h.svc.GetCompanyForPDF(c.Request.Context(), companyID)
+
+	supplierRow, _ := h.svc.GetSupplierByID(c.Request.Context(), cert.SupplierID)
+
+	pdfBytes, err := h.svc.GenerateCertificatePDF(c.Request.Context(), cert, company, &supplierRow)
+	if err != nil {
+		response.InternalError(c, "failed to generate PDF: "+err.Error())
+		return
+	}
+
+	c.Header("Content-Type", "application/pdf")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=BIR2307_%s_%s.pdf", cert.Period, cert.Quarter))
+	c.Data(http.StatusOK, "application/pdf", pdfBytes)
+}
+
+func (h *WithholdingHandler) downloadCertificateCSV(c *gin.Context, cert *sqlc.WithholdingCertificate, sup *service.SupplierResponse) {
 	c.Header("Content-Type", "text/csv")
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=BIR2307_%s_%s.csv", cert.Period, cert.Quarter))
 

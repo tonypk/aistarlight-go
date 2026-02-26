@@ -255,6 +255,20 @@ type LinkToken struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type Notification struct {
+	ID               uuid.UUID          `json:"id"`
+	CompanyID        uuid.UUID          `json:"company_id"`
+	UserID           pgtype.UUID        `json:"user_id"`
+	NotificationType string             `json:"notification_type"`
+	Title            string             `json:"title"`
+	Message          string             `json:"message"`
+	Metadata         []byte             `json:"metadata"`
+	IsRead           bool               `json:"is_read"`
+	CreatedAt        time.Time          `json:"created_at"`
+	ReadAt           pgtype.Timestamptz `json:"read_at"`
+	DedupKey         *string            `json:"dedup_key"`
+}
+
 type OrgMember struct {
 	OrganizationID uuid.UUID `json:"organization_id"`
 	UserID         uuid.UUID `json:"user_id"`
@@ -337,6 +351,9 @@ type ReconciliationSession struct {
 	CompletedAt          pgtype.Timestamptz `json:"completed_at"`
 	CreatedAt            time.Time          `json:"created_at"`
 	UpdatedAt            time.Time          `json:"updated_at"`
+	OpeningBalance       pgtype.Numeric     `json:"opening_balance"`
+	ClosingBalance       pgtype.Numeric     `json:"closing_balance"`
+	BankClosingBalance   pgtype.Numeric     `json:"bank_closing_balance"`
 }
 
 type Report struct {
@@ -360,6 +377,17 @@ type Report struct {
 	ComplianceScore        *int32             `json:"compliance_score"`
 	AmendmentNumber        int32              `json:"amendment_number"`
 	OriginalReportID       pgtype.UUID        `json:"original_report_id"`
+}
+
+type ReportApproval struct {
+	ID         uuid.UUID `json:"id"`
+	ReportID   uuid.UUID `json:"report_id"`
+	UserID     uuid.UUID `json:"user_id"`
+	FromStatus string    `json:"from_status"`
+	ToStatus   string    `json:"to_status"`
+	Action     string    `json:"action"`
+	Comment    *string   `json:"comment"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 type RevokedToken struct {
@@ -468,29 +496,4 @@ type WithholdingCertificate struct {
 	FilePath     *string        `json:"file_path"`
 	CreatedAt    time.Time      `json:"created_at"`
 	UpdatedAt    time.Time      `json:"updated_at"`
-}
-
-type Notification struct {
-	ID               uuid.UUID          `json:"id"`
-	CompanyID        uuid.UUID          `json:"company_id"`
-	UserID           pgtype.UUID        `json:"user_id"`
-	NotificationType string             `json:"notification_type"`
-	Title            string             `json:"title"`
-	Message          string             `json:"message"`
-	Metadata         []byte             `json:"metadata"`
-	IsRead           bool               `json:"is_read"`
-	CreatedAt        time.Time          `json:"created_at"`
-	ReadAt           pgtype.Timestamptz `json:"read_at"`
-	DedupKey         *string            `json:"dedup_key"`
-}
-
-type ReportApproval struct {
-	ID         uuid.UUID `json:"id"`
-	ReportID   uuid.UUID `json:"report_id"`
-	UserID     uuid.UUID `json:"user_id"`
-	FromStatus string    `json:"from_status"`
-	ToStatus   string    `json:"to_status"`
-	Action     string    `json:"action"`
-	Comment    *string   `json:"comment"`
-	CreatedAt  time.Time `json:"created_at"`
 }

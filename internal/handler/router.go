@@ -35,6 +35,7 @@ type Router struct {
 	Settings       *SettingsHandler
 	Telegram       *TelegramHandler
 	Notification   *NotificationHandler
+	Health         *HealthHandler
 	// Pipeline bridge handlers
 	ReceiptBridge  *ReceiptBridgeHandler
 	JournalBridge  *JournalBridgeHandler
@@ -59,6 +60,9 @@ func adaptReportIDParam(h gin.HandlerFunc) gin.HandlerFunc {
 
 func (rt *Router) Setup(r *gin.Engine) {
 	api := r.Group("/api/v1")
+
+	// AI health check (no auth)
+	api.GET("/health/ai", rt.Health.AIHealth)
 
 	// Public routes (no auth)
 	auth := api.Group("/auth")

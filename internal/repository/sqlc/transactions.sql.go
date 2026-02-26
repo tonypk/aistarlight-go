@@ -95,18 +95,6 @@ func (q *Queries) CountTransactionsBySessionFiltered(ctx context.Context, arg Co
 	return count, err
 }
 
-const countUnlinkedTransactions = `-- name: CountUnlinkedTransactions :one
-SELECT COUNT(*) FROM transactions
-WHERE company_id = $1 AND journal_entry_id IS NULL
-`
-
-func (q *Queries) CountUnlinkedTransactions(ctx context.Context, companyID uuid.UUID) (int64, error) {
-	row := q.db.QueryRow(ctx, countUnlinkedTransactions, companyID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const createTransaction = `-- name: CreateTransaction :one
 INSERT INTO transactions (
     id, company_id, session_id, source_type, source_file_id, row_index,

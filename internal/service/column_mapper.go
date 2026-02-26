@@ -305,16 +305,25 @@ type ColumnMapping struct {
 	Conflicts       []ConflictGroup                `json:"conflicts,omitempty"`
 }
 
+// AutoMapColumnsOpts holds optional parameters for AutoMapColumns.
+type AutoMapColumnsOpts struct {
+	DataCategory    string              // sales, purchases, general — helps AI disambiguate
+	CorrectionHints []MappingCorrection // past user corrections
+}
+
 // AutoMapColumns maps spreadsheet columns to BIR form fields using AI.
-// correctionHints are optional past user corrections to feed into the AI prompt.
 func (s *ColumnMapperService) AutoMapColumns(
 	ctx context.Context,
 	columns []string,
 	sampleRows []map[string]interface{},
 	reportType string,
 	existingMappings map[string]string,
-	correctionHints ...MappingCorrection,
+	opts ...AutoMapColumnsOpts,
 ) (*ColumnMapping, error) {
+	var opt AutoMapColumnsOpts
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
 	// If existing mappings cover all columns, reuse them
 	if len(existingMappings) > 0 && allColumnsMapped(columns, existingMappings) {
 		fc := make(map[string]float64, len(columns))
@@ -373,14 +382,28 @@ func (s *ColumnMapperService) AutoMapColumns(
 		string(sampleJSON),
 	)
 
+	// Data category hint — critical for disambiguating Sales vs Purchases
+	if opt.DataCategory != "" {
+		switch strings.ToLower(opt.DataCategory) {
+		case "purchases":
+			userPrompt += "\n\nIMPORTANT: This data contains PURCHASE transactions (SLP — Summary List of Purchases). " +
+				"Map amount columns to purchase fields (gross_purchase, input_tax, etc.), NOT to sales fields. " +
+				"Map party columns to supplier fields (supplier_name, supplier_tin), NOT customer fields."
+		case "sales":
+			userPrompt += "\n\nIMPORTANT: This data contains SALES transactions (SLS — Summary List of Sales). " +
+				"Map amount columns to sales fields (gross_sales, vatable_sales, output_tax, etc.), NOT to purchase fields. " +
+				"Map party columns to customer fields (customer_name, customer_tin), NOT supplier fields."
+		}
+	}
+
 	if len(existingMappings) > 0 {
 		existingJSON, _ := json.Marshal(existingMappings)
 		userPrompt += fmt.Sprintf("\n\nPrevious mappings (prefer reusing): %s", string(existingJSON))
 	}
 
 	// Phase 4: Append correction hints if available
-	if len(correctionHints) > 0 {
-		userPrompt += buildCorrectionHint(correctionHints)
+	if len(opt.CorrectionHints) > 0 {
+		userPrompt += buildCorrectionHint(opt.CorrectionHints)
 	}
 
 	resp, err := s.ai.ChatCompletion(ctx, []oai.ChatCompletionMessage{

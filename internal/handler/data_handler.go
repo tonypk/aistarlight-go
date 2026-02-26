@@ -192,9 +192,10 @@ func (h *DataHandler) Preview(c *gin.Context) {
 }
 
 type suggestMappingRequest struct {
-	Columns    []string                 `json:"columns" binding:"required"`
-	SampleRows []map[string]interface{} `json:"sample_rows" binding:"required"`
-	ReportType string                   `json:"report_type"`
+	Columns      []string                 `json:"columns" binding:"required"`
+	SampleRows   []map[string]interface{} `json:"sample_rows" binding:"required"`
+	ReportType   string                   `json:"report_type"`
+	DataCategory string                   `json:"data_category"` // sales, purchases, general (helps AI disambiguate)
 }
 
 // parsedSheetRequest represents a single sheet from browser-side parsing.
@@ -348,7 +349,10 @@ func (h *DataHandler) SuggestMapping(c *gin.Context) {
 		}
 	}
 
-	result, err := h.colMapper.AutoMapColumns(c.Request.Context(), req.Columns, req.SampleRows, req.ReportType, existingMappings, correctionHints...)
+	result, err := h.colMapper.AutoMapColumns(c.Request.Context(), req.Columns, req.SampleRows, req.ReportType, existingMappings, service.AutoMapColumnsOpts{
+		DataCategory:    req.DataCategory,
+		CorrectionHints: correctionHints,
+	})
 	if err != nil {
 		slog.Error("column mapping failed", "error", err)
 		response.InternalError(c, "Column mapping failed. Please try again.")

@@ -108,6 +108,8 @@ func CalculateBIR2550M(input map[string]interface{}) (TaxResult, error) {
 		// Calculate from raw sales_data / purchases_data rows
 
 		// --- Part II: Sales Classification ---
+		var hasExplicitOutputTax bool
+		var sumExplicitOutputTax decimal.Decimal
 		for _, row := range salesData {
 			amount := toDecimal(row["amount"])
 			vatType := strings.ToLower(strings.TrimSpace(toString(row["vat_type"])))
@@ -124,14 +126,27 @@ func CalculateBIR2550M(input map[string]interface{}) (TaxResult, error) {
 			default:
 				vatableSales = vatableSales.Add(amount)
 			}
+			// Check for explicit output_tax in row data
+			rowOutputTax := toDecimal(row["output_tax"])
+			if !rowOutputTax.IsZero() {
+				hasExplicitOutputTax = true
+				sumExplicitOutputTax = sumExplicitOutputTax.Add(rowOutputTax)
+			}
 		}
 
 		totalSales = vatableSales.Add(salesToGovernment).Add(zeroRatedSales).Add(vatExemptSales)
 
 		// --- Part III: Output Tax ---
-		outputVAT = vatableSales.Mul(birforms.VATRate)
-		outputVATGovt = salesToGovernment.Mul(birforms.GovtVATRate)
-		totalOutputVAT = outputVAT.Add(outputVATGovt)
+		// Use uploaded output_tax values when available; fall back to calculation
+		if hasExplicitOutputTax {
+			outputVAT = sumExplicitOutputTax
+			outputVATGovt = salesToGovernment.Mul(birforms.GovtVATRate)
+			totalOutputVAT = outputVAT.Add(outputVATGovt)
+		} else {
+			outputVAT = vatableSales.Mul(birforms.VATRate)
+			outputVATGovt = salesToGovernment.Mul(birforms.GovtVATRate)
+			totalOutputVAT = outputVAT.Add(outputVATGovt)
+		}
 
 		// --- Part IV: Input Tax ---
 		for _, row := range purchasesData {

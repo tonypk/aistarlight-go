@@ -42,6 +42,8 @@ func GeneratePDFReport(w io.Writer, reportType string, data map[string]string, c
 		return birpdf.Generate1702(w, data, co)
 	case birforms.FormBIR2316:
 		return birpdf.Generate2316(w, data, co)
+	case birforms.FormBIR2307:
+		return birpdf.Generate2307(w, data, co)
 	default:
 		return generateGenericPDF(w, reportType, data, company)
 	}

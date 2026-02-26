@@ -34,6 +34,7 @@ type Router struct {
 	QBO            *QBOHandler
 	Settings       *SettingsHandler
 	Telegram       *TelegramHandler
+	Notification   *NotificationHandler
 	// Pipeline bridge handlers
 	ReceiptBridge  *ReceiptBridgeHandler
 	JournalBridge  *JournalBridgeHandler
@@ -136,7 +137,9 @@ func (rt *Router) Setup(r *gin.Engine) {
 			reportByID.GET("", rt.Report.Get)
 			reportByID.GET("/download", rt.Report.DownloadPDF)   // frontend compat (was /pdf)
 			reportByID.GET("/pdf", rt.Report.DownloadPDF)        // keep original
-			reportByID.GET("/export-csv", rt.Report.DownloadCSV) // frontend compat (was /csv)
+			reportByID.GET("/excel", rt.Report.DownloadExcel)
+			reportByID.GET("/export-excel", rt.Report.DownloadExcel) // frontend compat
+			reportByID.GET("/export-csv", rt.Report.DownloadCSV)    // frontend compat (was /csv)
 			reportByID.GET("/csv", rt.Report.DownloadCSV)        // keep original
 			reportByID.DELETE("", rt.Report.Delete)
 			reportByID.PATCH("/status", rt.Report.UpdateStatus)
@@ -145,6 +148,9 @@ func (rt *Router) Setup(r *gin.Engine) {
 			reportByID.PATCH("/transition", rt.Report.Transition) // frontend compat
 			reportByID.POST("/recalculate", rt.Report.Recalculate)
 			reportByID.POST("/overrides", rt.Report.ApplyOverrides)
+			reportByID.GET("/approvals", rt.Report.ListApprovals)
+			reportByID.POST("/amend", rt.Report.Amend)
+			reportByID.GET("/amendments", rt.Report.ListAmendments)
 			// Compliance routes nested under reports (frontend compat)
 			reportByID.POST("/validate", adaptReportIDParam(rt.Compliance.Validate))
 			reportByID.GET("/validation", adaptReportIDParam(rt.Compliance.GetLatest))
@@ -185,6 +191,7 @@ func (rt *Router) Setup(r *gin.Engine) {
 			reconSessionByID.POST("/files", rt.Session.AddFile)
 			reconSessionByID.POST("/classify", rt.Session.Classify)
 			reconSessionByID.GET("/transactions", rt.Session.ListTransactions)
+			reconSessionByID.PATCH("/transactions/bulk", rt.Session.BulkUpdateTransactions)
 			reconSessionByID.PATCH("/transactions/:txnId", rt.Session.UpdateTransaction)
 			reconSessionByID.POST("/detect-anomalies", rt.Session.DetectAnomalies)
 			reconSessionByID.GET("/anomalies", rt.Session.ListAnomalies)
@@ -193,6 +200,7 @@ func (rt *Router) Setup(r *gin.Engine) {
 			reconSessionByID.POST("/reconcile", rt.Session.Reconcile)
 			reconSessionByID.POST("/generate-report", rt.Session.GenerateReport)
 			reconSessionByID.GET("/export-pdf", rt.Session.ExportPDF)
+			reconSessionByID.GET("/export-excel", rt.Session.ExportExcel)
 			reconSessionByID.GET("/export", rt.Session.Export)
 		}
 	}
@@ -216,6 +224,8 @@ func (rt *Router) Setup(r *gin.Engine) {
 		compliance.POST("/validate/:reportId", rt.Compliance.Validate)
 		compliance.GET("/reports/:reportId/latest", rt.Compliance.GetLatest)
 		compliance.GET("/reports/:reportId/history", rt.Compliance.ListValidations)
+		compliance.GET("/reports/:reportId/suggest-fixes", rt.Compliance.SuggestFixes)
+		compliance.POST("/reports/:reportId/auto-fix", rt.Compliance.AutoFix)
 		compliance.GET("/filing-calendar", rt.Compliance.FilingCalendar)
 	}
 
@@ -296,6 +306,16 @@ func (rt *Router) Setup(r *gin.Engine) {
 		memory.PUT("/preferences/:reportType", rt.Memory.UpsertPreference)
 		memory.DELETE("/preferences/:reportType", rt.Memory.DeletePreference)
 		memory.GET("/corrections", rt.Memory.ListCorrections)
+	}
+
+	// Notification routes
+	notifications := api.Group("/notifications")
+	notifications.Use(authMw)
+	{
+		notifications.GET("", rt.Notification.List)
+		notifications.GET("/unread-count", rt.Notification.UnreadCount)
+		notifications.PATCH("/:id/read", rt.Notification.MarkRead)
+		notifications.POST("/mark-all-read", rt.Notification.MarkAllRead)
 	}
 
 	// Form schema routes (frontend compat)

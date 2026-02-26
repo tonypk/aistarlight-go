@@ -20,11 +20,12 @@ type Server struct {
 
 // Services holds all service dependencies for task handlers.
 type Services struct {
-	Report      *service.ReportService
-	Receipt     *service.ReceiptService
-	Classifier  *service.ClassifierService
-	BankRecon   *service.BankReconService
-	Compliance  *service.ComplianceService
+	Report       *service.ReportService
+	Receipt      *service.ReceiptService
+	Classifier   *service.ClassifierService
+	BankRecon    *service.BankReconService
+	Compliance   *service.ComplianceService
+	Notification *service.NotificationService
 }
 
 // NewServer creates an asynq worker server.
@@ -67,6 +68,7 @@ func (s *Server) registerHandlers() {
 	s.mux.HandleFunc(TypeBankReconcile, s.handleBankReconcile)
 	s.mux.HandleFunc(TypeComplianceCheck, s.handleComplianceCheck)
 	s.mux.HandleFunc(TypeCleanupOldTasks, s.handleCleanup)
+	s.mux.HandleFunc(TypeDeadlineCheck, s.handleDeadlineCheck)
 }
 
 // Run starts the asynq server (blocks until shutdown).

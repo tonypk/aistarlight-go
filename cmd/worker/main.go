@@ -63,13 +63,16 @@ func main() {
 	// Build service dependencies.
 	knowledge := service.NewKnowledgeService(ai, q)
 	matchAnalyzer := service.NewMatchAnalyzer(ai)
+	supplierSvc := service.NewSupplierService(q)
+	complianceSvc := service.NewComplianceService(q, knowledge)
 
 	svc := &worker.Services{
-		Report:     service.NewReportService(q),
-		Receipt:    service.NewReceiptService(q, ocrclient.NewClient(cfg.OCR.ServiceURL)),
-		Classifier: service.NewClassifierService(ai, q),
-		BankRecon:  service.NewBankReconService(q, matchAnalyzer),
-		Compliance: service.NewComplianceService(q, knowledge),
+		Report:       service.NewReportService(q, complianceSvc),
+		Receipt:      service.NewReceiptService(q, ocrclient.NewClient(cfg.OCR.ServiceURL), supplierSvc),
+		Classifier:   service.NewClassifierService(ai, q),
+		BankRecon:    service.NewBankReconService(q, matchAnalyzer),
+		Compliance:   complianceSvc,
+		Notification: service.NewNotificationService(q),
 	}
 
 	// Create and start worker server.
@@ -86,6 +89,11 @@ func main() {
 	cleanupTask, _ := worker.NewCleanupTask()
 	if _, err := scheduler.Register("@daily", cleanupTask); err != nil {
 		slog.Error("failed to register cleanup task", "error", err)
+	}
+
+	deadlineTask, _ := worker.NewDeadlineCheckTask()
+	if _, err := scheduler.Register("0 8 * * *", deadlineTask); err != nil { // 8 AM daily
+		slog.Error("failed to register deadline check task", "error", err)
 	}
 
 	// Start scheduler in background.

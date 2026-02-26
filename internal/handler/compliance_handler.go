@@ -5,19 +5,24 @@ import (
 	"github.com/google/uuid"
 	"github.com/tonypk/aistarlight-go/internal/handler/middleware"
 	"github.com/tonypk/aistarlight-go/internal/handler/response"
+	oai "github.com/tonypk/aistarlight-go/internal/platform/openai"
 	"github.com/tonypk/aistarlight-go/internal/service"
 )
 
 // ComplianceHandler handles compliance validation endpoints.
 type ComplianceHandler struct {
 	compliance *service.ComplianceService
+	reportSvc  *service.ReportService
+	ai         *oai.Client
 	calendar   func(int, int) []service.FilingEntry
 }
 
 // NewComplianceHandler creates a compliance handler.
-func NewComplianceHandler(compliance *service.ComplianceService) *ComplianceHandler {
+func NewComplianceHandler(compliance *service.ComplianceService, reportSvc *service.ReportService, ai *oai.Client) *ComplianceHandler {
 	return &ComplianceHandler{
 		compliance: compliance,
+		reportSvc:  reportSvc,
+		ai:         ai,
 		calendar:   service.GenerateFilingCalendar,
 	}
 }
@@ -73,6 +78,50 @@ func (h *ComplianceHandler) ListValidations(c *gin.Context) {
 	}
 
 	response.OK(c, results)
+}
+
+// SuggestFixes handles GET /api/v1/compliance/reports/:reportId/suggest-fixes.
+func (h *ComplianceHandler) SuggestFixes(c *gin.Context) {
+	reportID, err := uuid.Parse(c.Param("reportId"))
+	if err != nil {
+		response.BadRequest(c, "invalid report id")
+		return
+	}
+
+	result, err := h.compliance.GenerateAutoFixSuggestions(c.Request.Context(), reportID, h.ai)
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	response.OK(c, result)
+}
+
+// AutoFix handles POST /api/v1/compliance/reports/:reportId/auto-fix.
+func (h *ComplianceHandler) AutoFix(c *gin.Context) {
+	reportID, err := uuid.Parse(c.Param("reportId"))
+	if err != nil {
+		response.BadRequest(c, "invalid report id")
+		return
+	}
+
+	var req struct {
+		Suggestions []service.AutoFixSuggestion `json:"suggestions" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	userID := middleware.GetUserID(c)
+
+	result, err := h.compliance.ApplyAutoFix(c.Request.Context(), reportID, userID, req.Suggestions, h.reportSvc)
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	response.OK(c, result)
 }
 
 type filingCalendarRequest struct {

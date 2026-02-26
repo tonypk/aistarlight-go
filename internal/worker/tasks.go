@@ -15,6 +15,7 @@ const (
 	TypeBankReconcile    = "bank:reconcile"
 	TypeCleanupOldTasks  = "cleanup:old_tasks"
 	TypeComplianceCheck  = "compliance:validate"
+	TypeDeadlineCheck    = "deadline:check"
 )
 
 // Queue names with priorities.
@@ -119,4 +120,9 @@ func NewComplianceTask(p CompliancePayload) (*asynq.Task, error) {
 // NewCleanupTask creates a periodic cleanup task.
 func NewCleanupTask() (*asynq.Task, error) {
 	return asynq.NewTask(TypeCleanupOldTasks, nil, asynq.Queue(QueueLow), asynq.MaxRetry(1)), nil
+}
+
+// NewDeadlineCheckTask creates a periodic deadline check task.
+func NewDeadlineCheckTask() (*asynq.Task, error) {
+	return asynq.NewTask(TypeDeadlineCheck, nil, asynq.Queue(QueueDefault), asynq.MaxRetry(2)), nil
 }

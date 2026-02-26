@@ -57,7 +57,8 @@ func main() {
 
 	// Services.
 	ocrClient := ocrclient.NewClient(cfg.OCR.ServiceURL)
-	receiptSvc := service.NewReceiptService(q, ocrClient)
+	supplierSvc := service.NewSupplierService(q)
+	receiptSvc := service.NewReceiptService(q, ocrClient, supplierSvc)
 	classifier := service.NewClassifierService(nil, q)
 	bridgeSvc := service.NewReceiptBridge(q, classifier)
 

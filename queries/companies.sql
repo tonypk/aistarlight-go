@@ -83,3 +83,6 @@ SELECT COALESCE(
         ELSE NULL
     END
 ) AS effective_role;
+
+-- name: ListAllCompanies :many
+SELECT * FROM companies WHERE is_active = true ORDER BY created_at;

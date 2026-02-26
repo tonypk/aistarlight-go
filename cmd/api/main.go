@@ -144,6 +144,7 @@ type services struct {
 	Period      *service.AccountingPeriodService
 	GL          *service.GLService
 	QBO         *service.QBOService
+	Notification   *service.NotificationService
 	// Pipeline bridge services
 	ReceiptBridge  *service.ReceiptBridge
 	JournalGen     *service.JournalGenerator
@@ -171,6 +172,8 @@ func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxp
 	}
 
 	classifierSvc := service.NewClassifierService(ai, q)
+	supplierSvc := service.NewSupplierService(q)
+	complianceSvc := service.NewComplianceService(q, knowledge)
 
 	journalSvc := service.NewJournalService(q, pool)
 	fsSvc := service.NewFinancialStatementService(q)
@@ -179,21 +182,21 @@ func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxp
 		Auth:        service.NewAuthService(q, cfg.JWT),
 		Org:         service.NewOrgService(q),
 		Company:     service.NewCompanyService(q),
-		Report:      service.NewReportService(q),
+		Report:      service.NewReportService(q, complianceSvc),
 		Chat:        service.NewChatService(ai, q, knowledge),
-		Session:     service.NewSessionService(q, classifierSvc),
+		Session:     service.NewSessionService(q, classifierSvc, ai),
 		Classifier:  classifierSvc,
 		ColMapper:   service.NewColumnMapperService(ai),
 		Knowledge:   knowledge,
 		Augmenter:   service.NewPromptAugmenter(q),
 		BankRecon:   service.NewBankReconService(q, matchAnalyzer),
-		Compliance:  service.NewComplianceService(q, knowledge),
+		Compliance:  complianceSvc,
 		Corrections: service.NewCorrectionService(q),
 		Analyzer:    service.NewCorrectionAnalyzer(q),
-		Supplier:    service.NewSupplierService(q),
-		Withholding: service.NewWithholdingService(q),
+		Supplier:    supplierSvc,
+		Withholding: service.NewWithholdingService(q, supplierSvc),
 		Dashboard:   service.NewDashboardService(q),
-		Receipt:     service.NewReceiptService(q, ocrclient.NewClient(cfg.OCR.ServiceURL)),
+		Receipt:     service.NewReceiptService(q, ocrclient.NewClient(cfg.OCR.ServiceURL), supplierSvc),
 		Audit:       service.NewAuditService(q),
 		Memory:      service.NewMemoryService(q),
 		Task:        service.NewTaskService(q, asynq.RedisClientOpt{
@@ -206,6 +209,7 @@ func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxp
 		Period:      service.NewAccountingPeriodService(q),
 		GL:          service.NewGLService(q),
 		QBO:         qboSvc,
+		Notification: service.NewNotificationService(q),
 		// Pipeline bridges
 		ReceiptBridge: service.NewReceiptBridge(q, classifierSvc),
 		JournalGen:    service.NewJournalGenerator(q, journalSvc),
@@ -240,6 +244,7 @@ type handlers struct {
 	QBO            *handler.QBOHandler
 	Settings       *handler.SettingsHandler
 	Telegram       *handler.TelegramHandler
+	Notification   *handler.NotificationHandler
 	// Pipeline bridge handlers
 	ReceiptBridge  *handler.ReceiptBridgeHandler
 	JournalBridge  *handler.JournalBridgeHandler
@@ -256,7 +261,7 @@ func newHandlers(svc services, cfg *config.Config, ai *oai.Client, q *sqlc.Queri
 		Chat:           handler.NewChatHandler(svc.Chat),
 		Reconciliation: handler.NewReconciliationHandler(svc.BankRecon),
 		Session:        handler.NewSessionHandler(svc.Session, svc.Report, ai, cfg),
-		Compliance:     handler.NewComplianceHandler(svc.Compliance),
+		Compliance:     handler.NewComplianceHandler(svc.Compliance, svc.Report, ai),
 		Correction:     handler.NewCorrectionHandler(svc.Corrections, svc.Analyzer),
 		Withholding:    handler.NewWithholdingHandler(svc.Withholding, svc.Supplier),
 		Dashboard:      handler.NewDashboardHandler(svc.Dashboard),
@@ -274,6 +279,7 @@ func newHandlers(svc services, cfg *config.Config, ai *oai.Client, q *sqlc.Queri
 		QBO:            handler.NewQBOHandler(svc.QBO, svc.Account),
 		Settings:       handler.NewSettingsHandler(svc.Company),
 		Telegram:       handler.NewTelegramHandler(q, cfg.Telegram.BotUsername),
+		Notification:   handler.NewNotificationHandler(svc.Notification),
 		// Pipeline bridges
 		ReceiptBridge:  handler.NewReceiptBridgeHandler(svc.ReceiptBridge),
 		JournalBridge:  handler.NewJournalBridgeHandler(svc.JournalGen),
@@ -324,6 +330,7 @@ func newGinEngine(cfg *config.Config, rdb *redis.Client, svc services, h handler
 		QBO:            h.QBO,
 		Settings:       h.Settings,
 		Telegram:       h.Telegram,
+		Notification:   h.Notification,
 		ReceiptBridge:  h.ReceiptBridge,
 		JournalBridge:  h.JournalBridge,
 		FinStatement:   h.FinStatement,

@@ -135,6 +135,36 @@ func (s *BankReconService) RunReconciliation(ctx context.Context, input CreateBa
 		MatchResult: matchResultJSON,
 	})
 
+	// Write back match statuses to transaction records
+	for _, pair := range matchResult.MatchedPairs {
+		mgID := pgtype.UUID{Bytes: pair.MatchGroupID, Valid: true}
+		if recID, err := uuid.Parse(pair.RecordID); err == nil {
+			_ = s.q.UpdateTransactionMatch(ctx, sqlc.UpdateTransactionMatchParams{
+				ID: recID, MatchGroupID: mgID, MatchStatus: "matched",
+			})
+		}
+		if bankID, err := uuid.Parse(pair.BankID); err == nil {
+			_ = s.q.UpdateTransactionMatch(ctx, sqlc.UpdateTransactionMatchParams{
+				ID: bankID, MatchGroupID: mgID, MatchStatus: "matched",
+			})
+		}
+	}
+	for _, split := range matchResult.SplitMatches {
+		mgID := pgtype.UUID{Bytes: split.MatchGroupID, Valid: true}
+		for _, recIDStr := range split.RecordIDs {
+			if recID, err := uuid.Parse(recIDStr); err == nil {
+				_ = s.q.UpdateTransactionMatch(ctx, sqlc.UpdateTransactionMatchParams{
+					ID: recID, MatchGroupID: mgID, MatchStatus: "split_matched",
+				})
+			}
+		}
+		if bankID, err := uuid.Parse(split.BankID); err == nil {
+			_ = s.q.UpdateTransactionMatch(ctx, sqlc.UpdateTransactionMatchParams{
+				ID: bankID, MatchGroupID: mgID, MatchStatus: "split_matched",
+			})
+		}
+	}
+
 	// Step 3: AI analysis of unmatched entries
 	result.Status = "analyzing"
 	s.updateStatus(ctx, batchID, "analyzing")

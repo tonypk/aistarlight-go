@@ -394,6 +394,111 @@ func TestCalculateReport_Dispatcher(t *testing.T) {
 	assert.Contains(t, err.Error(), "no calculator available")
 }
 
+func TestCalculateBIR2307_WithItems(t *testing.T) {
+	input := map[string]interface{}{
+		"payee_tin":  "123-456-789-000",
+		"payee_name": "Test Supplier Inc.",
+		"payer_tin":  "987-654-321-000",
+		"payer_name": "Test Company Inc.",
+		"period":     "2024-01",
+		"quarter":    "Q1",
+		"items": []interface{}{
+			map[string]interface{}{
+				"atc_code":      "WI157",
+				"income_amount": "100000",
+				"tax_rate":      "0.01",
+				"tax_withheld":  "1000",
+			},
+			map[string]interface{}{
+				"atc_code":      "WI158",
+				"income_amount": "50000",
+				"tax_rate":      "0.02",
+				"tax_withheld":  "1000",
+			},
+		},
+	}
+
+	result, err := CalculateBIR2307(input)
+	require.NoError(t, err)
+	assert.Equal(t, "123-456-789-000", result["payee_tin"])
+	assert.Equal(t, "Test Supplier Inc.", result["payee_name"])
+	assert.Equal(t, "2", result["total_items"])
+	assert.Equal(t, "150000", result["total_income_amount"])
+	assert.Equal(t, "2000", result["total_tax_withheld"])
+	assert.Equal(t, "WI157", result["item_1_atc_code"])
+	assert.Equal(t, "WI158", result["item_2_atc_code"])
+}
+
+func TestCalculateBIR2307_FlatFields(t *testing.T) {
+	input := map[string]interface{}{
+		"payee_tin":     "111-222-333-000",
+		"payee_name":    "Vendor A",
+		"atc_code":      "WI010",
+		"income_amount": "200000",
+		"tax_rate":      "0.05",
+	}
+
+	result, err := CalculateBIR2307(input)
+	require.NoError(t, err)
+	assert.Equal(t, "200000", result["total_income_amount"])
+	assert.Equal(t, "10000", result["total_tax_withheld"])
+	assert.Equal(t, "WI010", result["item_1_atc_code"])
+}
+
+func TestCalculateSAWT(t *testing.T) {
+	input := map[string]interface{}{
+		"period": "2024-01",
+		"entries": []interface{}{
+			map[string]interface{}{
+				"tin":             "111-222-333-000",
+				"registered_name": "Supplier A",
+				"atc_code":        "WI157",
+				"income_payment":  "100000",
+				"tax_withheld":    "1000",
+			},
+			map[string]interface{}{
+				"tin":             "444-555-666-000",
+				"registered_name": "Supplier B",
+				"atc_code":        "WI158",
+				"income_payment":  "50000",
+				"tax_withheld":    "1000",
+			},
+		},
+	}
+
+	result, err := CalculateSAWT(input)
+	require.NoError(t, err)
+	assert.Equal(t, "2024-01", result["period"])
+	assert.Equal(t, "2", result["total_entries"])
+	assert.Equal(t, "150000", result["total_income_payment"])
+	assert.Equal(t, "2000", result["total_tax_withheld"])
+	assert.Equal(t, "111-222-333-000", result["entry_1_tin"])
+	assert.Equal(t, "Supplier A", result["entry_1_registered_name"])
+	assert.Equal(t, "WI157", result["entry_1_atc_code"])
+}
+
+func TestCalculateReport_Dispatches2307AndSAWT(t *testing.T) {
+	// Test 2307 dispatch
+	input2307 := map[string]interface{}{
+		"payee_tin":     "123-456-789-000",
+		"atc_code":      "WI157",
+		"income_amount": "100000",
+		"tax_rate":      "0.01",
+	}
+	result, err := CalculateReport("BIR_2307", input2307)
+	require.NoError(t, err)
+	assert.Contains(t, result, "total_tax_withheld")
+
+	// Test SAWT dispatch
+	inputSAWT := map[string]interface{}{
+		"period":  "2024-01",
+		"entries": []interface{}{},
+	}
+	result, err = CalculateReport("SAWT", inputSAWT)
+	require.NoError(t, err)
+	assert.Equal(t, "0", result["total_entries"])
+}
+
 func TestCalculateBIR2550M_EmptyData(t *testing.T) {
 	input := map[string]interface{}{
 		"sales_data":     []interface{}{},

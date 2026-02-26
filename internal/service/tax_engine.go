@@ -41,6 +41,10 @@ func CalculateReport(formType string, input map[string]interface{}) (TaxResult, 
 		return CalculateBIR1702(input)
 	case birforms.FormBIR2316:
 		return CalculateBIR2316(input)
+	case birforms.FormBIR2307:
+		return CalculateBIR2307(input)
+	case birforms.FormSAWT:
+		return CalculateSAWT(input)
 	default:
 		return nil, fmt.Errorf("no calculator available for %s", formType)
 	}
@@ -505,6 +509,130 @@ func CalculateBIR2316(input map[string]interface{}) (TaxResult, error) {
 		"amount_refunded":                amountRefunded.String(),
 		"amount_still_due":               amountStillDue.String(),
 	}, nil
+}
+
+// CalculateBIR2307 computes the Certificate of Creditable Tax Withheld at Source (BIR 2307).
+// Aggregates withholding data by payee + ATC code for a given period/quarter.
+func CalculateBIR2307(input map[string]interface{}) (TaxResult, error) {
+	certData := toMap(input["certificate_data"])
+	if certData == nil {
+		certData = input
+	}
+
+	payeeTIN := toString(certData["payee_tin"])
+	payeeName := toString(certData["payee_name"])
+	payeeAddress := toString(certData["payee_address"])
+	payerTIN := toString(certData["payer_tin"])
+	payerName := toString(certData["payer_name"])
+	period := toString(certData["period"])
+	quarter := toString(certData["quarter"])
+
+	// Process line items (multiple ATC codes per certificate)
+	items := toMapSlice(certData["items"])
+	totalIncome := decimal.Zero
+	totalTaxWithheld := decimal.Zero
+	seqNo := 0
+
+	result := TaxResult{
+		"payee_tin":     payeeTIN,
+		"payee_name":    payeeName,
+		"payee_address": payeeAddress,
+		"payer_tin":     payerTIN,
+		"payer_name":    payerName,
+		"period":        period,
+		"quarter":       quarter,
+	}
+
+	for _, item := range items {
+		seqNo++
+		atcCode := toString(item["atc_code"])
+		incomeAmount := toDecimal(item["income_amount"])
+		taxRate := toDecimal(item["tax_rate"])
+		taxWithheld := toDecimal(item["tax_withheld"])
+
+		// If tax_withheld not provided, compute from rate
+		if taxWithheld.IsZero() && !incomeAmount.IsZero() && !taxRate.IsZero() {
+			taxWithheld = incomeAmount.Mul(taxRate)
+		}
+
+		totalIncome = totalIncome.Add(incomeAmount)
+		totalTaxWithheld = totalTaxWithheld.Add(taxWithheld)
+
+		prefix := fmt.Sprintf("item_%d", seqNo)
+		result[prefix+"_seq_no"] = fmt.Sprintf("%d", seqNo)
+		result[prefix+"_atc_code"] = atcCode
+		result[prefix+"_income_amount"] = incomeAmount.String()
+		result[prefix+"_tax_rate"] = taxRate.String()
+		result[prefix+"_tax_withheld"] = taxWithheld.String()
+	}
+
+	// If no items, use flat fields
+	if seqNo == 0 {
+		atcCode := toString(certData["atc_code"])
+		incomeAmount := toDecimal(certData["income_amount"])
+		taxRate := toDecimal(certData["tax_rate"])
+		taxWithheld := toDecimal(certData["tax_withheld"])
+
+		if taxWithheld.IsZero() && !incomeAmount.IsZero() && !taxRate.IsZero() {
+			taxWithheld = incomeAmount.Mul(taxRate)
+		}
+
+		totalIncome = incomeAmount
+		totalTaxWithheld = taxWithheld
+
+		result["item_1_seq_no"] = "1"
+		result["item_1_atc_code"] = atcCode
+		result["item_1_income_amount"] = incomeAmount.String()
+		result["item_1_tax_rate"] = taxRate.String()
+		result["item_1_tax_withheld"] = taxWithheld.String()
+	}
+
+	result["total_items"] = fmt.Sprintf("%d", seqNo)
+	result["total_income_amount"] = totalIncome.String()
+	result["total_tax_withheld"] = totalTaxWithheld.String()
+
+	return result, nil
+}
+
+// CalculateSAWT computes the Summary Alphalist of Withholding Taxes (SAWT).
+// Aggregates withholding certificates by ATC code with subtotals and grand total.
+func CalculateSAWT(input map[string]interface{}) (TaxResult, error) {
+	entries := toMapSlice(input["entries"])
+	period := toString(input["period"])
+
+	result := TaxResult{
+		"period": period,
+	}
+
+	totalIncome := decimal.Zero
+	totalTaxWithheld := decimal.Zero
+	seqNo := 0
+
+	for _, entry := range entries {
+		seqNo++
+		tin := toString(entry["tin"])
+		name := toString(entry["registered_name"])
+		atcCode := toString(entry["atc_code"])
+		incomePayment := toDecimal(entry["income_payment"])
+		taxWithheld := toDecimal(entry["tax_withheld"])
+
+		totalIncome = totalIncome.Add(incomePayment)
+		totalTaxWithheld = totalTaxWithheld.Add(taxWithheld)
+
+		prefix := fmt.Sprintf("entry_%d", seqNo)
+		result[prefix+"_seq_no"] = fmt.Sprintf("%d", seqNo)
+		result[prefix+"_tin"] = tin
+		result[prefix+"_registered_name"] = name
+		result[prefix+"_atc_code"] = atcCode
+		result[prefix+"_income_payment"] = incomePayment.String()
+		result[prefix+"_tax_withheld"] = taxWithheld.String()
+	}
+
+	result["total_entries"] = fmt.Sprintf("%d", seqNo)
+	result["total_income_payment"] = totalIncome.String()
+	result["total_tax_withheld"] = totalTaxWithheld.String()
+
+	return result, nil
 }
 
 // computeGraduatedTax calculates income tax using TRAIN Law graduated brackets.

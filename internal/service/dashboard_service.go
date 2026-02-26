@@ -115,12 +115,8 @@ func (s *DashboardService) ComparePeriods(ctx context.Context, companyID uuid.UU
 		}
 	}
 
-	// Compare key fields
-	fields := []string{
-		"vatable_sales", "sales_to_government", "zero_rated_sales", "exempt_sales",
-		"total_sales", "output_vat", "total_output_vat", "total_input_vat",
-		"net_vat", "amount_due", "total_compensation", "tax_withheld", "tax_due",
-	}
+	// Compare key fields — select field set based on form type
+	fields := comparisonFieldsForType(reportType)
 
 	for _, field := range fields {
 		cf := ComparisonField{Field: field}
@@ -150,6 +146,55 @@ func (s *DashboardService) ComparePeriods(ctx context.Context, companyID uuid.UU
 	}
 
 	return comparison, nil
+}
+
+// comparisonFieldsForType returns the relevant comparison fields for a given BIR form type.
+func comparisonFieldsForType(reportType string) []string {
+	switch reportType {
+	case "BIR_2550M", "BIR_2550Q":
+		return []string{
+			"vatable_sales", "sales_to_government", "zero_rated_sales", "exempt_sales",
+			"total_sales", "output_vat", "output_vat_government",
+			"total_output_vat", "input_vat_goods", "input_vat_capital",
+			"input_vat_services", "input_vat_imports", "total_input_vat",
+			"net_vat", "vat_payable", "net_vat_payable",
+			"surcharge", "interest", "total_amount_due",
+		}
+	case "BIR_1601C":
+		return []string{
+			"total_compensation", "taxable_compensation", "non_taxable_compensation",
+			"tax_withheld", "adjustment", "total_tax_remitted",
+			"surcharge", "interest", "compromise", "total_amount_due",
+		}
+	case "BIR_0619E":
+		return []string{
+			"total_income_payments", "total_taxes_withheld", "adjustment",
+			"tax_still_due", "surcharge", "interest", "compromise",
+			"total_amount_due",
+		}
+	case "BIR_1701":
+		return []string{
+			"gross_sales_receipts", "cost_of_sales", "gross_income",
+			"total_gross_income", "total_deductions", "net_taxable_income",
+			"income_tax_due", "total_tax_credits", "tax_payable",
+			"surcharge", "interest", "total_amount_due",
+		}
+	case "BIR_1702":
+		return []string{
+			"gross_income", "cost_of_sales", "gross_profit",
+			"total_gross_income", "total_deductions", "net_taxable_income",
+			"rcit_amount", "mcit_amount", "income_tax_due",
+			"excess_mcit_prior", "total_tax_credits", "tax_payable",
+			"total_amount_due",
+		}
+	default:
+		// Legacy fallback for unrecognized types
+		return []string{
+			"vatable_sales", "sales_to_government", "zero_rated_sales", "exempt_sales",
+			"total_sales", "output_vat", "total_output_vat", "total_input_vat",
+			"net_vat", "amount_due", "total_compensation", "tax_withheld", "tax_due",
+		}
+	}
 }
 
 // GetCompanyForDashboard returns company details from the company_members relationship.

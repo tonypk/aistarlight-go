@@ -21,11 +21,17 @@ var (
 )
 
 type ReportService struct {
-	q *sqlc.Queries
+	q          *sqlc.Queries
+	compliance *ComplianceService
+	approval   *ReportApprovalService
 }
 
-func NewReportService(q *sqlc.Queries) *ReportService {
-	return &ReportService{q: q}
+func NewReportService(q *sqlc.Queries, compliance *ComplianceService) *ReportService {
+	return &ReportService{
+		q:          q,
+		compliance: compliance,
+		approval:   NewReportApprovalService(q),
+	}
 }
 
 type CreateReportInput struct {
@@ -121,8 +127,8 @@ func (s *ReportService) Recalculate(ctx context.Context, id uuid.UUID, userID uu
 	return s.GetByID(ctx, id)
 }
 
-// UpdateStatus transitions a report to a new status.
-func (s *ReportService) UpdateStatus(ctx context.Context, id uuid.UUID, newStatus domain.ReportStatus, userID uuid.UUID) (*domain.Report, error) {
+// UpdateStatus transitions a report to a new status with an optional comment.
+func (s *ReportService) UpdateStatus(ctx context.Context, id uuid.UUID, newStatus domain.ReportStatus, userID uuid.UUID, comment ...*string) (*domain.Report, error) {
 	report, err := s.q.GetReportByID(ctx, id)
 	if err != nil {
 		return nil, ErrReportNotFound
@@ -131,6 +137,29 @@ func (s *ReportService) UpdateStatus(ctx context.Context, id uuid.UUID, newStatu
 	current := domain.ReportStatus(report.Status)
 	if !domain.IsValidTransition(current, newStatus) {
 		return nil, fmt.Errorf("invalid transition from %s to %s", current, newStatus)
+	}
+
+	// Compliance gate: block approval if score is below threshold
+	if newStatus == domain.StatusApproved && s.compliance != nil {
+		validation, err := s.compliance.ValidateReport(ctx, id, report.CompanyID)
+		if err == nil && validation.OverallScore < 70 {
+			// Parse calculated data for fix suggestion generation
+			var calcData map[string]interface{}
+			if len(report.CalculatedData) > 0 {
+				_ = json.Unmarshal(report.CalculatedData, &calcData)
+			}
+			if calcData == nil {
+				calcData = make(map[string]interface{})
+			}
+
+			failedFixes := GenerateFixSuggestions(validation.CheckResults, calcData)
+			return nil, &ComplianceBlockedError{
+				Score:        validation.OverallScore,
+				Threshold:    70,
+				FailedChecks: failedFixes,
+				Summary:      fmt.Sprintf("Compliance score %d/100 is below the approval threshold (70). Fix %d issue(s) before approving.", validation.OverallScore, len(failedFixes)),
+			}
+		}
 	}
 
 	var confirmedAt pgtype.Timestamptz
@@ -149,7 +178,24 @@ func (s *ReportService) UpdateStatus(ctx context.Context, id uuid.UUID, newStatu
 		return nil, ErrVersionConflict
 	}
 
+	// Record approval trail
+	if s.approval != nil {
+		var cmt *string
+		if len(comment) > 0 {
+			cmt = comment[0]
+		}
+		_ = s.approval.RecordTransition(ctx, id, userID, current, newStatus, cmt)
+	}
+
 	return s.GetByID(ctx, id)
+}
+
+// ListApprovals returns the approval history for a report.
+func (s *ReportService) ListApprovals(ctx context.Context, reportID uuid.UUID) ([]ApprovalEntry, error) {
+	if s.approval == nil {
+		return nil, nil
+	}
+	return s.approval.ListApprovals(ctx, reportID)
 }
 
 type OverrideInput struct {
@@ -328,6 +374,11 @@ func toReport(r sqlc.Report) *domain.Report {
 	if r.UpdatedAt.Valid {
 		t := r.UpdatedAt.Time
 		report.UpdatedAt = &t
+	}
+	report.AmendmentNumber = int(r.AmendmentNumber)
+	if r.OriginalReportID.Valid {
+		id := uuid.UUID(r.OriginalReportID.Bytes)
+		report.OriginalReportID = &id
 	}
 
 	return report

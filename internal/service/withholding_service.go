@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/google/uuid"
@@ -32,12 +33,13 @@ type EWTClassificationResult struct {
 
 // WithholdingService handles EWT classification and certificate generation.
 type WithholdingService struct {
-	q *sqlc.Queries
+	q        *sqlc.Queries
+	supplier *SupplierService
 }
 
 // NewWithholdingService creates a WithholdingService.
-func NewWithholdingService(q *sqlc.Queries) *WithholdingService {
-	return &WithholdingService{q: q}
+func NewWithholdingService(q *sqlc.Queries, supplier *SupplierService) *WithholdingService {
+	return &WithholdingService{q: q, supplier: supplier}
 }
 
 // ClassifyEWTTransactions classifies transactions for EWT applicability.
@@ -64,6 +66,28 @@ func (s *WithholdingService) ClassifyEWTTransactions(
 	ewtRules := filterEWTRules(rules)
 
 	for i, tx := range transactions {
+		// Auto-discover supplier if TIN present but not in map
+		if s.supplier != nil {
+			tin := toString(tx["tin"])
+			name := toString(tx["supplier_name"])
+			if tin != "" {
+				if _, ok := supplierByTIN[tin]; !ok {
+					if sup, err := s.supplier.FindOrCreate(ctx, companyID, tin, name); err == nil {
+						// Re-fetch to populate local cache
+						fetched, fetchErr := s.q.GetSupplierByTIN(ctx, sqlc.GetSupplierByTINParams{
+							CompanyID: companyID,
+							Tin:       sup.TIN,
+						})
+						if fetchErr == nil {
+							supplierByTIN[tin] = fetched
+						}
+					} else {
+						slog.Warn("auto-create supplier from EWT failed", "tin", tin, "error", err)
+					}
+				}
+			}
+		}
+
 		// Phase 1: Rule-based
 		result := classifyEWTRuleBased(tx, supplierByTIN)
 		if result != nil {

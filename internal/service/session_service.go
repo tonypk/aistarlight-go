@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/tonypk/aistarlight-go/internal/platform/openai"
 	"github.com/tonypk/aistarlight-go/internal/repository/sqlc"
 )
 
@@ -18,11 +19,12 @@ import (
 type SessionService struct {
 	q          *sqlc.Queries
 	classifier *ClassifierService
+	ai         *openai.Client
 }
 
 // NewSessionService creates a SessionService.
-func NewSessionService(q *sqlc.Queries, classifier *ClassifierService) *SessionService {
-	return &SessionService{q: q, classifier: classifier}
+func NewSessionService(q *sqlc.Queries, classifier *ClassifierService, ai *openai.Client) *SessionService {
+	return &SessionService{q: q, classifier: classifier, ai: ai}
 }
 
 // SessionResponse is the API response for a session.
@@ -53,6 +55,7 @@ type TransactionResponse struct {
 	Category             string   `json:"category"`
 	TIN                  *string  `json:"tin"`
 	Confidence           float64  `json:"confidence"`
+	ConfidenceLevel      string   `json:"confidence_level"` // "high" | "medium" | "low"
 	ClassificationSource string   `json:"classification_source"`
 	MatchGroupID         *string  `json:"match_group_id"`
 	MatchStatus          string   `json:"match_status"`
@@ -139,6 +142,7 @@ func txnToResponse(t sqlc.Transaction) TransactionResponse {
 	}
 	if f, err := t.Confidence.Float64Value(); err == nil {
 		resp.Confidence = f.Float64
+		resp.ConfidenceLevel = ClassifyConfidenceLevel(f.Float64)
 	}
 	if t.MatchGroupID.Valid {
 		id := uuid.UUID(t.MatchGroupID.Bytes).String()
@@ -567,9 +571,15 @@ func (s *SessionService) ClassifySession(ctx context.Context, sessionID, company
 		CompletedAt:          session.CompletedAt,
 	})
 
+	// Build confidence-level summary
+	summary := BuildClassificationSummary(results, len(allTxns))
+	summary.Classified = classifiedCount
+
 	return map[string]interface{}{
-		"classified": classifiedCount,
-		"total":      len(allTxns),
+		"classified":      summary.Classified,
+		"high_confidence": summary.HighConf,
+		"needs_review":    summary.NeedsReview,
+		"total":           summary.Total,
 	}, nil
 }
 
@@ -590,6 +600,9 @@ func (s *SessionService) ListTransactions(ctx context.Context, sessionID, compan
 	if mc := filters["min_confidence"]; mc != "" {
 		_ = minConf.Scan(mc)
 	}
+
+	// needs_review=true: show low-confidence transactions that haven't been user-confirmed
+	needsReview := filters["needs_review"] == "true"
 
 	txns, err := s.q.ListTransactionsBySessionFiltered(ctx, sqlc.ListTransactionsBySessionFilteredParams{
 		SessionID: sessionID,
@@ -619,9 +632,23 @@ func (s *SessionService) ListTransactions(ctx context.Context, sessionID, compan
 		return nil, 0, err
 	}
 
-	result := make([]TransactionResponse, len(txns))
-	for i, t := range txns {
-		result[i] = txnToResponse(t)
+	var result []TransactionResponse
+	for _, t := range txns {
+		resp := txnToResponse(t)
+
+		// Apply needs_review filter: only show low-confidence non-user-confirmed transactions
+		if needsReview {
+			if resp.ClassificationSource == "user_override" {
+				continue
+			}
+			if resp.Confidence >= ConfidenceLowThreshold {
+				continue
+			}
+		}
+
+		// Add confidence_level to help frontend prioritize display
+		resp.ConfidenceLevel = ClassifyConfidenceLevel(resp.Confidence)
+		result = append(result, resp)
 	}
 	return result, total, nil
 }
@@ -684,16 +711,30 @@ func (s *SessionService) DetectAnomalies(ctx context.Context, sessionID, company
 
 	detected := RunAnomalyDetection(txnDicts)
 
+	// Generate AI explanations (graceful degradation if AI unavailable)
+	explanations, _ := ExplainAnomalies(ctx, s.ai, detected)
+
 	// Clear previous anomalies
 	_ = s.q.DeleteAnomaliesBySession(ctx, sessionID)
 
-	// Insert new anomalies
-	for _, a := range detected {
+	// Insert new anomalies with AI explanations
+	for i, a := range detected {
 		txnIDPg := pgtype.UUID{}
 		if a.TransactionID != nil {
 			txnIDPg = pgtype.UUID{Bytes: *a.TransactionID, Valid: true}
 		}
-		detailsJSON, _ := json.Marshal(a.Details)
+
+		// Merge AI explanation into details
+		details := a.Details
+		if details == nil {
+			details = make(map[string]interface{})
+		}
+		if explanations != nil && i < len(explanations) && explanations[i].Explanation != "" {
+			details["ai_explanation"] = explanations[i].Explanation
+			details["ai_resolution"] = explanations[i].Resolution
+			details["bir_reference"] = explanations[i].BIRReference
+		}
+		detailsJSON, _ := json.Marshal(details)
 
 		_, _ = s.q.CreateAnomaly(ctx, sqlc.CreateAnomalyParams{
 			ID:            uuid.New(),

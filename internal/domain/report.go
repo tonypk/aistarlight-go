@@ -25,4 +25,6 @@ type Report struct {
 	OriginalCalculatedData JSON       `json:"original_calculated_data,omitempty"`
 	Notes                  *string    `json:"notes,omitempty"`
 	ComplianceScore        *int       `json:"compliance_score,omitempty"`
+	AmendmentNumber        int        `json:"amendment_number"`
+	OriginalReportID       *uuid.UUID `json:"original_report_id,omitempty"`
 }

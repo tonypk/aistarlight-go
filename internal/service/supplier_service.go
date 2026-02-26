@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -50,6 +52,53 @@ func supplierToResponse(s sqlc.Supplier) SupplierResponse {
 		resp.DefaultEWTRate = f.Float64
 	}
 	return resp
+}
+
+// FindOrCreate looks up a supplier by TIN; if not found, creates one.
+// If TIN is empty but name is provided, searches by name without auto-creating.
+func (s *SupplierService) FindOrCreate(ctx context.Context, companyID uuid.UUID, tin, name string) (*SupplierResponse, error) {
+	tin = strings.TrimSpace(tin)
+	name = strings.TrimSpace(name)
+
+	if tin != "" {
+		existing, err := s.q.GetSupplierByTIN(ctx, sqlc.GetSupplierByTINParams{
+			CompanyID: companyID,
+			Tin:       tin,
+		})
+		if err == nil {
+			resp := supplierToResponse(existing)
+			return &resp, nil
+		}
+
+		// Not found — create with defaults
+		resp, err := s.Create(ctx, companyID, CreateSupplierInput{
+			TIN:             tin,
+			Name:            name,
+			SupplierType:    "corporation",
+			IsVATRegistered: true,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("find or create supplier: %w", err)
+		}
+		slog.Info("auto-created supplier", "tin", tin, "name", name, "company_id", companyID)
+		return resp, nil
+	}
+
+	// TIN empty — search by name only, no auto-create
+	if name == "" {
+		return nil, fmt.Errorf("both TIN and name are empty")
+	}
+	suppliers, err := s.q.SearchSuppliersByCompany(ctx, sqlc.SearchSuppliersByCompanyParams{
+		CompanyID: companyID,
+		Column2:   &name,
+		Limit:     1,
+		Offset:    0,
+	})
+	if err != nil || len(suppliers) == 0 {
+		return nil, fmt.Errorf("no supplier found for name %q", name)
+	}
+	resp := supplierToResponse(suppliers[0])
+	return &resp, nil
 }
 
 // GetByID returns a supplier by ID.

@@ -41,3 +41,18 @@ LIMIT $3 OFFSET $4;
 
 -- name: CountReportsByCompanyAndType :one
 SELECT COUNT(*) FROM reports WHERE company_id = $1 AND report_type = $2;
+
+-- name: CreateReportWithAmendment :one
+INSERT INTO reports (id, company_id, report_type, period, status, input_data, calculated_data, file_path, created_at, created_by, version, amendment_number, original_report_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), $9, 1, $10, $11)
+RETURNING *;
+
+-- name: ListAmendmentChain :many
+SELECT * FROM reports
+WHERE (id = $1 OR original_report_id = $1)
+ORDER BY amendment_number ASC;
+
+-- name: GetMaxAmendmentNumber :one
+SELECT COALESCE(MAX(amendment_number), 0)::int AS max_amendment
+FROM reports
+WHERE original_report_id = $1 OR id = $1;

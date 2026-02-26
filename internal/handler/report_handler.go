@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -110,6 +111,23 @@ type updateStatusRequest struct {
 	Status string `json:"status" binding:"required"`
 }
 
+// handleUpdateStatusError centralizes error handling for status transition errors.
+func (h *ReportHandler) handleUpdateStatusError(c *gin.Context, err error) {
+	var compErr *service.ComplianceBlockedError
+	if errors.As(err, &compErr) {
+		response.UnprocessableEntityWithData(c, compErr.Error(), compErr)
+		return
+	}
+	switch err {
+	case service.ErrReportNotFound:
+		response.NotFound(c, err.Error())
+	case service.ErrVersionConflict:
+		response.Conflict(c, err.Error())
+	default:
+		response.BadRequest(c, err.Error())
+	}
+}
+
 // UpdateStatus handles PATCH /api/v1/reports/:id/status
 func (h *ReportHandler) UpdateStatus(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
@@ -128,14 +146,7 @@ func (h *ReportHandler) UpdateStatus(c *gin.Context) {
 
 	report, err := h.svc.UpdateStatus(c.Request.Context(), id, domain.ReportStatus(req.Status), userID)
 	if err != nil {
-		switch err {
-		case service.ErrReportNotFound:
-			response.NotFound(c, err.Error())
-		case service.ErrVersionConflict:
-			response.Conflict(c, err.Error())
-		default:
-			response.BadRequest(c, err.Error())
-		}
+		h.handleUpdateStatusError(c, err)
 		return
 	}
 
@@ -346,16 +357,9 @@ func (h *ReportHandler) Transition(c *gin.Context) {
 
 	userID := middleware.GetUserID(c)
 
-	report, err := h.svc.UpdateStatus(c.Request.Context(), id, domain.ReportStatus(req.TargetStatus), userID)
+	report, err := h.svc.UpdateStatus(c.Request.Context(), id, domain.ReportStatus(req.TargetStatus), userID, req.Comment)
 	if err != nil {
-		switch err {
-		case service.ErrReportNotFound:
-			response.NotFound(c, err.Error())
-		case service.ErrVersionConflict:
-			response.Conflict(c, err.Error())
-		default:
-			response.BadRequest(c, err.Error())
-		}
+		h.handleUpdateStatusError(c, err)
 		return
 	}
 
@@ -374,18 +378,28 @@ func (h *ReportHandler) Confirm(c *gin.Context) {
 
 	report, err := h.svc.UpdateStatus(c.Request.Context(), id, domain.StatusApproved, userID)
 	if err != nil {
-		switch err {
-		case service.ErrReportNotFound:
-			response.NotFound(c, err.Error())
-		case service.ErrVersionConflict:
-			response.Conflict(c, err.Error())
-		default:
-			response.BadRequest(c, err.Error())
-		}
+		h.handleUpdateStatusError(c, err)
 		return
 	}
 
 	response.OK(c, report)
+}
+
+// ListApprovals handles GET /api/v1/reports/:id/approvals.
+func (h *ReportHandler) ListApprovals(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "invalid report ID")
+		return
+	}
+
+	approvals, err := h.svc.ListApprovals(c.Request.Context(), id)
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	response.OK(c, approvals)
 }
 
 // SupportedForms handles GET /api/v1/reports/supported-forms.
@@ -472,6 +486,103 @@ func (h *ReportHandler) DownloadPDF(c *gin.Context) {
 		response.InternalError(c, "PDF generation failed")
 		return
 	}
+}
+
+// DownloadExcel handles GET /api/v1/reports/:id/excel
+func (h *ReportHandler) DownloadExcel(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "invalid report ID")
+		return
+	}
+
+	report, err := h.svc.GetByID(c.Request.Context(), id)
+	if err != nil {
+		response.NotFound(c, err.Error())
+		return
+	}
+
+	companyID := middleware.GetCompanyID(c)
+	if report.CompanyID != companyID {
+		response.Forbidden(c, "no access to this report")
+		return
+	}
+
+	var calcData map[string]string
+	if err := json.Unmarshal(report.CalculatedData, &calcData); err != nil {
+		response.InternalError(c, "invalid report data")
+		return
+	}
+	calcData["period"] = report.Period
+
+	company, err := h.companySvc.GetByID(c.Request.Context(), companyID)
+	if err != nil {
+		response.InternalError(c, "company not found")
+		return
+	}
+
+	companyInfo := service.CompanyInfo{
+		CompanyName: company.CompanyName,
+	}
+	if company.TINNumber != nil {
+		companyInfo.TINNumber = *company.TINNumber
+	}
+	if company.RDOCode != nil {
+		companyInfo.RDOCode = *company.RDOCode
+	}
+
+	filename := fmt.Sprintf("%s_%s.xlsx", report.ReportType, report.Period)
+	c.Header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+
+	if err := service.GenerateReportExcel(c.Writer, report.ReportType, calcData, companyInfo); err != nil {
+		response.InternalError(c, "Excel generation failed")
+		return
+	}
+}
+
+// Amend handles POST /api/v1/reports/:id/amend
+func (h *ReportHandler) Amend(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "invalid report ID")
+		return
+	}
+
+	userID := middleware.GetUserID(c)
+
+	report, err := h.svc.AmendReport(c.Request.Context(), id, userID)
+	if err != nil {
+		if err == service.ErrReportNotFound {
+			response.NotFound(c, err.Error())
+			return
+		}
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	response.Created(c, report)
+}
+
+// ListAmendments handles GET /api/v1/reports/:id/amendments
+func (h *ReportHandler) ListAmendments(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "invalid report ID")
+		return
+	}
+
+	chain, err := h.svc.GetAmendmentChain(c.Request.Context(), id)
+	if err != nil {
+		if err == service.ErrReportNotFound {
+			response.NotFound(c, err.Error())
+			return
+		}
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	response.OK(c, chain)
 }
 
 // DownloadCSV handles GET /api/v1/reports/:id/csv

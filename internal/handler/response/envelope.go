@@ -63,3 +63,22 @@ func Conflict(c *gin.Context, msg string) {
 func InternalError(c *gin.Context, msg string) {
 	Err(c, http.StatusInternalServerError, msg)
 }
+
+// ErrWithData returns a structured error response with additional data payload.
+func ErrWithData(c *gin.Context, status int, msg string, data interface{}) {
+	c.JSON(status, gin.H{
+		"success": false,
+		"error":   msg,
+		"data":    data,
+	})
+}
+
+// UnprocessableEntity returns 422 with an error message.
+func UnprocessableEntity(c *gin.Context, msg string) {
+	Err(c, http.StatusUnprocessableEntity, msg)
+}
+
+// UnprocessableEntityWithData returns 422 with structured data (e.g. fix suggestions).
+func UnprocessableEntityWithData(c *gin.Context, msg string, data interface{}) {
+	ErrWithData(c, http.StatusUnprocessableEntity, msg, data)
+}

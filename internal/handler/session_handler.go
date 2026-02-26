@@ -291,6 +291,7 @@ func (h *SessionHandler) ListTransactions(c *gin.Context) {
 		"match_status":   c.Query("match_status"),
 		"min_confidence": c.Query("min_confidence"),
 		"search":         c.Query("search"),
+		"needs_review":   c.Query("needs_review"),
 	}
 
 	txns, total, err := h.svc.ListTransactions(c.Request.Context(), sessionID, companyID, p.Limit, p.Offset, filters)
@@ -347,6 +348,73 @@ func (h *SessionHandler) UpdateTransaction(c *gin.Context) {
 	}
 
 	response.OK(c, result)
+}
+
+// BulkUpdateTransactions handles PATCH /api/v1/reconciliation/sessions/:id/transactions/bulk.
+func (h *SessionHandler) BulkUpdateTransactions(c *gin.Context) {
+	sessionID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "invalid session id")
+		return
+	}
+
+	var req struct {
+		Items []service.BatchUpdateItem `json:"items" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	companyID := middleware.GetCompanyID(c)
+
+	result, err := h.svc.BatchUpdateTransactions(c.Request.Context(), sessionID, companyID, req.Items)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	response.OK(c, result)
+}
+
+// ExportExcel handles GET /api/v1/reconciliation/sessions/:id/export-excel.
+func (h *SessionHandler) ExportExcel(c *gin.Context) {
+	sessionID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "invalid session id")
+		return
+	}
+
+	companyID := middleware.GetCompanyID(c)
+	ctx := c.Request.Context()
+
+	session, err := h.svc.GetSession(ctx, sessionID, companyID)
+	if err != nil {
+		response.NotFound(c, err.Error())
+		return
+	}
+
+	// Get all transactions
+	txns, _, err := h.svc.ListTransactions(ctx, sessionID, companyID, 10000, 0, map[string]string{})
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	companyInfo, err := h.svc.GetCompanyInfo(ctx, companyID)
+	if err != nil {
+		companyInfo = service.CompanyInfo{CompanyName: "Unknown"}
+	}
+
+	filename := fmt.Sprintf("reconciliation_%s.xlsx", session.Period)
+	c.Header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+
+	if err := service.GenerateTransactionExcel(c.Writer, txns, session.Period, companyInfo); err != nil {
+		slog.Error("failed to generate Excel", "error", err)
+		response.InternalError(c, "Excel generation failed")
+		return
+	}
 }
 
 // DetectAnomalies handles POST /api/v1/reconciliation/sessions/:id/detect-anomalies.

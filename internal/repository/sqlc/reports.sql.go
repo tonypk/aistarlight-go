@@ -42,7 +42,7 @@ func (q *Queries) CountReportsByCompanyAndType(ctx context.Context, arg CountRep
 const createReport = `-- name: CreateReport :one
 INSERT INTO reports (id, company_id, report_type, period, status, input_data, calculated_data, file_path, created_at, created_by, version)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), $9, 1)
-RETURNING id, company_id, report_type, period, status, input_data, calculated_data, file_path, created_at, confirmed_at, created_by, updated_by, updated_at, version, overrides, original_calculated_data, notes, compliance_score
+RETURNING id, company_id, report_type, period, status, input_data, calculated_data, file_path, created_at, confirmed_at, created_by, updated_by, updated_at, version, overrides, original_calculated_data, notes, compliance_score, amendment_number, original_report_id
 `
 
 type CreateReportParams struct {
@@ -89,6 +89,68 @@ func (q *Queries) CreateReport(ctx context.Context, arg CreateReportParams) (Rep
 		&i.OriginalCalculatedData,
 		&i.Notes,
 		&i.ComplianceScore,
+		&i.AmendmentNumber,
+		&i.OriginalReportID,
+	)
+	return i, err
+}
+
+const createReportWithAmendment = `-- name: CreateReportWithAmendment :one
+INSERT INTO reports (id, company_id, report_type, period, status, input_data, calculated_data, file_path, created_at, created_by, version, amendment_number, original_report_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), $9, 1, $10, $11)
+RETURNING id, company_id, report_type, period, status, input_data, calculated_data, file_path, created_at, confirmed_at, created_by, updated_by, updated_at, version, overrides, original_calculated_data, notes, compliance_score, amendment_number, original_report_id
+`
+
+type CreateReportWithAmendmentParams struct {
+	ID               uuid.UUID   `json:"id"`
+	CompanyID        uuid.UUID   `json:"company_id"`
+	ReportType       string      `json:"report_type"`
+	Period           string      `json:"period"`
+	Status           string      `json:"status"`
+	InputData        []byte      `json:"input_data"`
+	CalculatedData   []byte      `json:"calculated_data"`
+	FilePath         *string     `json:"file_path"`
+	CreatedBy        pgtype.UUID `json:"created_by"`
+	AmendmentNumber  int32       `json:"amendment_number"`
+	OriginalReportID pgtype.UUID `json:"original_report_id"`
+}
+
+func (q *Queries) CreateReportWithAmendment(ctx context.Context, arg CreateReportWithAmendmentParams) (Report, error) {
+	row := q.db.QueryRow(ctx, createReportWithAmendment,
+		arg.ID,
+		arg.CompanyID,
+		arg.ReportType,
+		arg.Period,
+		arg.Status,
+		arg.InputData,
+		arg.CalculatedData,
+		arg.FilePath,
+		arg.CreatedBy,
+		arg.AmendmentNumber,
+		arg.OriginalReportID,
+	)
+	var i Report
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.ReportType,
+		&i.Period,
+		&i.Status,
+		&i.InputData,
+		&i.CalculatedData,
+		&i.FilePath,
+		&i.CreatedAt,
+		&i.ConfirmedAt,
+		&i.CreatedBy,
+		&i.UpdatedBy,
+		&i.UpdatedAt,
+		&i.Version,
+		&i.Overrides,
+		&i.OriginalCalculatedData,
+		&i.Notes,
+		&i.ComplianceScore,
+		&i.AmendmentNumber,
+		&i.OriginalReportID,
 	)
 	return i, err
 }
@@ -102,8 +164,21 @@ func (q *Queries) DeleteReport(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
+const getMaxAmendmentNumber = `-- name: GetMaxAmendmentNumber :one
+SELECT COALESCE(MAX(amendment_number), 0)::int AS max_amendment
+FROM reports
+WHERE original_report_id = $1 OR id = $1
+`
+
+func (q *Queries) GetMaxAmendmentNumber(ctx context.Context, id uuid.UUID) (int32, error) {
+	row := q.db.QueryRow(ctx, getMaxAmendmentNumber, id)
+	var maxAmendment int32
+	err := row.Scan(&maxAmendment)
+	return maxAmendment, err
+}
+
 const getReportByID = `-- name: GetReportByID :one
-SELECT id, company_id, report_type, period, status, input_data, calculated_data, file_path, created_at, confirmed_at, created_by, updated_by, updated_at, version, overrides, original_calculated_data, notes, compliance_score FROM reports WHERE id = $1
+SELECT id, company_id, report_type, period, status, input_data, calculated_data, file_path, created_at, confirmed_at, created_by, updated_by, updated_at, version, overrides, original_calculated_data, notes, compliance_score, amendment_number, original_report_id FROM reports WHERE id = $1
 `
 
 func (q *Queries) GetReportByID(ctx context.Context, id uuid.UUID) (Report, error) {
@@ -128,12 +203,61 @@ func (q *Queries) GetReportByID(ctx context.Context, id uuid.UUID) (Report, erro
 		&i.OriginalCalculatedData,
 		&i.Notes,
 		&i.ComplianceScore,
+		&i.AmendmentNumber,
+		&i.OriginalReportID,
 	)
 	return i, err
 }
 
+const listAmendmentChain = `-- name: ListAmendmentChain :many
+SELECT id, company_id, report_type, period, status, input_data, calculated_data, file_path, created_at, confirmed_at, created_by, updated_by, updated_at, version, overrides, original_calculated_data, notes, compliance_score, amendment_number, original_report_id FROM reports
+WHERE (id = $1 OR original_report_id = $1)
+ORDER BY amendment_number ASC
+`
+
+func (q *Queries) ListAmendmentChain(ctx context.Context, id uuid.UUID) ([]Report, error) {
+	rows, err := q.db.Query(ctx, listAmendmentChain, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Report{}
+	for rows.Next() {
+		var i Report
+		if err := rows.Scan(
+			&i.ID,
+			&i.CompanyID,
+			&i.ReportType,
+			&i.Period,
+			&i.Status,
+			&i.InputData,
+			&i.CalculatedData,
+			&i.FilePath,
+			&i.CreatedAt,
+			&i.ConfirmedAt,
+			&i.CreatedBy,
+			&i.UpdatedBy,
+			&i.UpdatedAt,
+			&i.Version,
+			&i.Overrides,
+			&i.OriginalCalculatedData,
+			&i.Notes,
+			&i.ComplianceScore,
+			&i.AmendmentNumber,
+			&i.OriginalReportID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listReportsByCompany = `-- name: ListReportsByCompany :many
-SELECT id, company_id, report_type, period, status, input_data, calculated_data, file_path, created_at, confirmed_at, created_by, updated_by, updated_at, version, overrides, original_calculated_data, notes, compliance_score FROM reports
+SELECT id, company_id, report_type, period, status, input_data, calculated_data, file_path, created_at, confirmed_at, created_by, updated_by, updated_at, version, overrides, original_calculated_data, notes, compliance_score, amendment_number, original_report_id FROM reports
 WHERE company_id = $1
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3
@@ -173,6 +297,8 @@ func (q *Queries) ListReportsByCompany(ctx context.Context, arg ListReportsByCom
 			&i.OriginalCalculatedData,
 			&i.Notes,
 			&i.ComplianceScore,
+			&i.AmendmentNumber,
+			&i.OriginalReportID,
 		); err != nil {
 			return nil, err
 		}
@@ -185,7 +311,7 @@ func (q *Queries) ListReportsByCompany(ctx context.Context, arg ListReportsByCom
 }
 
 const listReportsByCompanyAndType = `-- name: ListReportsByCompanyAndType :many
-SELECT id, company_id, report_type, period, status, input_data, calculated_data, file_path, created_at, confirmed_at, created_by, updated_by, updated_at, version, overrides, original_calculated_data, notes, compliance_score FROM reports
+SELECT id, company_id, report_type, period, status, input_data, calculated_data, file_path, created_at, confirmed_at, created_by, updated_by, updated_at, version, overrides, original_calculated_data, notes, compliance_score, amendment_number, original_report_id FROM reports
 WHERE company_id = $1 AND report_type = $2
 ORDER BY created_at DESC
 LIMIT $3 OFFSET $4
@@ -231,6 +357,8 @@ func (q *Queries) ListReportsByCompanyAndType(ctx context.Context, arg ListRepor
 			&i.OriginalCalculatedData,
 			&i.Notes,
 			&i.ComplianceScore,
+			&i.AmendmentNumber,
+			&i.OriginalReportID,
 		); err != nil {
 			return nil, err
 		}

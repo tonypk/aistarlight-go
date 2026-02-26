@@ -844,18 +844,28 @@ func (s *SessionService) ReconcileSession(ctx context.Context, sessionID, compan
 		"summary": summary,
 	}
 
-	// Match if we have bank entries
+	// Match if we have bank entries — using upgraded multi-signal scoring engine
 	if len(bank) > 0 {
 		records := append(sales, purchases...)
 		matchResult := MatchTransactions(records, bank, amountTolerance, dateToleranceDays)
+
 		result["match_stats"] = map[string]interface{}{
-			"pairs":             matchResult.MatchedPairs,
-			"unmatched_records": matchResult.UnmatchedRecords,
-			"unmatched_bank":    matchResult.UnmatchedBank,
+			"pairs":             len(matchResult.MatchedPairs),
+			"unmatched_records": len(matchResult.UnmatchedRecords),
+			"unmatched_bank":    len(matchResult.UnmatchedBank),
 			"match_rate":        matchResult.MatchRate,
 		}
 
-		// Update match statuses
+		// Unified bank reconciliation view — all data in one place
+		result["bank_reconciliation"] = map[string]interface{}{
+			"matched_pairs":     matchResult.MatchedPairs,
+			"unmatched_records": matchResult.UnmatchedRecords,
+			"unmatched_bank":    matchResult.UnmatchedBank,
+			"split_matches":     matchResult.SplitMatches,
+			"match_rate":        matchResult.MatchRate,
+		}
+
+		// Update match statuses for 1:1 matches
 		for _, pair := range matchResult.MatchedPairs {
 			mgID := pgtype.UUID{Bytes: pair.MatchGroupID, Valid: true}
 			if recID, err := uuid.Parse(pair.RecordID); err == nil {
@@ -870,6 +880,27 @@ func (s *SessionService) ReconcileSession(ctx context.Context, sessionID, compan
 					ID:           bankID,
 					MatchGroupID: mgID,
 					MatchStatus:  "matched",
+				})
+			}
+		}
+
+		// Update match statuses for split matches
+		for _, split := range matchResult.SplitMatches {
+			mgID := pgtype.UUID{Bytes: split.MatchGroupID, Valid: true}
+			for _, recIDStr := range split.RecordIDs {
+				if recID, err := uuid.Parse(recIDStr); err == nil {
+					_ = s.q.UpdateTransactionMatch(ctx, sqlc.UpdateTransactionMatchParams{
+						ID:           recID,
+						MatchGroupID: mgID,
+						MatchStatus:  "split_matched",
+					})
+				}
+			}
+			if bankID, err := uuid.Parse(split.BankID); err == nil {
+				_ = s.q.UpdateTransactionMatch(ctx, sqlc.UpdateTransactionMatchParams{
+					ID:           bankID,
+					MatchGroupID: mgID,
+					MatchStatus:  "split_matched",
 				})
 			}
 		}
@@ -913,6 +944,22 @@ func (s *SessionService) ReconcileSession(ctx context.Context, sessionID, compan
 	})
 
 	return result, nil
+}
+
+// GetCompanyInfo retrieves company info for PDF generation.
+func (s *SessionService) GetCompanyInfo(ctx context.Context, companyID uuid.UUID) (CompanyInfo, error) {
+	company, err := s.q.GetCompanyByID(ctx, companyID)
+	if err != nil {
+		return CompanyInfo{}, fmt.Errorf("company not found: %w", err)
+	}
+	info := CompanyInfo{CompanyName: company.CompanyName}
+	if company.TinNumber != nil {
+		info.TINNumber = *company.TinNumber
+	}
+	if company.RdoCode != nil {
+		info.RDOCode = *company.RdoCode
+	}
+	return info, nil
 }
 
 // ExportTransactionsCSV exports session transactions as CSV rows.

@@ -93,7 +93,16 @@ func (m *MatchAnalyzer) analyzeBatch(
 	recJSON, _ := json.Marshal(records)
 	bankJSON, _ := json.Marshal(bank)
 
-	prompt := fmt.Sprintf(`Analyze these unmatched financial entries and identify potential matches or explain why they remain unmatched.
+	prompt := fmt.Sprintf(`You are analyzing Philippine business financial entries for reconciliation.
+
+CONTEXT:
+- These are from a Philippine company doing BIR tax compliance
+- Common Philippine banks: BDO, BPI, Metrobank, Landbank, GCash, Maya
+- VAT rate is 12%% — amounts may differ by exactly 12%% (net vs gross)
+- Withholding tax (EWT) commonly 1%%, 2%%, or 5%% — deducted from payments
+- Bank fees, DST (documentary stamp tax), and penalties are common deductions
+- Reference formats: OR (Official Receipt), SI (Sales Invoice), CR (Collection Receipt)
+- ATC codes (e.g., WC010, WI010) indicate withholding tax type
 
 UNMATCHED RECORDS (from accounting system):
 %s
@@ -101,26 +110,41 @@ UNMATCHED RECORDS (from accounting system):
 UNMATCHED BANK ENTRIES:
 %s
 
-For each potential match, consider:
-- Split transactions (one record maps to multiple bank entries)
-- Delayed transactions (timing differences beyond tolerance)
-- Partial matches (similar amounts with fees/adjustments)
-- Description-based matches (same payee/description, different amounts)
+Analyze each entry and:
+1. Find potential matches considering:
+   - Split transactions (one payment covering multiple invoices)
+   - Delayed transactions (timing differences, common in PH banking: 1-5 days)
+   - Net-of-tax payments (amount minus 1-5%% withholding tax)
+   - Bank fee adjustments (amount minus bank charges, typically ₱25-500)
+   - Description-based matches (same supplier/customer, different amounts)
+   - Reference number matches (check no, OR no, invoice no in description)
 
-Respond in JSON format:
+2. For unmatched entries, explain likely reasons:
+   - Bank fees/charges (DST, service charge, penalty)
+   - Government payments (BIR, SSS, PhilHealth, Pag-IBIG)
+   - Inter-company transfers
+   - Timing differences (month-end cutoff)
+   - Missing invoice/receipt
+
+3. Suggest VAT classification when possible:
+   - "vatable" (standard 12%% VAT)
+   - "zero_rated" (export sales, BOI-registered)
+   - "exempt" (basic commodities, educational, health)
+
+Respond ONLY in valid JSON:
 {
   "suggestions": [
-    {"record_id": "...", "bank_id": "...", "confidence": 0.0-1.0, "explanation": "...", "match_type": "split|delayed|partial|description_match"}
+    {"record_id": "...", "bank_id": "...", "confidence": 0.0-1.0, "explanation": "...", "match_type": "split|delayed|partial|description_match|net_of_tax", "next_action": "description of what CPA should verify"}
   ],
   "explanations": [
-    {"entry_id": "...", "entry_type": "record|bank", "explanation": "...", "category": "timing|amount_mismatch|missing_counterpart|duplicate|fee_adjustment"}
+    {"entry_id": "...", "entry_type": "record|bank", "explanation": "...", "category": "timing|amount_mismatch|missing_counterpart|duplicate|fee_adjustment|bank_charge|government_payment|withholding_tax", "suggested_vat_type": "vatable|zero_rated|exempt|null"}
   ]
 }`, string(recJSON), string(bankJSON))
 
 	messages := []oai.ChatCompletionMessage{
 		{
 			Role:    oai.ChatMessageRoleSystem,
-			Content: "You are a financial reconciliation analyst. Analyze unmatched entries and suggest potential matches or explain discrepancies. Always respond in valid JSON.",
+			Content: "You are a Philippine CPA specializing in BIR tax compliance and bank reconciliation. You understand EWT (expanded withholding tax), VAT classifications, ATC codes, and common Philippine banking patterns. Analyze unmatched entries and suggest potential matches or explain discrepancies. Always respond in valid JSON.",
 		},
 		{
 			Role:    oai.ChatMessageRoleUser,

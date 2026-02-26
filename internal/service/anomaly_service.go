@@ -25,6 +25,8 @@ func RunAnomalyDetection(transactions []map[string]interface{}) []DetectedAnomal
 	all = append(all, detectVATMismatches(transactions)...)
 	all = append(all, detectIncompleteTINs(transactions)...)
 	all = append(all, detectUnusualAmounts(transactions)...)
+	all = append(all, detectAbnormalSupplierAmounts(transactions)...)
+	all = append(all, detectMissingCounterparts(transactions)...)
 
 	bankTxns := filterBySourceType(transactions, "bank_statement")
 	recordTxns := filterNotSourceType(transactions, "bank_statement")
@@ -350,4 +352,180 @@ func filterNotSourceType(txns []map[string]interface{}, sourceType string) []map
 		}
 	}
 	return result
+}
+
+// detectAbnormalSupplierAmounts flags transactions that are significantly different
+// from the average amount for that supplier/customer.
+func detectAbnormalSupplierAmounts(transactions []map[string]interface{}) []DetectedAnomaly {
+	// Group by description (supplier/customer name proxy)
+	type group struct {
+		amounts []float64
+		txns    []map[string]interface{}
+	}
+	groups := make(map[string]*group)
+
+	for _, txn := range transactions {
+		desc := strings.ToLower(strings.TrimSpace(toString(txn["description"])))
+		if desc == "" {
+			continue
+		}
+		amount := parseAmount(txn["amount"])
+		if amount <= 0 {
+			continue
+		}
+		if groups[desc] == nil {
+			groups[desc] = &group{}
+		}
+		groups[desc].amounts = append(groups[desc].amounts, amount)
+		groups[desc].txns = append(groups[desc].txns, txn)
+	}
+
+	var anomalies []DetectedAnomaly
+	for desc, g := range groups {
+		if len(g.amounts) < 3 {
+			continue // need enough history
+		}
+		mean := 0.0
+		for _, a := range g.amounts {
+			mean += a
+		}
+		mean /= float64(len(g.amounts))
+
+		for i, amount := range g.amounts {
+			ratio := amount / mean
+			if ratio < 3.0 && ratio > 0.33 {
+				continue // within 3x range
+			}
+			var txnID *uuid.UUID
+			if id := toString(g.txns[i]["id"]); id != "" {
+				if parsed, err := uuid.Parse(id); err == nil {
+					txnID = &parsed
+				}
+			}
+			severity := "medium"
+			if ratio >= 5.0 || ratio <= 0.2 {
+				severity = "high"
+			}
+			truncDesc := desc
+			if len(truncDesc) > 80 {
+				truncDesc = truncDesc[:80]
+			}
+			anomalies = append(anomalies, DetectedAnomaly{
+				AnomalyType: "abnormal_supplier_amount",
+				Severity:    severity,
+				Description: fmt.Sprintf("Amount %.2f PHP is %.1fx the average (%.2f) for \"%s\"", amount, ratio, mean, truncDesc),
+				Details: map[string]interface{}{
+					"amount":       amount,
+					"mean":         math.Round(mean*100) / 100,
+					"ratio":        math.Round(ratio*100) / 100,
+					"supplier":     truncDesc,
+					"history_count": len(g.amounts),
+				},
+				TransactionID: txnID,
+			})
+		}
+	}
+	return anomalies
+}
+
+// detectMissingCounterparts flags sales without corresponding collections
+// and purchases without corresponding payments within the period.
+func detectMissingCounterparts(transactions []map[string]interface{}) []DetectedAnomaly {
+	salesByDesc := make(map[string][]map[string]interface{})
+	purchasesByDesc := make(map[string][]map[string]interface{})
+	bankCredits := make(map[string][]map[string]interface{})
+	bankDebits := make(map[string][]map[string]interface{})
+
+	for _, txn := range transactions {
+		desc := strings.ToLower(strings.TrimSpace(toString(txn["description"])))
+		if desc == "" {
+			continue
+		}
+		switch toString(txn["source_type"]) {
+		case "sales_record":
+			salesByDesc[desc] = append(salesByDesc[desc], txn)
+		case "purchase_record":
+			purchasesByDesc[desc] = append(purchasesByDesc[desc], txn)
+		case "bank_statement":
+			if toString(txn["type"]) == "credit" {
+				bankCredits[desc] = append(bankCredits[desc], txn)
+			} else {
+				bankDebits[desc] = append(bankDebits[desc], txn)
+			}
+		}
+	}
+
+	var anomalies []DetectedAnomaly
+
+	// Check large sales without any bank credit from same entity
+	for desc, salesList := range salesByDesc {
+		if len(bankCredits[desc]) > 0 {
+			continue // has corresponding bank credits
+		}
+		totalSales := 0.0
+		for _, s := range salesList {
+			totalSales += parseAmount(s["amount"])
+		}
+		if totalSales < 10000 {
+			continue // skip small amounts
+		}
+		var txnID *uuid.UUID
+		if id := toString(salesList[0]["id"]); id != "" {
+			if parsed, err := uuid.Parse(id); err == nil {
+				txnID = &parsed
+			}
+		}
+		truncDesc := desc
+		if len(truncDesc) > 80 {
+			truncDesc = truncDesc[:80]
+		}
+		anomalies = append(anomalies, DetectedAnomaly{
+			AnomalyType: "missing_collection",
+			Severity:    "medium",
+			Description: fmt.Sprintf("Sales of %.2f PHP to \"%s\" with no corresponding bank deposit", totalSales, truncDesc),
+			Details: map[string]interface{}{
+				"total_sales":     totalSales,
+				"sale_count":      len(salesList),
+				"customer":        truncDesc,
+			},
+			TransactionID: txnID,
+		})
+	}
+
+	// Check large purchases without any bank debit from same entity
+	for desc, purchaseList := range purchasesByDesc {
+		if len(bankDebits[desc]) > 0 {
+			continue
+		}
+		totalPurchases := 0.0
+		for _, p := range purchaseList {
+			totalPurchases += parseAmount(p["amount"])
+		}
+		if totalPurchases < 10000 {
+			continue
+		}
+		var txnID *uuid.UUID
+		if id := toString(purchaseList[0]["id"]); id != "" {
+			if parsed, err := uuid.Parse(id); err == nil {
+				txnID = &parsed
+			}
+		}
+		truncDesc := desc
+		if len(truncDesc) > 80 {
+			truncDesc = truncDesc[:80]
+		}
+		anomalies = append(anomalies, DetectedAnomaly{
+			AnomalyType: "missing_payment",
+			Severity:    "medium",
+			Description: fmt.Sprintf("Purchases of %.2f PHP from \"%s\" with no corresponding bank payment", totalPurchases, truncDesc),
+			Details: map[string]interface{}{
+				"total_purchases": totalPurchases,
+				"purchase_count":  len(purchaseList),
+				"supplier":        truncDesc,
+			},
+			TransactionID: txnID,
+		})
+	}
+
+	return anomalies
 }

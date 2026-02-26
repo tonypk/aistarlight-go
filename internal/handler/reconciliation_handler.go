@@ -1,6 +1,12 @@
 package handler
 
 import (
+	"io"
+	"log/slog"
+	"path/filepath"
+	"strconv"
+	"strings"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/tonypk/aistarlight-go/internal/handler/middleware"
@@ -120,9 +126,8 @@ func (h *ReconciliationHandler) DetectFormat(c *gin.Context) {
 }
 
 // Process handles POST /api/v1/bank-recon/process (multipart file upload).
-// This is the frontend's reconciliation endpoint that sends FormData.
+// Accepts two files: "records_file" (sales/purchases) and "bank_file" (bank statement).
 func (h *ReconciliationHandler) Process(c *gin.Context) {
-	// Parse multipart form
 	if err := c.Request.ParseMultipartForm(32 << 20); err != nil { // 32MB
 		response.BadRequest(c, "invalid multipart form: "+err.Error())
 		return
@@ -134,19 +139,115 @@ func (h *ReconciliationHandler) Process(c *gin.Context) {
 		return
 	}
 
+	amountTolerance := 0.01
+	if v := c.PostForm("amount_tolerance"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+			amountTolerance = f
+		}
+	}
+	dateToleranceDays := 3
+	if v := c.PostForm("date_tolerance_days"); v != "" {
+		if d, err := strconv.Atoi(v); err == nil && d > 0 {
+			dateToleranceDays = d
+		}
+	}
+
 	companyID := middleware.GetCompanyID(c)
 	userID := middleware.GetUserID(c)
 
-	// For now, process the form as a simple run
+	var records []map[string]interface{}
+	var bankColumns []string
+	var bankRows []map[string]interface{}
+	var sourceFiles []string
+
+	// Read records file (sales/purchases)
+	if recFile, header, err := c.Request.FormFile("records_file"); err == nil {
+		defer recFile.Close()
+		content, err := io.ReadAll(recFile)
+		if err != nil {
+			response.BadRequest(c, "failed to read records file: "+err.Error())
+			return
+		}
+		filename := header.Filename
+		sourceFiles = append(sourceFiles, filename)
+
+		parsed, err := service.ParseUploadedFile(content, filename)
+		if err != nil {
+			response.BadRequest(c, "failed to parse records file: "+err.Error())
+			return
+		}
+		for _, sheet := range parsed.Sheets {
+			if len(sheet.Preview) > 0 {
+				records = sheet.Preview
+				break
+			}
+		}
+		// Try to get all rows
+		ext := strings.ToLower(filepath.Ext(filename))
+		if ext == ".xlsx" || ext == ".xls" || ext == ".csv" {
+			for sheetName := range parsed.Sheets {
+				allRows, err := service.ParseUploadedFileAllRows(content, filename, sheetName)
+				if err == nil && len(allRows) > 0 {
+					records = allRows
+					break
+				}
+			}
+		}
+		slog.Info("parsed records file", "filename", filename, "rows", len(records))
+	}
+
+	// Read bank statement file
+	if bankFile, header, err := c.Request.FormFile("bank_file"); err == nil {
+		defer bankFile.Close()
+		content, err := io.ReadAll(bankFile)
+		if err != nil {
+			response.BadRequest(c, "failed to read bank file: "+err.Error())
+			return
+		}
+		filename := header.Filename
+		sourceFiles = append(sourceFiles, filename)
+
+		parsed, err := service.ParseUploadedFile(content, filename)
+		if err != nil {
+			response.BadRequest(c, "failed to parse bank file: "+err.Error())
+			return
+		}
+		for _, sheet := range parsed.Sheets {
+			bankColumns = sheet.Columns
+			if len(sheet.Preview) > 0 {
+				bankRows = sheet.Preview
+			}
+			break
+		}
+		// Try all rows
+		ext := strings.ToLower(filepath.Ext(filename))
+		if ext == ".xlsx" || ext == ".xls" || ext == ".csv" {
+			for sheetName := range parsed.Sheets {
+				allRows, err := service.ParseUploadedFileAllRows(content, filename, sheetName)
+				if err == nil && len(allRows) > 0 {
+					bankRows = allRows
+					break
+				}
+			}
+		}
+		slog.Info("parsed bank file", "filename", filename, "rows", len(bankRows))
+	}
+
+	if len(records) == 0 && len(bankRows) == 0 {
+		response.BadRequest(c, "no data found — please upload at least one file with records or bank entries")
+		return
+	}
+
 	input := service.CreateBatchInput{
 		CompanyID:         companyID,
 		CreatedBy:         userID,
 		Period:            period,
-		AmountTolerance:   0.01,
-		DateToleranceDays: 3,
-		Records:           []map[string]interface{}{},
-		BankColumns:       []string{},
-		BankRows:          []map[string]interface{}{},
+		AmountTolerance:   amountTolerance,
+		DateToleranceDays: dateToleranceDays,
+		SourceFiles:       sourceFiles,
+		Records:           records,
+		BankColumns:       bankColumns,
+		BankRows:          bankRows,
 	}
 
 	result, err := h.svc.RunReconciliation(c.Request.Context(), input)
@@ -160,12 +261,52 @@ func (h *ReconciliationHandler) Process(c *gin.Context) {
 
 // AcceptSuggestion handles POST /api/v1/bank-recon/batches/:id/accept-suggestion.
 func (h *ReconciliationHandler) AcceptSuggestion(c *gin.Context) {
-	response.OK(c, gin.H{"message": "suggestion accepted"})
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "invalid batch id")
+		return
+	}
+
+	var req struct {
+		SuggestionIndex int `json:"suggestion_index"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	result, err := h.svc.UpdateSuggestionStatus(c.Request.Context(), id, req.SuggestionIndex, "accepted")
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	response.OK(c, result)
 }
 
 // RejectSuggestion handles POST /api/v1/bank-recon/batches/:id/reject-suggestion.
 func (h *ReconciliationHandler) RejectSuggestion(c *gin.Context) {
-	response.OK(c, gin.H{"message": "suggestion rejected"})
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "invalid batch id")
+		return
+	}
+
+	var req struct {
+		SuggestionIndex int `json:"suggestion_index"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	result, err := h.svc.UpdateSuggestionStatus(c.Request.Context(), id, req.SuggestionIndex, "rejected")
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	response.OK(c, result)
 }
 
 // RerunAnalysis handles POST /api/v1/bank-recon/batches/:id/rerun-analysis.

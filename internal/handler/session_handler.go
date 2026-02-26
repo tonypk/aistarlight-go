@@ -528,7 +528,6 @@ func (h *SessionHandler) GenerateReport(c *gin.Context) {
 
 // ExportPDF handles GET /api/v1/reconciliation/sessions/:id/export-pdf.
 func (h *SessionHandler) ExportPDF(c *gin.Context) {
-	// For now, return the session summary as JSON (PDF generation can be added later)
 	sessionID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		response.BadRequest(c, "invalid session id")
@@ -536,8 +535,9 @@ func (h *SessionHandler) ExportPDF(c *gin.Context) {
 	}
 
 	companyID := middleware.GetCompanyID(c)
+	ctx := c.Request.Context()
 
-	session, err := h.svc.GetSession(c.Request.Context(), sessionID, companyID)
+	session, err := h.svc.GetSession(ctx, sessionID, companyID)
 	if err != nil {
 		response.NotFound(c, err.Error())
 		return
@@ -548,11 +548,69 @@ func (h *SessionHandler) ExportPDF(c *gin.Context) {
 		return
 	}
 
-	// TODO: Generate actual PDF using fpdf
-	response.OK(c, gin.H{
-		"message":  "PDF export not yet implemented, use /export for CSV",
-		"session":  session,
-	})
+	companyInfo, err := h.svc.GetCompanyInfo(ctx, companyID)
+	if err != nil {
+		companyInfo = service.CompanyInfo{CompanyName: "Unknown"}
+	}
+
+	// Build VAT summary map
+	vatSummary := make(map[string]string)
+	if session.Summary != nil {
+		if summaryMap, ok := session.Summary.(map[string]interface{}); ok {
+			for k, v := range summaryMap {
+				vatSummary[k] = fmt.Sprintf("%v", v)
+			}
+		}
+	}
+
+	// Build match stats
+	matchStats := make(map[string]interface{})
+	if session.ReconciliationResult != nil {
+		if resultMap, ok := session.ReconciliationResult.(map[string]interface{}); ok {
+			if ms, ok := resultMap["match_stats"].(map[string]interface{}); ok {
+				matchStats = ms
+			}
+		}
+	}
+
+	// Count source files
+	fileCount := 0
+	if session.SourceFiles != nil {
+		if files, ok := session.SourceFiles.([]interface{}); ok {
+			fileCount = len(files)
+		}
+	}
+
+	// Get anomalies
+	anomalies, _, _ := h.svc.ListAnomalies(ctx, sessionID, companyID, 100, 0, nil)
+	var anomalyEntries []service.AnomalyEntry
+	for _, a := range anomalies {
+		anomalyEntries = append(anomalyEntries, service.AnomalyEntry{
+			Severity:    a.Severity,
+			Description: a.Description,
+			Status:      a.Status,
+		})
+	}
+
+	input := service.ReconciliationPDFInput{
+		SessionID:  sessionID.String(),
+		Period:     session.Period,
+		Status:     session.Status,
+		FileCount:  fileCount,
+		Company:    companyInfo,
+		VATSummary: vatSummary,
+		MatchStats: matchStats,
+		Anomalies:  anomalyEntries,
+	}
+
+	c.Header("Content-Type", "application/pdf")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=reconciliation_%s.pdf", session.Period))
+
+	if err := service.GenerateReconciliationPDF(c.Writer, input); err != nil {
+		slog.Error("failed to generate reconciliation PDF", "error", err)
+		response.InternalError(c, "failed to generate PDF: "+err.Error())
+		return
+	}
 }
 
 // Export handles GET /api/v1/reconciliation/sessions/:id/export.

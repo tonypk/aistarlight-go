@@ -264,6 +264,74 @@ func (s *BankReconService) UpdateSessionWithResults(ctx context.Context, session
 	})
 }
 
+// UpdateSuggestionStatus accepts or rejects an AI suggestion and persists the change.
+// When accepting, it adds the suggestion to match_result as a new matched pair.
+// When rejecting, it marks the suggestion so it won't be shown again.
+func (s *BankReconService) UpdateSuggestionStatus(ctx context.Context, batchID uuid.UUID, suggestionIndex int, status string) (*BatchResult, error) {
+	batch, err := s.q.GetBankReconBatchByID(ctx, batchID)
+	if err != nil {
+		return nil, ErrBatchNotFound
+	}
+
+	var suggestions []AISuggestion
+	if len(batch.AiSuggestions) > 0 {
+		_ = json.Unmarshal(batch.AiSuggestions, &suggestions)
+	}
+	if suggestionIndex < 0 || suggestionIndex >= len(suggestions) {
+		return nil, fmt.Errorf("suggestion index %d out of range (total: %d)", suggestionIndex, len(suggestions))
+	}
+
+	suggestion := suggestions[suggestionIndex]
+
+	if status == "accepted" {
+		// Add suggestion as a matched pair in match_result
+		var matchResult MatchResult
+		if len(batch.MatchResult) > 0 {
+			_ = json.Unmarshal(batch.MatchResult, &matchResult)
+		}
+
+		matchResult.MatchedPairs = append(matchResult.MatchedPairs, MatchedPair{
+			MatchGroupID: uuid.New(),
+			RecordID:     suggestion.RecordID,
+			BankID:       suggestion.BankID,
+			RecordAmount: 0, // amounts not stored on suggestion
+			BankAmount:   0,
+		})
+
+		matchResultJSON, _ := json.Marshal(matchResult)
+
+		// Remove the accepted suggestion
+		suggestions = append(suggestions[:suggestionIndex], suggestions[suggestionIndex+1:]...)
+		suggestionsJSON, _ := json.Marshal(suggestions)
+
+		_ = s.q.UpdateBankReconBatch(ctx, sqlc.UpdateBankReconBatchParams{
+			ID:             batchID,
+			Status:         batch.Status,
+			ParseSummary:   batch.ParseSummary,
+			MatchResult:    matchResultJSON,
+			AiSuggestions:  suggestionsJSON,
+			AiExplanations: batch.AiExplanations,
+			TotalEntries:   batch.TotalEntries,
+		})
+	} else {
+		// Remove the rejected suggestion
+		suggestions = append(suggestions[:suggestionIndex], suggestions[suggestionIndex+1:]...)
+		suggestionsJSON, _ := json.Marshal(suggestions)
+
+		_ = s.q.UpdateBankReconBatch(ctx, sqlc.UpdateBankReconBatchParams{
+			ID:             batchID,
+			Status:         batch.Status,
+			ParseSummary:   batch.ParseSummary,
+			MatchResult:    batch.MatchResult,
+			AiSuggestions:  suggestionsJSON,
+			AiExplanations: batch.AiExplanations,
+			TotalEntries:   batch.TotalEntries,
+		})
+	}
+
+	return s.GetBatch(ctx, batchID)
+}
+
 func (s *BankReconService) updateStatus(ctx context.Context, batchID uuid.UUID, status string) {
 	_ = s.q.UpdateBankReconBatch(ctx, sqlc.UpdateBankReconBatchParams{
 		ID:     batchID,

@@ -40,12 +40,13 @@ type VATSummary struct {
 
 // MatchedPair represents a matched record-bank entry pair.
 type MatchedPair struct {
-	MatchGroupID uuid.UUID `json:"match_group_id"`
-	RecordID     string    `json:"record_id"`
-	BankID       string    `json:"bank_id"`
-	RecordAmount float64   `json:"record_amount"`
-	BankAmount   float64   `json:"bank_amount"`
-	DateDiffDays int       `json:"date_diff_days"`
+	MatchGroupID uuid.UUID   `json:"match_group_id"`
+	RecordID     string      `json:"record_id"`
+	BankID       string      `json:"bank_id"`
+	RecordAmount float64     `json:"record_amount"`
+	BankAmount   float64     `json:"bank_amount"`
+	DateDiffDays int         `json:"date_diff_days"`
+	Score        *MatchScore `json:"score,omitempty"`
 }
 
 // UnmatchedEntry represents an unmatched record or bank entry.
@@ -61,6 +62,7 @@ type MatchResult struct {
 	MatchedPairs     []MatchedPair    `json:"matched_pairs"`
 	UnmatchedRecords []UnmatchedEntry `json:"unmatched_records"`
 	UnmatchedBank    []UnmatchedEntry `json:"unmatched_bank"`
+	SplitMatches     []SplitMatch     `json:"split_matches,omitempty"`
 	MatchRate        float64          `json:"match_rate"`
 }
 
@@ -124,71 +126,80 @@ func GenerateVATSummary(transactions []map[string]interface{}, period string) VA
 	return s
 }
 
-// MatchTransactions runs a greedy matching algorithm to pair records with bank entries.
+// MatchTransactions runs a multi-signal scoring algorithm to pair records with bank entries.
+// It uses amount similarity, date proximity, reference number matching, and description
+// similarity to find the best matches. It also attempts split matching (N:1) for
+// unmatched bank entries.
 func MatchTransactions(records, bankEntries []map[string]interface{}, amountTolerance float64, dateToleranceDays int) MatchResult {
-	if amountTolerance <= 0 {
-		amountTolerance = 0.01
+	cfg := DefaultScorerConfig()
+	if amountTolerance > 0 {
+		cfg.AmountTolerance = amountTolerance
 	}
-	if dateToleranceDays <= 0 {
-		dateToleranceDays = 3
+	if dateToleranceDays > 0 {
+		cfg.DateToleranceDays = dateToleranceDays
 	}
 
-	used := make([]bool, len(bankEntries))
+	usedBank := make([]bool, len(bankEntries))
+	usedRec := make([]bool, len(records))
 	var matched []MatchedPair
-	var unmatchedRecords []UnmatchedEntry
 
-	for _, rec := range records {
-		recAmount := parseAmount(rec["amount"])
-		recDate := toString(rec["date"])
-		recID := toString(rec["id"])
+	// Build all candidate pairs with scores
+	type scoredPair struct {
+		recIdx int
+		bankIdx int
+		score  MatchScore
+	}
+	var pairs []scoredPair
 
-		bestIdx := -1
-		bestScore := math.MaxFloat64
-
+	for i, rec := range records {
 		for j, bank := range bankEntries {
-			if used[j] {
-				continue
-			}
-
-			bankAmount := parseAmount(bank["amount"])
-			amountDiff := math.Abs(recAmount - bankAmount)
-			tolerance := math.Max(amountTolerance, math.Abs(recAmount)*0.001)
-			if amountDiff > tolerance {
-				continue
-			}
-
-			dateDiff := 0
-			bankDate := toString(bank["date"])
-			if recDate != "" && bankDate != "" {
-				dateDiff = dateDiffDays(recDate, bankDate)
-				if dateDiff > dateToleranceDays {
-					continue
-				}
-			}
-
-			score := amountDiff + float64(dateDiff)*0.01
-			if score < bestScore {
-				bestScore = score
-				bestIdx = j
+			score := ScoreMatch(rec, bank, cfg)
+			if score.Total >= cfg.MinMatchScore {
+				pairs = append(pairs, scoredPair{recIdx: i, bankIdx: j, score: score})
 			}
 		}
+	}
 
-		if bestIdx >= 0 {
-			used[bestIdx] = true
-			bankEntry := bankEntries[bestIdx]
-			matched = append(matched, MatchedPair{
-				MatchGroupID: uuid.New(),
-				RecordID:     recID,
-				BankID:       toString(bankEntry["id"]),
-				RecordAmount: recAmount,
-				BankAmount:   parseAmount(bankEntry["amount"]),
-				DateDiffDays: dateDiffDays(recDate, toString(bankEntry["date"])),
-			})
-		} else {
+	// Sort by total score descending (greedy best-first)
+	for i := 1; i < len(pairs); i++ {
+		for j := i; j > 0 && pairs[j].score.Total > pairs[j-1].score.Total; j-- {
+			pairs[j], pairs[j-1] = pairs[j-1], pairs[j]
+		}
+	}
+
+	// Assign best matches greedily
+	for _, p := range pairs {
+		if usedRec[p.recIdx] || usedBank[p.bankIdx] {
+			continue
+		}
+		usedRec[p.recIdx] = true
+		usedBank[p.bankIdx] = true
+
+		rec := records[p.recIdx]
+		bank := bankEntries[p.bankIdx]
+		recDate := toString(rec["date"])
+		bankDate := toString(bank["date"])
+		score := p.score
+
+		matched = append(matched, MatchedPair{
+			MatchGroupID: uuid.New(),
+			RecordID:     toString(rec["id"]),
+			BankID:       toString(bank["id"]),
+			RecordAmount: parseAmount(rec["amount"]),
+			BankAmount:   parseAmount(bank["amount"]),
+			DateDiffDays: dateDiffDays(recDate, bankDate),
+			Score:        &score,
+		})
+	}
+
+	// Collect unmatched
+	var unmatchedRecords []UnmatchedEntry
+	for i, rec := range records {
+		if !usedRec[i] {
 			unmatchedRecords = append(unmatchedRecords, UnmatchedEntry{
-				ID:          recID,
-				Amount:      recAmount,
-				Date:        recDate,
+				ID:          toString(rec["id"]),
+				Amount:      parseAmount(rec["amount"]),
+				Date:        toString(rec["date"]),
 				Description: toString(rec["description"]),
 			})
 		}
@@ -196,7 +207,7 @@ func MatchTransactions(records, bankEntries []map[string]interface{}, amountTole
 
 	var unmatchedBank []UnmatchedEntry
 	for j, bank := range bankEntries {
-		if !used[j] {
+		if !usedBank[j] {
 			unmatchedBank = append(unmatchedBank, UnmatchedEntry{
 				ID:          toString(bank["id"]),
 				Amount:      parseAmount(bank["amount"]),
@@ -206,18 +217,103 @@ func MatchTransactions(records, bankEntries []map[string]interface{}, amountTole
 		}
 	}
 
+	// Attempt split matching on unmatched bank entries
+	var splitMatches []SplitMatch
+	unmatchedRecMaps := make([]map[string]interface{}, 0, len(unmatchedRecords))
+	for i, rec := range records {
+		if !usedRec[i] {
+			unmatchedRecMaps = append(unmatchedRecMaps, rec)
+		}
+	}
+
+	if len(unmatchedRecMaps) >= 2 {
+		splitUsedBank := make(map[string]bool)
+		splitUsedRecs := make(map[string]bool)
+
+		for j, bank := range bankEntries {
+			if usedBank[j] {
+				continue
+			}
+			splits := FindSplitMatches(unmatchedRecMaps, bank, cfg.AmountTolerance)
+			if len(splits) == 0 {
+				continue
+			}
+			// Take the best split (smallest difference)
+			best := splits[0]
+			for _, s := range splits[1:] {
+				if s.Difference < best.Difference {
+					best = s
+				}
+			}
+			// Check that none of these records are already used in another split
+			conflict := false
+			for _, rid := range best.RecordIDs {
+				if splitUsedRecs[rid] {
+					conflict = true
+					break
+				}
+			}
+			if conflict || splitUsedBank[best.BankID] {
+				continue
+			}
+			splitUsedBank[best.BankID] = true
+			for _, rid := range best.RecordIDs {
+				splitUsedRecs[rid] = true
+			}
+			splitMatches = append(splitMatches, best)
+		}
+
+		// Remove split-matched entries from unmatched lists
+		if len(splitMatches) > 0 {
+			bankSet := make(map[string]bool)
+			recSet := make(map[string]bool)
+			for _, sm := range splitMatches {
+				bankSet[sm.BankID] = true
+				for _, rid := range sm.RecordIDs {
+					recSet[rid] = true
+				}
+			}
+			filtered := unmatchedRecords[:0]
+			for _, ur := range unmatchedRecords {
+				if !recSet[ur.ID] {
+					filtered = append(filtered, ur)
+				}
+			}
+			unmatchedRecords = filtered
+
+			filteredBank := unmatchedBank[:0]
+			for _, ub := range unmatchedBank {
+				if !bankSet[ub.ID] {
+					filteredBank = append(filteredBank, ub)
+				}
+			}
+			unmatchedBank = filteredBank
+		}
+	}
+
 	totalItems := len(records) + len(bankEntries)
 	matchRate := 0.0
 	if totalItems > 0 {
-		matchRate = float64(len(matched)*2) / float64(totalItems)
+		matchedCount := len(matched)*2 + splitMatchedCount(splitMatches)
+		matchRate = float64(matchedCount) / float64(totalItems)
 	}
 
 	return MatchResult{
 		MatchedPairs:     matched,
 		UnmatchedRecords: unmatchedRecords,
 		UnmatchedBank:    unmatchedBank,
+		SplitMatches:     splitMatches,
 		MatchRate:        matchRate,
 	}
+}
+
+// splitMatchedCount returns the total number of entries involved in split matches.
+func splitMatchedCount(splits []SplitMatch) int {
+	count := 0
+	for _, s := range splits {
+		count += len(s.RecordIDs) + 1 // records + bank entry
+	}
+	return count
 }
 
 // ComparisonLine represents a single BIR field comparison.

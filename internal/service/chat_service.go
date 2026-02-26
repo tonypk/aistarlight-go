@@ -115,6 +115,10 @@ func (s *ChatService) ProcessMessage(
 	history []domain.ChatMessage,
 	companyID uuid.UUID,
 ) (*ChatResponse, error) {
+	if s.ai == nil {
+		return nil, fmt.Errorf("AI service not configured — set OPENAI_API_KEY to enable chat")
+	}
+
 	messages := s.buildMessages(history, userMessage)
 
 	// First LLM call (may include tool calls)
@@ -177,6 +181,10 @@ func (s *ChatService) ProcessMessageStream(
 	history []domain.ChatMessage,
 	companyID uuid.UUID,
 ) (<-chan string, *[]ToolCallResult, error) {
+	if s.ai == nil {
+		return nil, nil, fmt.Errorf("AI service not configured — set OPENAI_API_KEY to enable chat")
+	}
+
 	messages := s.buildMessages(history, userMessage)
 
 	// First LLM call with tools (non-streaming)

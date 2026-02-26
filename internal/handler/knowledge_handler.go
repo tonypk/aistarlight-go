@@ -37,6 +37,27 @@ func (h *KnowledgeHandler) List(c *gin.Context) {
 	response.Paginated(c, results, len(results), p.Page, p.Limit)
 }
 
+// Create handles POST /api/v1/knowledge.
+func (h *KnowledgeHandler) Create(c *gin.Context) {
+	var req struct {
+		Content  string `json:"content" binding:"required"`
+		Source   string `json:"source"`
+		Category string `json:"category"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	result, err := h.knowledge.AddChunk(c.Request.Context(), req.Source, req.Category, req.Content)
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	response.Created(c, result)
+}
+
 // Stats handles GET /api/v1/knowledge/stats.
 func (h *KnowledgeHandler) Stats(c *gin.Context) {
 	stats, err := h.knowledge.GetStats(c.Request.Context())

@@ -73,7 +73,7 @@ type PeriodComparison struct {
 	ReportType string           `json:"report_type"`
 	HasReportA bool             `json:"has_report_a"`
 	HasReportB bool             `json:"has_report_b"`
-	Fields     []ComparisonField `json:"fields"`
+	Fields     []ComparisonField `json:"comparison"`
 }
 
 // ComparisonField holds a single field comparison.

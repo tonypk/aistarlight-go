@@ -331,6 +331,7 @@ func (rt *Router) Setup(r *gin.Engine) {
 	knowledge.Use(authMw)
 	{
 		knowledge.GET("", rt.Knowledge.List)
+		knowledge.POST("", rt.Knowledge.Create)
 		knowledge.GET("/stats", rt.Knowledge.Stats)
 	}
 

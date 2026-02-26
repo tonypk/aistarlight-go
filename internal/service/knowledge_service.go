@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/google/uuid"
 	oai "github.com/sashabaranov/go-openai"
 	"github.com/pgvector/pgvector-go"
 	"github.com/tonypk/aistarlight-go/internal/platform/openai"
@@ -113,6 +114,54 @@ func (s *KnowledgeService) RetrieveRelevant(ctx context.Context, query string, c
 		}
 	}
 	return results, nil
+}
+
+// AddChunk creates a new knowledge chunk.
+func (s *KnowledgeService) AddChunk(ctx context.Context, source, category, content string) (*KnowledgeResult, error) {
+	if content == "" {
+		return nil, fmt.Errorf("content is required")
+	}
+
+	var srcPtr, catPtr *string
+	if source != "" {
+		srcPtr = &source
+	}
+	if category != "" {
+		catPtr = &category
+	}
+
+	// Generate embedding if AI is available
+	var embedding *pgvector.Vector
+	if s.ai != nil {
+		emb, err := s.ai.CreateEmbedding(ctx, content)
+		if err != nil {
+			slog.Warn("failed to generate embedding for new chunk", "error", err)
+		} else {
+			v := pgvector.NewVector(emb)
+			embedding = &v
+		}
+	}
+
+	chunk, err := s.q.CreateKnowledgeChunk(ctx, sqlc.CreateKnowledgeChunkParams{
+		ID:        uuid.New(),
+		Source:    srcPtr,
+		Category:  catPtr,
+		Content:   content,
+		Embedding: embedding,
+		Metadata:  []byte("{}"),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create knowledge chunk: %w", err)
+	}
+
+	return &KnowledgeResult{
+		ID:           chunk.ID.String(),
+		Content:      chunk.Content,
+		Source:       derefString(chunk.Source),
+		Category:     derefString(chunk.Category),
+		HasEmbedding: chunk.Embedding != nil,
+		CreatedAt:    chunk.CreatedAt.Format("2006-01-02T15:04:05Z"),
+	}, nil
 }
 
 // AnswerQuestion generates an answer using retrieved context.

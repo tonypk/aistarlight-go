@@ -23,7 +23,7 @@ func NewChatHandler(svc *service.ChatService) *ChatHandler {
 }
 
 type chatMessageRequest struct {
-	Message string `json:"message" binding:"required"`
+	Content string `json:"content" binding:"required"`
 }
 
 // Message handles POST /api/v1/chat/message (non-streaming).
@@ -41,14 +41,14 @@ func (h *ChatHandler) Message(c *gin.Context) {
 	history, _ := h.svc.ListHistory(c.Request.Context(), companyID, 20)
 
 	// Process message
-	chatResp, err := h.svc.ProcessMessage(c.Request.Context(), req.Message, history, companyID)
+	chatResp, err := h.svc.ProcessMessage(c.Request.Context(), req.Content, history, companyID)
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return
 	}
 
 	// Save user message
-	_ = h.svc.SaveMessage(c.Request.Context(), companyID, userID, "user", req.Message, nil)
+	_ = h.svc.SaveMessage(c.Request.Context(), companyID, userID, "user", req.Content, nil)
 
 	// Save assistant response
 	_ = h.svc.SaveMessage(c.Request.Context(), companyID, userID, "assistant", chatResp.Response, chatResp.ToolCalls)
@@ -75,10 +75,10 @@ func (h *ChatHandler) Stream(c *gin.Context) {
 	history, _ := h.svc.ListHistory(c.Request.Context(), companyID, 20)
 
 	// Save user message first
-	_ = h.svc.SaveMessage(c.Request.Context(), companyID, userID, "user", req.Message, nil)
+	_ = h.svc.SaveMessage(c.Request.Context(), companyID, userID, "user", req.Content, nil)
 
 	// Process message with streaming
-	tokenCh, toolResults, err := h.svc.ProcessMessageStream(c.Request.Context(), req.Message, history, companyID)
+	tokenCh, toolResults, err := h.svc.ProcessMessageStream(c.Request.Context(), req.Content, history, companyID)
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return

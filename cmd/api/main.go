@@ -146,6 +146,10 @@ type services struct {
 	GL          *service.GLService
 	QBO         *service.QBOService
 	Notification   *service.NotificationService
+	TaxRule        *service.TaxRuleService
+	FormSchema     *service.FormSchemaService
+	RuleResolver   *service.RuleResolver
+	FormRouter     *service.FormRouter
 	// Pipeline bridge services
 	ReceiptBridge  *service.ReceiptBridge
 	JournalGen     *service.JournalGenerator
@@ -211,6 +215,10 @@ func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxp
 		GL:          service.NewGLService(q),
 		QBO:         qboSvc,
 		Notification: service.NewNotificationService(q),
+		TaxRule:      service.NewTaxRuleService(q),
+		FormSchema:   service.NewFormSchemaService(q),
+		RuleResolver: service.NewRuleResolver(q),
+		FormRouter:   service.NewFormRouter(),
 		// Pipeline bridges
 		ReceiptBridge: service.NewReceiptBridge(q, classifierSvc),
 		JournalGen:    service.NewJournalGenerator(q, journalSvc),
@@ -238,6 +246,8 @@ type handlers struct {
 	Data           *handler.DataHandler
 	Form           *handler.FormHandler
 	Knowledge      *handler.KnowledgeHandler
+	TaxRule        *handler.TaxRuleHandler
+	FormRouter     *handler.FormRouterHandler
 	Account        *handler.AccountHandler
 	Journal        *handler.JournalHandler
 	Period         *handler.AccountingPeriodHandler
@@ -263,7 +273,7 @@ func newHandlers(svc services, cfg *config.Config, ai *oai.Client, q *sqlc.Queri
 		Chat:           handler.NewChatHandler(svc.Chat),
 		Reconciliation: handler.NewReconciliationHandler(svc.BankRecon),
 		Session:        handler.NewSessionHandler(svc.Session, svc.Report, ai, cfg),
-		Compliance:     handler.NewComplianceHandler(svc.Compliance, svc.Report, ai),
+		Compliance:     handler.NewComplianceHandler(svc.Compliance, svc.Report, ai, svc.RuleResolver),
 		Correction:     handler.NewCorrectionHandler(svc.Corrections, svc.Analyzer),
 		Withholding:    handler.NewWithholdingHandler(svc.Withholding, svc.Supplier),
 		Dashboard:      handler.NewDashboardHandler(svc.Dashboard),
@@ -272,7 +282,9 @@ func newHandlers(svc services, cfg *config.Config, ai *oai.Client, q *sqlc.Queri
 		Memory:         handler.NewMemoryHandler(svc.Memory),
 		Task:           handler.NewTaskHandler(svc.Task),
 		Data:           handler.NewDataHandler(svc.ColMapper, svc.Memory, ai, cfg, q),
-		Form:           handler.NewFormHandler(svc.Report),
+		Form:           handler.NewFormHandler(svc.FormSchema),
+		TaxRule:        handler.NewTaxRuleHandler(svc.TaxRule),
+		FormRouter:     handler.NewFormRouterHandler(svc.FormRouter),
 		Knowledge:      handler.NewKnowledgeHandler(svc.Knowledge),
 		Account:        handler.NewAccountHandler(svc.Account),
 		Journal:        handler.NewJournalHandler(svc.Journal),
@@ -326,6 +338,8 @@ func newGinEngine(cfg *config.Config, rdb *redis.Client, svc services, h handler
 		Data:           h.Data,
 		Form:           h.Form,
 		Knowledge:      h.Knowledge,
+		TaxRule:        h.TaxRule,
+		FormRouter:     h.FormRouter,
 		Account:        h.Account,
 		Journal:        h.Journal,
 		Period:         h.Period,

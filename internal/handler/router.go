@@ -27,6 +27,8 @@ type Router struct {
 	Data           *DataHandler
 	Form           *FormHandler
 	Knowledge      *KnowledgeHandler
+	TaxRule        *TaxRuleHandler
+	FormRouter     *FormRouterHandler
 	Account        *AccountHandler
 	Journal        *JournalHandler
 	Period         *AccountingPeriodHandler
@@ -230,7 +232,16 @@ func (rt *Router) Setup(r *gin.Engine) {
 		compliance.GET("/reports/:reportId/history", rt.Compliance.ListValidations)
 		compliance.GET("/reports/:reportId/suggest-fixes", rt.Compliance.SuggestFixes)
 		compliance.POST("/reports/:reportId/auto-fix", rt.Compliance.AutoFix)
+		compliance.GET("/checklists", rt.Compliance.Checklists)
 		compliance.GET("/filing-calendar", rt.Compliance.FilingCalendar)
+		compliance.POST("/calculate-penalty", rt.TaxRule.CalculatePenalty)
+	}
+
+	// Tax Rules routes
+	taxRules := api.Group("/tax-rules")
+	taxRules.Use(authMw)
+	{
+		taxRules.GET("", rt.TaxRule.ListRules)
 	}
 
 	// Correction routes
@@ -327,6 +338,7 @@ func (rt *Router) Setup(r *gin.Engine) {
 	forms.Use(authMw)
 	{
 		forms.GET("", rt.Form.List)
+		forms.GET("/recommended", rt.FormRouter.Recommend)
 		forms.GET("/:formType", rt.Form.GetSchema)
 	}
 

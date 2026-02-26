@@ -152,6 +152,19 @@ type CompanyMember struct {
 	JoinedAt  time.Time `json:"joined_at"`
 }
 
+type ComplianceChecklist struct {
+	ID          uuid.UUID          `json:"id"`
+	FormType    string             `json:"form_type"`
+	CheckID     string             `json:"check_id"`
+	CheckName   string             `json:"check_name"`
+	Severity    string             `json:"severity"`
+	Description *string            `json:"description"`
+	RuleRef     *string            `json:"rule_ref"`
+	IsActive    *bool              `json:"is_active"`
+	SortOrder   *int32             `json:"sort_order"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
 type Correction struct {
 	ID          uuid.UUID `json:"id"`
 	CompanyID   uuid.UUID `json:"company_id"`
@@ -236,13 +249,17 @@ type JournalLine struct {
 }
 
 type KnowledgeChunk struct {
-	ID        uuid.UUID        `json:"id"`
-	Source    *string          `json:"source"`
-	Category  *string          `json:"category"`
-	Content   string           `json:"content"`
-	Embedding *pgvector.Vector `json:"embedding"`
-	Metadata  []byte           `json:"metadata"`
-	CreatedAt time.Time        `json:"created_at"`
+	ID            uuid.UUID        `json:"id"`
+	Source        *string          `json:"source"`
+	Category      *string          `json:"category"`
+	Content       string           `json:"content"`
+	Embedding     *pgvector.Vector `json:"embedding"`
+	Metadata      []byte           `json:"metadata"`
+	CreatedAt     time.Time        `json:"created_at"`
+	SectionRef    *string          `json:"section_ref"`
+	LawRef        *string          `json:"law_ref"`
+	EffectiveDate pgtype.Date      `json:"effective_date"`
+	ChunkType     *string          `json:"chunk_type"`
 }
 
 type LinkToken struct {
@@ -410,6 +427,18 @@ type Supplier struct {
 	IsVatRegistered bool           `json:"is_vat_registered"`
 	CreatedAt       time.Time      `json:"created_at"`
 	UpdatedAt       time.Time      `json:"updated_at"`
+}
+
+type TaxRule struct {
+	ID            uuid.UUID          `json:"id"`
+	RuleType      string             `json:"rule_type"`
+	RuleKey       string             `json:"rule_key"`
+	Value         []byte             `json:"value"`
+	EffectiveFrom pgtype.Date        `json:"effective_from"`
+	EffectiveTo   pgtype.Date        `json:"effective_to"`
+	SourceRef     *string            `json:"source_ref"`
+	Description   *string            `json:"description"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 }
 
 type TelegramUser struct {

@@ -32,14 +32,42 @@ func NewKnowledgeService(ai *openai.Client, q *sqlc.Queries) *KnowledgeService {
 	return &KnowledgeService{ai: ai, q: q}
 }
 
-// KnowledgeResult holds a retrieved knowledge chunk.
+// KnowledgeSource holds a structured citation reference.
+type KnowledgeSource struct {
+	Text     string `json:"text"`
+	Section  string `json:"section,omitempty"`
+	Law      string `json:"law,omitempty"`
+	Category string `json:"category,omitempty"`
+}
+
+// KnowledgeResult holds a retrieved knowledge chunk with citation info.
 type KnowledgeResult struct {
-	ID           string `json:"id"`
-	Content      string `json:"content"`
-	Source       string `json:"source"`
-	Category     string `json:"category"`
-	HasEmbedding bool   `json:"has_embedding"`
-	CreatedAt    string `json:"created_at"`
+	ID            string          `json:"id"`
+	Content       string          `json:"content"`
+	Source        string          `json:"source"`
+	Category      string          `json:"category"`
+	HasEmbedding  bool            `json:"has_embedding"`
+	CreatedAt     string          `json:"created_at"`
+	SectionRef    string          `json:"section_ref,omitempty"`
+	LawRef        string          `json:"law_ref,omitempty"`
+	EffectiveDate string          `json:"effective_date,omitempty"`
+	ChunkType     string          `json:"chunk_type,omitempty"`
+}
+
+// Citation returns a structured source reference for this result.
+func (r KnowledgeResult) Citation() KnowledgeSource {
+	text := r.Source
+	if r.SectionRef != "" && r.LawRef != "" {
+		text = fmt.Sprintf("%s Section %s", r.LawRef, r.SectionRef)
+	} else if r.SectionRef != "" {
+		text = "Section " + r.SectionRef
+	}
+	return KnowledgeSource{
+		Text:     text,
+		Section:  r.SectionRef,
+		Law:      r.LawRef,
+		Category: r.Category,
+	}
 }
 
 // RetrieveRelevant retrieves relevant knowledge chunks for a query.
@@ -52,23 +80,25 @@ func (s *KnowledgeService) RetrieveRelevant(ctx context.Context, query string, c
 	if s.ai != nil && query != "" {
 		embedding, err := s.ai.CreateEmbedding(ctx, query)
 		if err == nil {
+			// If category is specified, use filtered search
+			if category != nil && *category != "" {
+				chunks, err := s.q.SearchSimilarChunksByCategory(ctx, sqlc.SearchSimilarChunksByCategoryParams{
+					Column1:  pgvector.NewVector(embedding),
+					Category: category,
+					Limit:    int32(limit),
+				})
+				if err == nil && len(chunks) > 0 {
+					return mapSearchByCategoryRows(chunks), nil
+				}
+			}
+
+			// Unfiltered vector search
 			chunks, err := s.q.SearchSimilarChunks(ctx, sqlc.SearchSimilarChunksParams{
 				Column1: pgvector.NewVector(embedding),
 				Limit:   int32(limit),
 			})
 			if err == nil && len(chunks) > 0 {
-				results := make([]KnowledgeResult, len(chunks))
-				for i, c := range chunks {
-					results[i] = KnowledgeResult{
-						ID:           c.ID.String(),
-						Content:      c.Content,
-						Source:       derefString(c.Source),
-						Category:     derefString(c.Category),
-						HasEmbedding: true,
-						CreatedAt:    c.CreatedAt.Format("2006-01-02T15:04:05Z"),
-					}
-				}
-				return results, nil
+				return mapSearchRows(chunks), nil
 			}
 		} else {
 			slog.Warn("embedding generation failed, falling back", "error", err)
@@ -114,6 +144,32 @@ func (s *KnowledgeService) RetrieveRelevant(ctx context.Context, query string, c
 		}
 	}
 	return results, nil
+}
+
+// RetrieveByType retrieves knowledge chunks filtered by chunk_type.
+func (s *KnowledgeService) RetrieveByType(ctx context.Context, query string, chunkType string, limit int) ([]KnowledgeResult, error) {
+	if limit <= 0 {
+		limit = 5
+	}
+	if s.ai == nil || query == "" {
+		return nil, fmt.Errorf("AI client required for vector search")
+	}
+
+	embedding, err := s.ai.CreateEmbedding(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("embedding: %w", err)
+	}
+
+	chunks, err := s.q.SearchSimilarChunksByType(ctx, sqlc.SearchSimilarChunksByTypeParams{
+		Column1:   pgvector.NewVector(embedding),
+		ChunkType: &chunkType,
+		Limit:     int32(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("search by type: %w", err)
+	}
+
+	return mapSearchByTypeRows(chunks), nil
 }
 
 // AddChunk creates a new knowledge chunk.
@@ -230,3 +286,66 @@ func derefString(s *string) string {
 	return *s
 }
 
+// mapSearchRows converts sqlc SearchSimilarChunksRow to KnowledgeResult.
+func mapSearchRows(chunks []sqlc.SearchSimilarChunksRow) []KnowledgeResult {
+	results := make([]KnowledgeResult, len(chunks))
+	for i, c := range chunks {
+		results[i] = KnowledgeResult{
+			ID:           c.ID.String(),
+			Content:      c.Content,
+			Source:       derefString(c.Source),
+			Category:     derefString(c.Category),
+			HasEmbedding: true,
+			CreatedAt:    c.CreatedAt.Format("2006-01-02T15:04:05Z"),
+			SectionRef:   derefString(c.SectionRef),
+			LawRef:       derefString(c.LawRef),
+			ChunkType:    derefString(c.ChunkType),
+		}
+		if c.EffectiveDate.Valid {
+			results[i].EffectiveDate = c.EffectiveDate.Time.Format("2006-01-02")
+		}
+	}
+	return results
+}
+
+func mapSearchByCategoryRows(chunks []sqlc.SearchSimilarChunksByCategoryRow) []KnowledgeResult {
+	results := make([]KnowledgeResult, len(chunks))
+	for i, c := range chunks {
+		results[i] = KnowledgeResult{
+			ID:           c.ID.String(),
+			Content:      c.Content,
+			Source:       derefString(c.Source),
+			Category:     derefString(c.Category),
+			HasEmbedding: true,
+			CreatedAt:    c.CreatedAt.Format("2006-01-02T15:04:05Z"),
+			SectionRef:   derefString(c.SectionRef),
+			LawRef:       derefString(c.LawRef),
+			ChunkType:    derefString(c.ChunkType),
+		}
+		if c.EffectiveDate.Valid {
+			results[i].EffectiveDate = c.EffectiveDate.Time.Format("2006-01-02")
+		}
+	}
+	return results
+}
+
+func mapSearchByTypeRows(chunks []sqlc.SearchSimilarChunksByTypeRow) []KnowledgeResult {
+	results := make([]KnowledgeResult, len(chunks))
+	for i, c := range chunks {
+		results[i] = KnowledgeResult{
+			ID:           c.ID.String(),
+			Content:      c.Content,
+			Source:       derefString(c.Source),
+			Category:     derefString(c.Category),
+			HasEmbedding: true,
+			CreatedAt:    c.CreatedAt.Format("2006-01-02T15:04:05Z"),
+			SectionRef:   derefString(c.SectionRef),
+			LawRef:       derefString(c.LawRef),
+			ChunkType:    derefString(c.ChunkType),
+		}
+		if c.EffectiveDate.Valid {
+			results[i].EffectiveDate = c.EffectiveDate.Time.Format("2006-01-02")
+		}
+	}
+	return results
+}

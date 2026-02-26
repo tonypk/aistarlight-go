@@ -5,10 +5,29 @@ RETURNING id, source, category, content, embedding, metadata, created_at;
 
 -- name: SearchSimilarChunks :many
 SELECT id, source, category, content, metadata, created_at,
+       section_ref, law_ref, effective_date, chunk_type,
        embedding <=> $1::vector AS distance
 FROM knowledge_chunks
 ORDER BY embedding <=> $1::vector
 LIMIT $2;
+
+-- name: SearchSimilarChunksByCategory :many
+SELECT id, source, category, content, metadata, created_at,
+       section_ref, law_ref, effective_date, chunk_type,
+       embedding <=> $1::vector AS distance
+FROM knowledge_chunks
+WHERE category = $2
+ORDER BY embedding <=> $1::vector
+LIMIT $3;
+
+-- name: SearchSimilarChunksByType :many
+SELECT id, source, category, content, metadata, created_at,
+       section_ref, law_ref, effective_date, chunk_type,
+       embedding <=> $1::vector AS distance
+FROM knowledge_chunks
+WHERE chunk_type = $2
+ORDER BY embedding <=> $1::vector
+LIMIT $3;
 
 -- name: ListKnowledgeByCategory :many
 SELECT id, source, category, content, (embedding IS NOT NULL) as has_embedding, created_at

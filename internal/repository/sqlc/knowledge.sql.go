@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	pgvector "github.com/pgvector/pgvector-go"
 )
 
@@ -81,7 +82,17 @@ type CreateKnowledgeChunkParams struct {
 	Metadata  []byte           `json:"metadata"`
 }
 
-func (q *Queries) CreateKnowledgeChunk(ctx context.Context, arg CreateKnowledgeChunkParams) (KnowledgeChunk, error) {
+type CreateKnowledgeChunkRow struct {
+	ID        uuid.UUID        `json:"id"`
+	Source    *string          `json:"source"`
+	Category  *string          `json:"category"`
+	Content   string           `json:"content"`
+	Embedding *pgvector.Vector `json:"embedding"`
+	Metadata  []byte           `json:"metadata"`
+	CreatedAt time.Time        `json:"created_at"`
+}
+
+func (q *Queries) CreateKnowledgeChunk(ctx context.Context, arg CreateKnowledgeChunkParams) (CreateKnowledgeChunkRow, error) {
 	row := q.db.QueryRow(ctx, createKnowledgeChunk,
 		arg.ID,
 		arg.Source,
@@ -90,7 +101,7 @@ func (q *Queries) CreateKnowledgeChunk(ctx context.Context, arg CreateKnowledgeC
 		arg.Embedding,
 		arg.Metadata,
 	)
-	var i KnowledgeChunk
+	var i CreateKnowledgeChunkRow
 	err := row.Scan(
 		&i.ID,
 		&i.Source,
@@ -191,6 +202,7 @@ func (q *Queries) ListKnowledgeByCategory(ctx context.Context, category *string)
 
 const searchSimilarChunks = `-- name: SearchSimilarChunks :many
 SELECT id, source, category, content, metadata, created_at,
+       section_ref, law_ref, effective_date, chunk_type,
        embedding <=> $1::vector AS distance
 FROM knowledge_chunks
 ORDER BY embedding <=> $1::vector
@@ -203,13 +215,17 @@ type SearchSimilarChunksParams struct {
 }
 
 type SearchSimilarChunksRow struct {
-	ID        uuid.UUID   `json:"id"`
-	Source    *string     `json:"source"`
-	Category  *string     `json:"category"`
-	Content   string      `json:"content"`
-	Metadata  []byte      `json:"metadata"`
-	CreatedAt time.Time   `json:"created_at"`
-	Distance  interface{} `json:"distance"`
+	ID            uuid.UUID   `json:"id"`
+	Source        *string     `json:"source"`
+	Category      *string     `json:"category"`
+	Content       string      `json:"content"`
+	Metadata      []byte      `json:"metadata"`
+	CreatedAt     time.Time   `json:"created_at"`
+	SectionRef    *string     `json:"section_ref"`
+	LawRef        *string     `json:"law_ref"`
+	EffectiveDate pgtype.Date `json:"effective_date"`
+	ChunkType     *string     `json:"chunk_type"`
+	Distance      interface{} `json:"distance"`
 }
 
 func (q *Queries) SearchSimilarChunks(ctx context.Context, arg SearchSimilarChunksParams) ([]SearchSimilarChunksRow, error) {
@@ -228,6 +244,134 @@ func (q *Queries) SearchSimilarChunks(ctx context.Context, arg SearchSimilarChun
 			&i.Content,
 			&i.Metadata,
 			&i.CreatedAt,
+			&i.SectionRef,
+			&i.LawRef,
+			&i.EffectiveDate,
+			&i.ChunkType,
+			&i.Distance,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const searchSimilarChunksByCategory = `-- name: SearchSimilarChunksByCategory :many
+SELECT id, source, category, content, metadata, created_at,
+       section_ref, law_ref, effective_date, chunk_type,
+       embedding <=> $1::vector AS distance
+FROM knowledge_chunks
+WHERE category = $2
+ORDER BY embedding <=> $1::vector
+LIMIT $3
+`
+
+type SearchSimilarChunksByCategoryParams struct {
+	Column1  pgvector.Vector `json:"column_1"`
+	Category *string         `json:"category"`
+	Limit    int32           `json:"limit"`
+}
+
+type SearchSimilarChunksByCategoryRow struct {
+	ID            uuid.UUID   `json:"id"`
+	Source        *string     `json:"source"`
+	Category      *string     `json:"category"`
+	Content       string      `json:"content"`
+	Metadata      []byte      `json:"metadata"`
+	CreatedAt     time.Time   `json:"created_at"`
+	SectionRef    *string     `json:"section_ref"`
+	LawRef        *string     `json:"law_ref"`
+	EffectiveDate pgtype.Date `json:"effective_date"`
+	ChunkType     *string     `json:"chunk_type"`
+	Distance      interface{} `json:"distance"`
+}
+
+func (q *Queries) SearchSimilarChunksByCategory(ctx context.Context, arg SearchSimilarChunksByCategoryParams) ([]SearchSimilarChunksByCategoryRow, error) {
+	rows, err := q.db.Query(ctx, searchSimilarChunksByCategory, arg.Column1, arg.Category, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SearchSimilarChunksByCategoryRow{}
+	for rows.Next() {
+		var i SearchSimilarChunksByCategoryRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Source,
+			&i.Category,
+			&i.Content,
+			&i.Metadata,
+			&i.CreatedAt,
+			&i.SectionRef,
+			&i.LawRef,
+			&i.EffectiveDate,
+			&i.ChunkType,
+			&i.Distance,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const searchSimilarChunksByType = `-- name: SearchSimilarChunksByType :many
+SELECT id, source, category, content, metadata, created_at,
+       section_ref, law_ref, effective_date, chunk_type,
+       embedding <=> $1::vector AS distance
+FROM knowledge_chunks
+WHERE chunk_type = $2
+ORDER BY embedding <=> $1::vector
+LIMIT $3
+`
+
+type SearchSimilarChunksByTypeParams struct {
+	Column1   pgvector.Vector `json:"column_1"`
+	ChunkType *string         `json:"chunk_type"`
+	Limit     int32           `json:"limit"`
+}
+
+type SearchSimilarChunksByTypeRow struct {
+	ID            uuid.UUID   `json:"id"`
+	Source        *string     `json:"source"`
+	Category      *string     `json:"category"`
+	Content       string      `json:"content"`
+	Metadata      []byte      `json:"metadata"`
+	CreatedAt     time.Time   `json:"created_at"`
+	SectionRef    *string     `json:"section_ref"`
+	LawRef        *string     `json:"law_ref"`
+	EffectiveDate pgtype.Date `json:"effective_date"`
+	ChunkType     *string     `json:"chunk_type"`
+	Distance      interface{} `json:"distance"`
+}
+
+func (q *Queries) SearchSimilarChunksByType(ctx context.Context, arg SearchSimilarChunksByTypeParams) ([]SearchSimilarChunksByTypeRow, error) {
+	rows, err := q.db.Query(ctx, searchSimilarChunksByType, arg.Column1, arg.ChunkType, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SearchSimilarChunksByTypeRow{}
+	for rows.Next() {
+		var i SearchSimilarChunksByTypeRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Source,
+			&i.Category,
+			&i.Content,
+			&i.Metadata,
+			&i.CreatedAt,
+			&i.SectionRef,
+			&i.LawRef,
+			&i.EffectiveDate,
+			&i.ChunkType,
 			&i.Distance,
 		); err != nil {
 			return nil, err

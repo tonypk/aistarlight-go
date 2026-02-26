@@ -377,16 +377,16 @@ func (s *ChatService) executeLookupTaxRule(ctx context.Context, args map[string]
 	if err != nil || len(chunks) == 0 {
 		result, _ := json.Marshal(map[string]interface{}{
 			"answer":  "No specific regulation found. Please consult the BIR website (www.bir.gov.ph).",
-			"sources": []string{},
+			"sources": []KnowledgeSource{},
 		})
 		return string(result)
 	}
 
-	// Build answer from chunks
-	var sources []string
+	// Build structured citations from chunks
+	sources := make([]KnowledgeSource, 0, len(chunks))
 	for _, c := range chunks {
-		if c.Source != "" {
-			sources = append(sources, c.Source)
+		if c.Source != "" || c.SectionRef != "" {
+			sources = append(sources, c.Citation())
 		}
 	}
 

@@ -11,19 +11,21 @@ import (
 
 // ComplianceHandler handles compliance validation endpoints.
 type ComplianceHandler struct {
-	compliance *service.ComplianceService
-	reportSvc  *service.ReportService
-	ai         *oai.Client
-	calendar   func(int, int) []service.FilingEntry
+	compliance   *service.ComplianceService
+	reportSvc    *service.ReportService
+	ai           *oai.Client
+	calendar     func(int, int) []service.FilingEntry
+	ruleResolver *service.RuleResolver
 }
 
 // NewComplianceHandler creates a compliance handler.
-func NewComplianceHandler(compliance *service.ComplianceService, reportSvc *service.ReportService, ai *oai.Client) *ComplianceHandler {
+func NewComplianceHandler(compliance *service.ComplianceService, reportSvc *service.ReportService, ai *oai.Client, resolver *service.RuleResolver) *ComplianceHandler {
 	return &ComplianceHandler{
-		compliance: compliance,
-		reportSvc:  reportSvc,
-		ai:         ai,
-		calendar:   service.GenerateFilingCalendar,
+		compliance:   compliance,
+		reportSvc:    reportSvc,
+		ai:           ai,
+		calendar:     service.GenerateFilingCalendar,
+		ruleResolver: resolver,
 	}
 }
 
@@ -127,6 +129,28 @@ func (h *ComplianceHandler) AutoFix(c *gin.Context) {
 type filingCalendarRequest struct {
 	Year        int `form:"year"`
 	MonthsAhead int `form:"months_ahead"`
+}
+
+// Checklists handles GET /api/v1/compliance/checklists?form_type=BIR_2550M.
+func (h *ComplianceHandler) Checklists(c *gin.Context) {
+	formType := c.Query("form_type")
+	if formType == "" {
+		// Return all checklists
+		items, err := h.ruleResolver.ListAll(c.Request.Context())
+		if err != nil {
+			response.InternalError(c, err.Error())
+			return
+		}
+		response.OK(c, items)
+		return
+	}
+
+	items, err := h.ruleResolver.ListByFormType(c.Request.Context(), formType)
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+	response.OK(c, items)
 }
 
 // FilingCalendar handles GET /api/v1/compliance/filing-calendar.

@@ -64,7 +64,7 @@ func Auth(jwtSecret string, revokeChecker TokenRevokeChecker, apiKeyResolver API
 
 		token, err := extractAndValidateJWT(authHeader, jwtSecret)
 		if err != nil {
-			response.Unauthorized(c, err.Error())
+			response.Unauthorized(c, "invalid or expired token")
 			c.Abort()
 			return
 		}

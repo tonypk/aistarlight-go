@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"os/signal"
 	"syscall"
 	"time"
@@ -345,6 +346,19 @@ func newGinEngine(cfg *config.Config, rdb *redis.Client, svc services, h handler
 		Redis:          rdb,
 	}
 	rt.Setup(r)
+
+	// JSON 404 handler for API routes (instead of Gin default plain text)
+	r.NoRoute(func(c *gin.Context) {
+		if strings.HasPrefix(c.Request.URL.Path, "/api/") {
+			c.JSON(http.StatusNotFound, gin.H{
+				"success": false,
+				"error":   "not found",
+			})
+			return
+		}
+		// Non-API routes: let nginx/frontend handle
+		c.Status(http.StatusNotFound)
+	})
 
 	return r
 }

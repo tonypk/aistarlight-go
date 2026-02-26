@@ -72,7 +72,8 @@ func (h *ReconciliationHandler) Run(c *gin.Context) {
 
 	result, err := h.svc.RunReconciliation(c.Request.Context(), input)
 	if err != nil {
-		response.InternalError(c, err.Error())
+		slog.Error("reconciliation run failed", "error", err)
+		response.InternalError(c, "failed to run reconciliation")
 		return
 	}
 
@@ -89,7 +90,7 @@ func (h *ReconciliationHandler) Get(c *gin.Context) {
 
 	result, err := h.svc.GetBatch(c.Request.Context(), id)
 	if err != nil {
-		response.NotFound(c, err.Error())
+		response.NotFound(c, "reconciliation batch not found")
 		return
 	}
 
@@ -103,7 +104,8 @@ func (h *ReconciliationHandler) List(c *gin.Context) {
 
 	batches, total, err := h.svc.ListBatches(c.Request.Context(), companyID, p.Limit, p.Offset)
 	if err != nil {
-		response.InternalError(c, err.Error())
+		slog.Error("list reconciliation batches failed", "error", err)
+		response.InternalError(c, "failed to list reconciliation batches")
 		return
 	}
 
@@ -271,7 +273,8 @@ func (h *ReconciliationHandler) Process(c *gin.Context) {
 
 	result, err := h.svc.RunReconciliation(c.Request.Context(), input)
 	if err != nil {
-		response.InternalError(c, err.Error())
+		slog.Error("reconciliation process failed", "error", err)
+		response.InternalError(c, "failed to process reconciliation")
 		return
 	}
 
@@ -296,7 +299,8 @@ func (h *ReconciliationHandler) AcceptSuggestion(c *gin.Context) {
 
 	result, err := h.svc.UpdateSuggestionStatus(c.Request.Context(), id, req.SuggestionIndex, "accepted")
 	if err != nil {
-		response.InternalError(c, err.Error())
+		slog.Error("accept suggestion failed", "error", err)
+		response.InternalError(c, "failed to accept suggestion")
 		return
 	}
 
@@ -321,7 +325,8 @@ func (h *ReconciliationHandler) RejectSuggestion(c *gin.Context) {
 
 	result, err := h.svc.UpdateSuggestionStatus(c.Request.Context(), id, req.SuggestionIndex, "rejected")
 	if err != nil {
-		response.InternalError(c, err.Error())
+		slog.Error("reject suggestion failed", "error", err)
+		response.InternalError(c, "failed to reject suggestion")
 		return
 	}
 
@@ -338,7 +343,7 @@ func (h *ReconciliationHandler) RerunAnalysis(c *gin.Context) {
 
 	result, err := h.svc.GetBatch(c.Request.Context(), id)
 	if err != nil {
-		response.NotFound(c, err.Error())
+		response.NotFound(c, "reconciliation batch not found")
 		return
 	}
 

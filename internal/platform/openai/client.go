@@ -70,8 +70,9 @@ func (cl *Client) CreateEmbedding(ctx context.Context, input string) ([]float32,
 		return nil, fmt.Errorf("embedding model not configured")
 	}
 	resp, err := cl.c.CreateEmbeddings(ctx, oai.EmbeddingRequest{
-		Input: []string{input},
-		Model: oai.EmbeddingModel(cl.embeddingModel),
+		Input:      []string{input},
+		Model:      oai.EmbeddingModel(cl.embeddingModel),
+		Dimensions: 1024,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create embedding: %w", err)

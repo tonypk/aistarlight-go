@@ -32,10 +32,15 @@ For each transaction, determine:
 2. category: "goods" | "services" | "capital" | "imports" | "sale"
 3. confidence: 0.00-1.00
 
+IMPORTANT: Each transaction has a "source_type" field:
+- "sales_record": This is a SALES transaction. Use category="sale" for domestic/export/government sales.
+- "purchase_record": This is a PURCHASE transaction. Use category="goods", "services", "capital", or "imports". NEVER use category="sale" for purchases.
+
 Rules:
-- Sales to government: vat_type="government", category="sale"
-- Export sales: vat_type="zero_rated", category="sale"
-- Domestic sales: vat_type="vatable", category="sale"
+- Sales to government: vat_type="government", category="sale" (only if source_type="sales_record")
+- Export sales: vat_type="zero_rated", category="sale" (only if source_type="sales_record")
+- Domestic sales: vat_type="vatable", category="sale" (only if source_type="sales_record")
+- Purchases from government: vat_type="government", category="goods" or "services"
 - Equipment/machinery > 1M PHP: category="capital"
 - Imported goods: category="imports"
 - Agricultural/exempt: vat_type="exempt"
@@ -255,8 +260,8 @@ func (s *ClassifierService) classifyBatch(ctx context.Context, items []map[strin
 		if len(desc) > 200 {
 			desc = desc[:200]
 		}
-		fmt.Fprintf(&sb, `{"index":%d,"date":"%s","description":"%s","amount":"%s","tin":"%s"}`,
-			i, toString(item["date"]), desc, toString(item["amount"]), toString(item["tin"]))
+		fmt.Fprintf(&sb, `{"index":%d,"date":"%s","description":"%s","amount":"%s","tin":"%s","source_type":"%s"}`,
+			i, toString(item["date"]), desc, toString(item["amount"]), toString(item["tin"]), toString(item["source_type"]))
 	}
 	sb.WriteString("]")
 
@@ -300,6 +305,10 @@ func (s *ClassifierService) classifyBatch(ctx context.Context, items []map[strin
 		}
 		category := lr.Category
 		if !validCategories[category] {
+			category = "goods"
+		}
+		// Enforce: purchase_record transactions must never have category="sale"
+		if lr.Index < len(items) && toString(items[lr.Index]["source_type"]) == "purchase_record" && category == "sale" {
 			category = "goods"
 		}
 		conf := lr.Confidence

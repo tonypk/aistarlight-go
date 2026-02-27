@@ -315,11 +315,12 @@ func (s *SessionService) AddFile(ctx context.Context, sessionID, companyID uuid.
 			sourceType = "purchase_record"
 		}
 
-		// Extract amount: try BIR-specific fields first, then generic fallbacks
+		// Extract amount: gross/total fields first, then vatable/net as fallback
 		amtKeys := []string{
-			"gross_sales", "vatable_sales", "total_sales", "gross_purchase",
-			"gross_amount", "amount", "landed_cost", "tax_base",
-			"gross_sales_receipts", "net_sales", "gross_income", "total_gross_income",
+			"gross_sales", "gross_purchase", "gross_amount", "total_sales",
+			"gross_sales_receipts", "gross_income", "total_gross_income",
+			"amount", "landed_cost", "tax_base",
+			"vatable_sales", "net_sales",
 			"expense_amount", "gross_compensation", "basic_salary",
 			"taxable_income", "taxable_compensation",
 			"purchase_domestic_goods", "purchase_importation", "purchase_domestic_services",
@@ -507,8 +508,9 @@ func (s *SessionService) ClassifySession(ctx context.Context, sessionID, company
 	txnDicts := make([]map[string]interface{}, len(toClassify))
 	for i, t := range toClassify {
 		m := map[string]interface{}{
-			"amount": 0.0,
-			"tin":    "",
+			"amount":      0.0,
+			"tin":         "",
+			"source_type": t.SourceType,
 		}
 		if t.Description != nil {
 			m["description"] = *t.Description

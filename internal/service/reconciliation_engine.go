@@ -83,7 +83,7 @@ func GenerateVATSummary(transactions []map[string]interface{}, period string) VA
 		s.TransactionCount++
 		s.ClassificationStats[vatType]++
 
-		isSales := sourceType == "sales_record" || category == "sale"
+		isSales := sourceType == "sales_record"
 
 		if isSales {
 			switch vatType {

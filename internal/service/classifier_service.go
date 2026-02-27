@@ -135,11 +135,19 @@ func (s *ClassifierService) ClassifyTransactions(
 func applyRuleBasedClassification(tx map[string]interface{}) *ClassificationResult {
 	desc := strings.ToLower(toString(tx["description"]))
 	tin := toString(tx["tin"])
+	sourceType := toString(tx["source_type"])
+	isPurchase := sourceType == "purchase_record"
+
+	// Determine default category based on source_type
+	salesCategory := "sale"
+	if isPurchase {
+		salesCategory = "goods"
+	}
 
 	// Government entity detection
 	if isGovernmentEntity(desc, tin) {
 		return &ClassificationResult{
-			VATType: "government", Category: "sale",
+			VATType: "government", Category: salesCategory,
 			Confidence: 0.95, ClassificationSource: "rule",
 		}
 	}
@@ -149,7 +157,7 @@ func applyRuleBasedClassification(tx map[string]interface{}) *ClassificationResu
 	for _, kw := range exportKW {
 		if strings.Contains(desc, kw) {
 			return &ClassificationResult{
-				VATType: "zero_rated", Category: "sale",
+				VATType: "zero_rated", Category: salesCategory,
 				Confidence: 0.90, ClassificationSource: "rule",
 			}
 		}

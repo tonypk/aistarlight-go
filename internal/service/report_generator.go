@@ -42,6 +42,8 @@ func GeneratePDFReport(w io.Writer, reportType string, data map[string]string, c
 			return iraspdf.GenerateIR8A(w, data, sgCo)
 		case irasforms.FormS45:
 			return iraspdf.GenerateS45(w, data, sgCo)
+		case irasforms.FormECI:
+			return iraspdf.GenerateECI(w, data, sgCo)
 		default:
 			return generateGenericPDF(w, reportType, data, company)
 		}

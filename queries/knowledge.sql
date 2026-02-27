@@ -52,3 +52,12 @@ SELECT COUNT(*) FROM knowledge_chunks WHERE embedding IS NOT NULL;
 SELECT COALESCE(category, 'uncategorized') as category, COUNT(*) as count
 FROM knowledge_chunks
 GROUP BY category;
+
+-- name: GetChunksWithoutEmbedding :many
+SELECT id, content
+FROM knowledge_chunks
+WHERE embedding IS NULL
+ORDER BY created_at;
+
+-- name: UpdateChunkEmbedding :exec
+UPDATE knowledge_chunks SET embedding = $2 WHERE id = $1;

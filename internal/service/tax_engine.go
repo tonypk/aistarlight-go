@@ -60,6 +60,8 @@ func CalculateReport(formType string, input map[string]interface{}) (TaxResult, 
 		return CalculateIR8A(input)
 	case irasforms.FormS45:
 		return CalculateS45(input)
+	case irasforms.FormECI:
+		return CalculateECI(input)
 
 	default:
 		return nil, fmt.Errorf("no calculator available for %s", formType)

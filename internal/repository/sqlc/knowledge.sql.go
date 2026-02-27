@@ -114,6 +114,38 @@ func (q *Queries) CreateKnowledgeChunk(ctx context.Context, arg CreateKnowledgeC
 	return i, err
 }
 
+const getChunksWithoutEmbedding = `-- name: GetChunksWithoutEmbedding :many
+SELECT id, content
+FROM knowledge_chunks
+WHERE embedding IS NULL
+ORDER BY created_at
+`
+
+type GetChunksWithoutEmbeddingRow struct {
+	ID      uuid.UUID `json:"id"`
+	Content string    `json:"content"`
+}
+
+func (q *Queries) GetChunksWithoutEmbedding(ctx context.Context) ([]GetChunksWithoutEmbeddingRow, error) {
+	rows, err := q.db.Query(ctx, getChunksWithoutEmbedding)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetChunksWithoutEmbeddingRow{}
+	for rows.Next() {
+		var i GetChunksWithoutEmbeddingRow
+		if err := rows.Scan(&i.ID, &i.Content); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAllKnowledgeChunks = `-- name: ListAllKnowledgeChunks :many
 SELECT id, source, category, content, (embedding IS NOT NULL) as has_embedding, created_at
 FROM knowledge_chunks
@@ -396,4 +428,18 @@ func (q *Queries) SearchSimilarChunksByType(ctx context.Context, arg SearchSimil
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateChunkEmbedding = `-- name: UpdateChunkEmbedding :exec
+UPDATE knowledge_chunks SET embedding = $2 WHERE id = $1
+`
+
+type UpdateChunkEmbeddingParams struct {
+	ID        uuid.UUID        `json:"id"`
+	Embedding *pgvector.Vector `json:"embedding"`
+}
+
+func (q *Queries) UpdateChunkEmbedding(ctx context.Context, arg UpdateChunkEmbeddingParams) error {
+	_, err := q.db.Exec(ctx, updateChunkEmbedding, arg.ID, arg.Embedding)
+	return err
 }

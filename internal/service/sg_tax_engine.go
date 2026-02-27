@@ -352,3 +352,35 @@ func computePartialExemption(chargeableIncome decimal.Decimal) decimal.Decimal {
 
 	return exemption
 }
+
+// CalculateECI computes the Estimated Chargeable Income (ECI).
+// ECI is a simplified estimate filed within 3 months of FY-end.
+func CalculateECI(input map[string]interface{}) (TaxResult, error) {
+	revenue := toDecimal(input["revenue"])
+	adjustedProfit := toDecimal(input["adjusted_profit"])
+	capitalAllowances := toDecimal(input["capital_allowances"])
+
+	estimatedCI := adjustedProfit.Sub(capitalAllowances)
+	if estimatedCI.LessThan(decimal.Zero) {
+		estimatedCI = decimal.Zero
+	}
+
+	// Apply partial exemption
+	exemption := computePartialExemption(estimatedCI)
+	taxableAfterExemption := estimatedCI.Sub(exemption)
+	if taxableAfterExemption.LessThan(decimal.Zero) {
+		taxableAfterExemption = decimal.Zero
+	}
+
+	estimatedTax := taxableAfterExemption.Mul(irasforms.CorporateRate)
+
+	return TaxResult{
+		"revenue":                      revenue.StringFixed(2),
+		"adjusted_profit":              adjustedProfit.StringFixed(2),
+		"capital_allowances":           capitalAllowances.StringFixed(2),
+		"estimated_chargeable_income":  estimatedCI.StringFixed(2),
+		"partial_tax_exemption":        exemption.StringFixed(2),
+		"taxable_after_exemption":      taxableAfterExemption.StringFixed(2),
+		"estimated_tax":                estimatedTax.StringFixed(2),
+	}, nil
+}

@@ -27,7 +27,11 @@ type AutoFixResult struct {
 
 // GenerateAutoFixSuggestions calls LLM to generate field-level repair suggestions
 // for a report that failed compliance checks.
-func (s *ComplianceService) GenerateAutoFixSuggestions(ctx context.Context, reportID uuid.UUID, ai *openai.Client) (*AutoFixResult, error) {
+func (s *ComplianceService) GenerateAutoFixSuggestions(ctx context.Context, reportID uuid.UUID, ai *openai.Client, jurisdictions ...string) (*AutoFixResult, error) {
+	jurisdiction := "PH"
+	if len(jurisdictions) > 0 && jurisdictions[0] != "" {
+		jurisdiction = jurisdictions[0]
+	}
 	if ai == nil {
 		return nil, fmt.Errorf("AI service not available")
 	}
@@ -71,7 +75,16 @@ func (s *ComplianceService) GenerateAutoFixSuggestions(ctx context.Context, repo
 	calcJSON, _ := json.Marshal(calcData)
 	failedJSON, _ := json.Marshal(failedChecks)
 
-	prompt := fmt.Sprintf(`You are a Philippine BIR tax compliance expert. A %s report has failed compliance checks.
+	var sysPrompt, taxRules string
+	if jurisdiction == "SG" {
+		sysPrompt = "You are a Singapore IRAS tax compliance expert. Provide precise, calculation-based fix suggestions following IRAS regulations."
+		taxRules = "Use Singapore tax rules (9% GST, 17% corporate tax, CPF contributions, S45 withholding tax rates)."
+	} else {
+		sysPrompt = "You are a Philippine BIR tax compliance expert. Provide precise, calculation-based fix suggestions."
+		taxRules = "Use Philippine tax rules (12% VAT, 5% government VAT, etc.)."
+	}
+
+	prompt := fmt.Sprintf(`You are a tax compliance expert. A %s report has failed compliance checks.
 
 Current report data:
 %s
@@ -80,16 +93,16 @@ Failed checks:
 %s
 
 For each failed check, suggest specific field-level fixes. Only suggest changes that would fix the compliance issues.
-Do NOT change fields that are correct. Use Philippine tax rules (12%% VAT, 5%% government VAT, etc.).
+Do NOT change fields that are correct. %s
 
 Important: These are suggestions for the user to review and confirm. Never change user-submitted raw data without their approval.
 
 Respond in JSON:
 {"suggestions": [{"field": "field_name", "current_value": "current", "suggested_value": "new_value", "reason": "explanation"}], "summary": "brief summary of fixes"}`,
-		report.ReportType, string(calcJSON), string(failedJSON))
+		report.ReportType, string(calcJSON), string(failedJSON), taxRules)
 
 	messages := []oai.ChatCompletionMessage{
-		{Role: oai.ChatMessageRoleSystem, Content: "You are a Philippine BIR tax compliance expert. Provide precise, calculation-based fix suggestions."},
+		{Role: oai.ChatMessageRoleSystem, Content: sysPrompt},
 		{Role: oai.ChatMessageRoleUser, Content: prompt},
 	}
 

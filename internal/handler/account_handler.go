@@ -152,8 +152,9 @@ func (h *AccountHandler) Delete(c *gin.Context) {
 
 func (h *AccountHandler) Seed(c *gin.Context) {
 	companyID := middleware.GetCompanyID(c)
+	jurisdiction := middleware.GetJurisdiction(c)
 
-	count, err := h.svc.Seed(c.Request.Context(), companyID)
+	count, err := h.svc.Seed(c.Request.Context(), companyID, jurisdiction)
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return

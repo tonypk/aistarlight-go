@@ -90,7 +90,7 @@ func (h *ComplianceHandler) SuggestFixes(c *gin.Context) {
 		return
 	}
 
-	result, err := h.compliance.GenerateAutoFixSuggestions(c.Request.Context(), reportID, h.ai)
+	result, err := h.compliance.GenerateAutoFixSuggestions(c.Request.Context(), reportID, h.ai, middleware.GetJurisdiction(c))
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return

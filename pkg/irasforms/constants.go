@@ -19,6 +19,7 @@ var (
 	CorporateRate = decimal.NewFromFloat(0.17)  // 17% flat
 	CPFEmployer   = decimal.NewFromFloat(0.17)  // 17% employer contribution (≤55 years old)
 	CPFEmployee   = decimal.NewFromFloat(0.20)  // 20% employee contribution (≤55 years old)
+	CPFOWCeiling  = decimal.NewFromInt(6800)    // Ordinary Wage ceiling: S$6,800/month
 )
 
 // TaxBracket for Singapore progressive income tax.
@@ -56,7 +57,8 @@ type WHTIncomeType struct {
 var WHTNatureOfIncome = map[string]WHTIncomeType{
 	"INT":  {Description: "Interest", Rate: decimal.NewFromFloat(0.15)},
 	"ROY":  {Description: "Royalties / IP", Rate: decimal.NewFromFloat(0.10)},
-	"TECH": {Description: "Technical / Management Fees", Rate: decimal.NewFromFloat(0.17)},
+	"TECH": {Description: "Technical Fees", Rate: decimal.NewFromFloat(0.10)},
+	"MGMT": {Description: "Management Fees", Rate: decimal.NewFromFloat(0.10)},
 	"DIR":  {Description: "Director Fees (non-resident)", Rate: decimal.NewFromFloat(0.22)},
 	"RENT": {Description: "Rental of Moveable Property", Rate: decimal.NewFromFloat(0.15)},
 	"SFC":  {Description: "SRS Withdrawal by Non-Resident", Rate: decimal.NewFromFloat(0.22)},

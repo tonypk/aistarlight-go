@@ -237,13 +237,18 @@ func CalculateIR8A(input map[string]interface{}) (TaxResult, error) {
 	// Total gross remuneration
 	totalGross := grossSalary.Add(bonus).Add(directorFees).Add(otherAllowances).Add(benefitsInKind)
 
-	// Auto-compute CPF if not provided
-	ordinaryWages := grossSalary
-	if employerCPF.IsZero() && !ordinaryWages.IsZero() {
-		employerCPF = ordinaryWages.Mul(irasforms.CPFEmployer)
+	// Auto-compute CPF if not provided (cap at OW ceiling S$6,800/month)
+	monthlyOW := grossSalary.Div(decimal.NewFromInt(12))
+	if monthlyOW.GreaterThan(irasforms.CPFOWCeiling) {
+		monthlyOW = irasforms.CPFOWCeiling
 	}
-	if employeeCPF.IsZero() && !ordinaryWages.IsZero() {
-		employeeCPF = ordinaryWages.Mul(irasforms.CPFEmployee)
+	annualCappedOW := monthlyOW.Mul(decimal.NewFromInt(12))
+
+	if employerCPF.IsZero() && !grossSalary.IsZero() {
+		employerCPF = annualCappedOW.Mul(irasforms.CPFEmployer)
+	}
+	if employeeCPF.IsZero() && !grossSalary.IsZero() {
+		employeeCPF = annualCappedOW.Mul(irasforms.CPFEmployee)
 	}
 
 	// Net salary (after employee CPF)
@@ -289,7 +294,7 @@ func CalculateS45(input map[string]interface{}) (TaxResult, error) {
 		whtRate = nature.Rate
 		description = nature.Description
 	} else {
-		return nil, fmt.Errorf("unknown income type %q; valid: INT, ROY, TECH, DIR, RENT, SFC", incomeType)
+		return nil, fmt.Errorf("unknown income type %q; valid: INT, ROY, TECH, MGMT, DIR, RENT, SFC", incomeType)
 	}
 
 	// Calculate withholding

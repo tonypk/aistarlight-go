@@ -139,9 +139,14 @@ func (s *AccountService) Delete(ctx context.Context, id uuid.UUID) error {
 	return s.q.DeleteAccount(ctx, id)
 }
 
-// Seed creates the Philippine BIR standard COA for a company.
-func (s *AccountService) Seed(ctx context.Context, companyID uuid.UUID) (int, error) {
-	templates := coa.PHStandardCOA()
+// Seed creates the standard COA for a company based on jurisdiction.
+func (s *AccountService) Seed(ctx context.Context, companyID uuid.UUID, jurisdiction string) (int, error) {
+	var templates []coa.AccountTemplate
+	if jurisdiction == "SG" {
+		templates = coa.SGStandardCOA()
+	} else {
+		templates = coa.PHStandardCOA()
+	}
 	created := 0
 
 	for _, t := range templates {

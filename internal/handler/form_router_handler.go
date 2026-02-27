@@ -2,6 +2,7 @@ package handler
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/tonypk/aistarlight-go/internal/handler/middleware"
 	"github.com/tonypk/aistarlight-go/internal/handler/response"
 	"github.com/tonypk/aistarlight-go/internal/service"
 )
@@ -26,6 +27,7 @@ func (h *FormRouterHandler) Recommend(c *gin.Context) {
 		RevenueScale:  c.DefaultQuery("revenue_scale", "small"),
 	}
 
-	recs := h.router.RecommendForms(profile)
+	jurisdiction := middleware.GetJurisdiction(c)
+	recs := h.router.RecommendForms(profile, jurisdiction)
 	response.OK(c, recs)
 }

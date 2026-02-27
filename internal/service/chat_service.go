@@ -13,7 +13,7 @@ import (
 	"github.com/tonypk/aistarlight-go/internal/repository/sqlc"
 )
 
-const chatSystemPrompt = `AIStarlight - AI-powered Philippine tax filing assistant for SMEs.
+const chatSystemPromptPH = `AIStarlight - AI-powered Philippine tax filing assistant for SMEs.
 
 Your capabilities:
 1. Process uploaded financial data (sales/purchase records, bank statements, receipts)
@@ -36,7 +36,29 @@ Tool routing:
 
 Use language user writes in (English or Filipino).`
 
-var chatTools = []oai.Tool{
+const chatSystemPromptSG = `AIStarlight - AI-powered Singapore tax filing assistant for SMEs.
+
+Your capabilities:
+1. Process uploaded financial data (sales/purchase records, bank statements, receipts)
+2. Calculate GST, corporate/individual income tax, generate IRAS reports
+3. AI-powered transaction classification and column mapping
+4. Bank & billing auto-reconciliation (CSV/Excel/PDF/image)
+5. Receipt OCR scanning and data extraction
+6. S45 withholding tax on non-resident payments
+7. Compliance validation and anomaly detection
+8. Remember user preferences for recurring filings
+9. Answer questions about Singapore tax regulations
+
+Supported forms: IRAS_GST_F5, IRAS_FORM_C, IRAS_FORM_CS, IRAS_FORM_B, IRAS_IR8A, IRAS_S45
+
+Tool routing:
+- User asks to generate report → use generate_report tool
+- User asks about tax rules → use lookup_tax_rule tool
+- User asks about settings/preferences → use get_user_preferences tool
+
+Use language user writes in (English or Mandarin).`
+
+var chatToolsPH = []oai.Tool{
 	{
 		Type: oai.ToolTypeFunction,
 		Function: &oai.FunctionDefinition{
@@ -83,6 +105,67 @@ var chatTools = []oai.Tool{
 	},
 }
 
+var chatToolsSG = []oai.Tool{
+	{
+		Type: oai.ToolTypeFunction,
+		Function: &oai.FunctionDefinition{
+			Name:        "generate_report",
+			Description: "Generate an IRAS tax report for a specific period",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"report_type": {"type": "string", "enum": ["IRAS_GST_F5", "IRAS_FORM_C", "IRAS_FORM_CS", "IRAS_FORM_B", "IRAS_IR8A", "IRAS_S45"]},
+					"period": {"type": "string", "description": "YYYY-MM format"}
+				},
+				"required": ["report_type", "period"]
+			}`),
+		},
+	},
+	{
+		Type: oai.ToolTypeFunction,
+		Function: &oai.FunctionDefinition{
+			Name:        "lookup_tax_rule",
+			Description: "Look up a Singapore tax regulation or rule",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"query": {"type": "string", "description": "The tax rule query"},
+					"category": {"type": "string", "enum": ["gst", "income_tax", "withholding", "compliance", "general", "payroll", "corporate"]}
+				},
+				"required": ["query"]
+			}`),
+		},
+	},
+	{
+		Type: oai.ToolTypeFunction,
+		Function: &oai.FunctionDefinition{
+			Name:        "get_user_preferences",
+			Description: "Retrieve saved user preferences for a report type",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"report_type": {"type": "string"}
+				},
+				"required": ["report_type"]
+			}`),
+		},
+	},
+}
+
+func chatToolsForJurisdiction(jurisdiction string) []oai.Tool {
+	if jurisdiction == "SG" {
+		return chatToolsSG
+	}
+	return chatToolsPH
+}
+
+func chatSystemPrompt(jurisdiction string) string {
+	if jurisdiction == "SG" {
+		return chatSystemPromptSG
+	}
+	return chatSystemPromptPH
+}
+
 // ChatService handles AI agent orchestration with tool calling.
 type ChatService struct {
 	ai        *openai.Client
@@ -114,15 +197,17 @@ func (s *ChatService) ProcessMessage(
 	userMessage string,
 	history []domain.ChatMessage,
 	companyID uuid.UUID,
+	jurisdiction string,
 ) (*ChatResponse, error) {
 	if s.ai == nil {
 		return nil, fmt.Errorf("AI service not configured — set OPENAI_API_KEY to enable chat")
 	}
 
-	messages := s.buildMessages(history, userMessage)
+	messages := s.buildMessages(history, userMessage, jurisdiction)
+	tools := chatToolsForJurisdiction(jurisdiction)
 
 	// First LLM call (may include tool calls)
-	resp, err := s.ai.ChatCompletionWithTools(ctx, messages, chatTools)
+	resp, err := s.ai.ChatCompletionWithTools(ctx, messages, tools)
 	if err != nil {
 		return nil, fmt.Errorf("chat completion: %w", err)
 	}
@@ -143,7 +228,7 @@ func (s *ChatService) ProcessMessage(
 	var toolResults []ToolCallResult
 
 	for _, tc := range choice.Message.ToolCalls {
-		result := s.executeTool(ctx, tc.Function.Name, tc.Function.Arguments, companyID)
+		result := s.executeTool(ctx, tc.Function.Name, tc.Function.Arguments, companyID, jurisdiction)
 		toolResults = append(toolResults, ToolCallResult{
 			ToolName: tc.Function.Name,
 			ToolID:   tc.ID,
@@ -180,15 +265,17 @@ func (s *ChatService) ProcessMessageStream(
 	userMessage string,
 	history []domain.ChatMessage,
 	companyID uuid.UUID,
+	jurisdiction string,
 ) (<-chan string, *[]ToolCallResult, error) {
 	if s.ai == nil {
 		return nil, nil, fmt.Errorf("AI service not configured — set OPENAI_API_KEY to enable chat")
 	}
 
-	messages := s.buildMessages(history, userMessage)
+	messages := s.buildMessages(history, userMessage, jurisdiction)
+	tools := chatToolsForJurisdiction(jurisdiction)
 
 	// First LLM call with tools (non-streaming)
-	resp, err := s.ai.ChatCompletionWithTools(ctx, messages, chatTools)
+	resp, err := s.ai.ChatCompletionWithTools(ctx, messages, tools)
 	if err != nil {
 		return nil, nil, fmt.Errorf("chat completion: %w", err)
 	}
@@ -207,7 +294,7 @@ func (s *ChatService) ProcessMessageStream(
 	if choice.FinishReason == oai.FinishReasonToolCalls && len(choice.Message.ToolCalls) > 0 {
 		messages = append(messages, choice.Message)
 		for _, tc := range choice.Message.ToolCalls {
-			result := s.executeTool(ctx, tc.Function.Name, tc.Function.Arguments, companyID)
+			result := s.executeTool(ctx, tc.Function.Name, tc.Function.Arguments, companyID, jurisdiction)
 			toolResults = append(toolResults, ToolCallResult{
 				ToolName: tc.Function.Name,
 				ToolID:   tc.ID,
@@ -285,9 +372,9 @@ func (s *ChatService) ListHistory(ctx context.Context, companyID uuid.UUID, limi
 	return messages, nil
 }
 
-func (s *ChatService) buildMessages(history []domain.ChatMessage, userMessage string) []oai.ChatCompletionMessage {
+func (s *ChatService) buildMessages(history []domain.ChatMessage, userMessage string, jurisdiction string) []oai.ChatCompletionMessage {
 	messages := []oai.ChatCompletionMessage{
-		{Role: oai.ChatMessageRoleSystem, Content: chatSystemPrompt},
+		{Role: oai.ChatMessageRoleSystem, Content: chatSystemPrompt(jurisdiction)},
 	}
 
 	// Add history (last 20 messages, in chronological order)
@@ -313,7 +400,7 @@ func (s *ChatService) buildMessages(history []domain.ChatMessage, userMessage st
 	return messages
 }
 
-func (s *ChatService) executeTool(ctx context.Context, name, argsJSON string, companyID uuid.UUID) string {
+func (s *ChatService) executeTool(ctx context.Context, name, argsJSON string, companyID uuid.UUID, jurisdiction string) string {
 	var args map[string]interface{}
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 		return jsonError("invalid tool arguments")
@@ -323,7 +410,7 @@ func (s *ChatService) executeTool(ctx context.Context, name, argsJSON string, co
 	case "generate_report":
 		return s.executeGenerateReport(ctx, args, companyID)
 	case "lookup_tax_rule":
-		return s.executeLookupTaxRule(ctx, args)
+		return s.executeLookupTaxRule(ctx, args, jurisdiction)
 	case "get_user_preferences":
 		return s.executeGetPreferences(ctx, args, companyID)
 	default:
@@ -364,7 +451,7 @@ func (s *ChatService) executeGenerateReport(ctx context.Context, args map[string
 	return string(result)
 }
 
-func (s *ChatService) executeLookupTaxRule(ctx context.Context, args map[string]interface{}) string {
+func (s *ChatService) executeLookupTaxRule(ctx context.Context, args map[string]interface{}, jurisdiction string) string {
 	query := toString(args["query"])
 	category := toString(args["category"])
 
@@ -373,10 +460,14 @@ func (s *ChatService) executeLookupTaxRule(ctx context.Context, args map[string]
 		catPtr = &category
 	}
 
-	chunks, err := s.knowledge.RetrieveRelevant(ctx, query, catPtr, 3)
+	chunks, err := s.knowledge.RetrieveRelevant(ctx, query, catPtr, 3, jurisdiction)
 	if err != nil || len(chunks) == 0 {
+		noResultMsg := "No specific regulation found. Please consult the BIR website (www.bir.gov.ph)."
+		if jurisdiction == "SG" {
+			noResultMsg = "No specific regulation found. Please consult the IRAS website (www.iras.gov.sg)."
+		}
 		result, _ := json.Marshal(map[string]interface{}{
-			"answer":  "No specific regulation found. Please consult the BIR website (www.bir.gov.ph).",
+			"answer":  noResultMsg,
 			"sources": []KnowledgeSource{},
 		})
 		return string(result)
@@ -390,7 +481,7 @@ func (s *ChatService) executeLookupTaxRule(ctx context.Context, args map[string]
 		}
 	}
 
-	answer, err := s.knowledge.AnswerQuestion(ctx, query, chunks, nil)
+	answer, err := s.knowledge.AnswerQuestion(ctx, query, chunks, nil, jurisdiction)
 	if err != nil {
 		slog.Warn("failed to generate knowledge answer", "error", err)
 		answer = chunks[0].Content

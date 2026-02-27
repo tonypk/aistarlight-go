@@ -13,13 +13,28 @@ import (
 	"github.com/tonypk/aistarlight-go/internal/repository/sqlc"
 )
 
-const knowledgeSystemPrompt = `Expert Philippine tax consultant AI assistant.
+const knowledgeSystemPromptPH = `Expert Philippine tax consultant AI assistant.
 Use the following tax regulation context to answer questions accurately.
 Always cite the relevant BIR regulation or rule when possible.
 If you're not sure, say so rather than guessing.
 
 Context:
 %s`
+
+const knowledgeSystemPromptSG = `Expert Singapore tax consultant AI assistant.
+Use the following tax regulation context to answer questions accurately.
+Always cite the relevant IRAS regulation, Income Tax Act, or GST Act section when possible.
+If you're not sure, say so rather than guessing.
+
+Context:
+%s`
+
+func knowledgePrompt(jurisdiction string) string {
+	if jurisdiction == "SG" {
+		return knowledgeSystemPromptSG
+	}
+	return knowledgeSystemPromptPH
+}
 
 // KnowledgeService provides RAG-based tax knowledge retrieval and answering.
 type KnowledgeService struct {
@@ -70,8 +85,11 @@ func (r KnowledgeResult) Citation() KnowledgeSource {
 	}
 }
 
-// RetrieveRelevant retrieves relevant knowledge chunks for a query.
-func (s *KnowledgeService) RetrieveRelevant(ctx context.Context, query string, category *string, limit int) ([]KnowledgeResult, error) {
+// RetrieveRelevant retrieves relevant knowledge chunks for a query, filtered by jurisdiction.
+func (s *KnowledgeService) RetrieveRelevant(ctx context.Context, query string, category *string, limit int, jurisdiction string) ([]KnowledgeResult, error) {
+	if jurisdiction == "" {
+		jurisdiction = "PH"
+	}
 	if limit <= 0 {
 		limit = 5
 	}
@@ -83,9 +101,10 @@ func (s *KnowledgeService) RetrieveRelevant(ctx context.Context, query string, c
 			// If category is specified, use filtered search
 			if category != nil && *category != "" {
 				chunks, err := s.q.SearchSimilarChunksByCategory(ctx, sqlc.SearchSimilarChunksByCategoryParams{
-					Column1:  pgvector.NewVector(embedding),
-					Category: category,
-					Limit:    int32(limit),
+					Column1:      pgvector.NewVector(embedding),
+					Category:     category,
+					Limit:        int32(limit),
+					Jurisdiction: jurisdiction,
 				})
 				if err == nil && len(chunks) > 0 {
 					return mapSearchByCategoryRows(chunks), nil
@@ -94,8 +113,9 @@ func (s *KnowledgeService) RetrieveRelevant(ctx context.Context, query string, c
 
 			// Unfiltered vector search
 			chunks, err := s.q.SearchSimilarChunks(ctx, sqlc.SearchSimilarChunksParams{
-				Column1: pgvector.NewVector(embedding),
-				Limit:   int32(limit),
+				Column1:      pgvector.NewVector(embedding),
+				Limit:        int32(limit),
+				Jurisdiction: jurisdiction,
 			})
 			if err == nil && len(chunks) > 0 {
 				return mapSearchRows(chunks), nil
@@ -146,8 +166,11 @@ func (s *KnowledgeService) RetrieveRelevant(ctx context.Context, query string, c
 	return results, nil
 }
 
-// RetrieveByType retrieves knowledge chunks filtered by chunk_type.
-func (s *KnowledgeService) RetrieveByType(ctx context.Context, query string, chunkType string, limit int) ([]KnowledgeResult, error) {
+// RetrieveByType retrieves knowledge chunks filtered by chunk_type and jurisdiction.
+func (s *KnowledgeService) RetrieveByType(ctx context.Context, query string, chunkType string, limit int, jurisdiction string) ([]KnowledgeResult, error) {
+	if jurisdiction == "" {
+		jurisdiction = "PH"
+	}
 	if limit <= 0 {
 		limit = 5
 	}
@@ -161,9 +184,10 @@ func (s *KnowledgeService) RetrieveByType(ctx context.Context, query string, chu
 	}
 
 	chunks, err := s.q.SearchSimilarChunksByType(ctx, sqlc.SearchSimilarChunksByTypeParams{
-		Column1:   pgvector.NewVector(embedding),
-		ChunkType: &chunkType,
-		Limit:     int32(limit),
+		Column1:      pgvector.NewVector(embedding),
+		ChunkType:    &chunkType,
+		Limit:        int32(limit),
+		Jurisdiction: jurisdiction,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("search by type: %w", err)
@@ -221,14 +245,19 @@ func (s *KnowledgeService) AddChunk(ctx context.Context, source, category, conte
 }
 
 // AnswerQuestion generates an answer using retrieved context.
-func (s *KnowledgeService) AnswerQuestion(ctx context.Context, question string, chunks []KnowledgeResult, history []oai.ChatCompletionMessage) (string, error) {
+func (s *KnowledgeService) AnswerQuestion(ctx context.Context, question string, chunks []KnowledgeResult, history []oai.ChatCompletionMessage, jurisdictions ...string) (string, error) {
+	jurisdiction := "PH"
+	if len(jurisdictions) > 0 && jurisdictions[0] != "" {
+		jurisdiction = jurisdictions[0]
+	}
+
 	// Build context from chunks
 	var sb strings.Builder
 	for _, c := range chunks {
 		fmt.Fprintf(&sb, "[Source: %s]\n%s\n\n", c.Source, c.Content)
 	}
 
-	systemPrompt := fmt.Sprintf(knowledgeSystemPrompt, sb.String())
+	systemPrompt := fmt.Sprintf(knowledgePrompt(jurisdiction), sb.String())
 
 	messages := []oai.ChatCompletionMessage{
 		{Role: oai.ChatMessageRoleSystem, Content: systemPrompt},
@@ -244,7 +273,11 @@ func (s *KnowledgeService) AnswerQuestion(ctx context.Context, question string, 
 	}
 
 	if len(resp.Choices) == 0 {
-		return "I couldn't generate an answer. Please consult the BIR website (www.bir.gov.ph).", nil
+		fallback := "I couldn't generate an answer. Please consult the BIR website (www.bir.gov.ph)."
+		if jurisdiction == "SG" {
+			fallback = "I couldn't generate an answer. Please consult the IRAS website (www.iras.gov.sg)."
+		}
+		return fallback, nil
 	}
 
 	return resp.Choices[0].Message.Content, nil

@@ -47,9 +47,12 @@ func (s *FormSchemaService) GetSchema(ctx context.Context, formType string) (*Fo
 	return nil, fmt.Errorf("form schema %s not found", formType)
 }
 
-// ListForms returns all active form schemas.
-func (s *FormSchemaService) ListForms(ctx context.Context) ([]FormSummaryDTO, error) {
-	schemas, err := s.q.ListActiveFormSchemas(ctx)
+// ListForms returns all active form schemas filtered by jurisdiction.
+func (s *FormSchemaService) ListForms(ctx context.Context, jurisdiction string) ([]FormSummaryDTO, error) {
+	if jurisdiction == "" {
+		jurisdiction = "PH"
+	}
+	schemas, err := s.q.ListActiveFormSchemas(ctx, jurisdiction)
 	if err != nil {
 		return nil, fmt.Errorf("list form schemas: %w", err)
 	}

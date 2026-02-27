@@ -1,6 +1,6 @@
 -- name: CreateCompany :one
-INSERT INTO companies (id, organization_id, company_name, tin_number, rdo_code, vat_classification, fiscal_year_end, industry, address, plan, settings, is_active, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())
+INSERT INTO companies (id, organization_id, company_name, tin_number, rdo_code, vat_classification, fiscal_year_end, industry, address, plan, settings, is_active, jurisdiction, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW())
 RETURNING *;
 
 -- name: GetCompanyByID :one

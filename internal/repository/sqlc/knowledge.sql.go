@@ -205,13 +205,15 @@ SELECT id, source, category, content, metadata, created_at,
        section_ref, law_ref, effective_date, chunk_type,
        embedding <=> $1::vector AS distance
 FROM knowledge_chunks
+WHERE jurisdiction = $3
 ORDER BY embedding <=> $1::vector
 LIMIT $2
 `
 
 type SearchSimilarChunksParams struct {
-	Column1 pgvector.Vector `json:"column_1"`
-	Limit   int32           `json:"limit"`
+	Column1      pgvector.Vector `json:"column_1"`
+	Limit        int32           `json:"limit"`
+	Jurisdiction string          `json:"jurisdiction"`
 }
 
 type SearchSimilarChunksRow struct {
@@ -229,7 +231,7 @@ type SearchSimilarChunksRow struct {
 }
 
 func (q *Queries) SearchSimilarChunks(ctx context.Context, arg SearchSimilarChunksParams) ([]SearchSimilarChunksRow, error) {
-	rows, err := q.db.Query(ctx, searchSimilarChunks, arg.Column1, arg.Limit)
+	rows, err := q.db.Query(ctx, searchSimilarChunks, arg.Column1, arg.Limit, arg.Jurisdiction)
 	if err != nil {
 		return nil, err
 	}
@@ -265,15 +267,16 @@ SELECT id, source, category, content, metadata, created_at,
        section_ref, law_ref, effective_date, chunk_type,
        embedding <=> $1::vector AS distance
 FROM knowledge_chunks
-WHERE category = $2
+WHERE category = $2 AND jurisdiction = $4
 ORDER BY embedding <=> $1::vector
 LIMIT $3
 `
 
 type SearchSimilarChunksByCategoryParams struct {
-	Column1  pgvector.Vector `json:"column_1"`
-	Category *string         `json:"category"`
-	Limit    int32           `json:"limit"`
+	Column1      pgvector.Vector `json:"column_1"`
+	Category     *string         `json:"category"`
+	Limit        int32           `json:"limit"`
+	Jurisdiction string          `json:"jurisdiction"`
 }
 
 type SearchSimilarChunksByCategoryRow struct {
@@ -291,7 +294,12 @@ type SearchSimilarChunksByCategoryRow struct {
 }
 
 func (q *Queries) SearchSimilarChunksByCategory(ctx context.Context, arg SearchSimilarChunksByCategoryParams) ([]SearchSimilarChunksByCategoryRow, error) {
-	rows, err := q.db.Query(ctx, searchSimilarChunksByCategory, arg.Column1, arg.Category, arg.Limit)
+	rows, err := q.db.Query(ctx, searchSimilarChunksByCategory,
+		arg.Column1,
+		arg.Category,
+		arg.Limit,
+		arg.Jurisdiction,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -327,15 +335,16 @@ SELECT id, source, category, content, metadata, created_at,
        section_ref, law_ref, effective_date, chunk_type,
        embedding <=> $1::vector AS distance
 FROM knowledge_chunks
-WHERE chunk_type = $2
+WHERE chunk_type = $2 AND jurisdiction = $4
 ORDER BY embedding <=> $1::vector
 LIMIT $3
 `
 
 type SearchSimilarChunksByTypeParams struct {
-	Column1   pgvector.Vector `json:"column_1"`
-	ChunkType *string         `json:"chunk_type"`
-	Limit     int32           `json:"limit"`
+	Column1      pgvector.Vector `json:"column_1"`
+	ChunkType    *string         `json:"chunk_type"`
+	Limit        int32           `json:"limit"`
+	Jurisdiction string          `json:"jurisdiction"`
 }
 
 type SearchSimilarChunksByTypeRow struct {
@@ -353,7 +362,12 @@ type SearchSimilarChunksByTypeRow struct {
 }
 
 func (q *Queries) SearchSimilarChunksByType(ctx context.Context, arg SearchSimilarChunksByTypeParams) ([]SearchSimilarChunksByTypeRow, error) {
-	rows, err := q.db.Query(ctx, searchSimilarChunksByType, arg.Column1, arg.ChunkType, arg.Limit)
+	rows, err := q.db.Query(ctx, searchSimilarChunksByType,
+		arg.Column1,
+		arg.ChunkType,
+		arg.Limit,
+		arg.Jurisdiction,
+	)
 	if err != nil {
 		return nil, err
 	}

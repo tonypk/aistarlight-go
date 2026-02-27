@@ -50,9 +50,12 @@ func (r *RuleResolver) Resolve(ctx context.Context, formType string) []Checklist
 	return items
 }
 
-// ListAll returns all active checklist items across all form types.
-func (r *RuleResolver) ListAll(ctx context.Context) ([]ChecklistItem, error) {
-	rows, err := r.q.ListAllChecklists(ctx)
+// ListAll returns all active checklist items filtered by jurisdiction.
+func (r *RuleResolver) ListAll(ctx context.Context, jurisdiction string) ([]ChecklistItem, error) {
+	if jurisdiction == "" {
+		jurisdiction = "PH"
+	}
+	rows, err := r.q.ListAllChecklists(ctx, jurisdiction)
 	if err != nil {
 		return nil, err
 	}

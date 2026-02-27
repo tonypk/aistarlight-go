@@ -6,6 +6,7 @@ import (
 
 	"github.com/shopspring/decimal"
 	"github.com/tonypk/aistarlight-go/pkg/birforms"
+	"github.com/tonypk/aistarlight-go/pkg/irasforms"
 )
 
 // SalesRow represents a single sales record for VAT calculation.
@@ -45,6 +46,21 @@ func CalculateReport(formType string, input map[string]interface{}) (TaxResult, 
 		return CalculateBIR2307(input)
 	case birforms.FormSAWT:
 		return CalculateSAWT(input)
+
+	// Singapore IRAS forms
+	case irasforms.FormGSTF5:
+		return CalculateGSTF5(input)
+	case irasforms.FormFormC:
+		return CalculateFormC(input)
+	case irasforms.FormFormCS:
+		return CalculateFormCS(input)
+	case irasforms.FormFormB:
+		return CalculateFormB(input)
+	case irasforms.FormIR8A:
+		return CalculateIR8A(input)
+	case irasforms.FormS45:
+		return CalculateS45(input)
+
 	default:
 		return nil, fmt.Errorf("no calculator available for %s", formType)
 	}

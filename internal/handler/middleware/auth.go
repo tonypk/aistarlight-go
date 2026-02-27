@@ -14,18 +14,20 @@ import (
 type contextKey string
 
 const (
-	UserIDKey    contextKey = "user_id"
-	CompanyIDKey contextKey = "company_id"
-	EmailKey     contextKey = "email"
-	RoleKey      contextKey = "role"
+	UserIDKey       contextKey = "user_id"
+	CompanyIDKey    contextKey = "company_id"
+	EmailKey        contextKey = "email"
+	RoleKey         contextKey = "role"
+	JurisdictionKey contextKey = "jurisdiction"
 )
 
 type Claims struct {
 	jwt.RegisteredClaims
-	UserID    uuid.UUID `json:"user_id"`
-	CompanyID uuid.UUID `json:"company_id"`
-	Email     string    `json:"email"`
-	Role      string    `json:"role"`
+	UserID       uuid.UUID `json:"user_id"`
+	CompanyID    uuid.UUID `json:"company_id"`
+	Email        string    `json:"email"`
+	Role         string    `json:"role"`
+	Jurisdiction string    `json:"jurisdiction,omitempty"`
 	// Legacy field — old Python tokens used tenant_id
 	TenantID *uuid.UUID `json:"tenant_id,omitempty"`
 }
@@ -127,6 +129,11 @@ func setClaimsToContext(c *gin.Context, claims *Claims) {
 	c.Set(string(CompanyIDKey), claims.CompanyID)
 	c.Set(string(EmailKey), claims.Email)
 	c.Set(string(RoleKey), claims.Role)
+	jurisdiction := claims.Jurisdiction
+	if jurisdiction == "" {
+		jurisdiction = "PH"
+	}
+	c.Set(string(JurisdictionKey), jurisdiction)
 }
 
 // GetUserID extracts user_id from gin context.
@@ -141,4 +148,14 @@ func GetCompanyID(c *gin.Context) uuid.UUID {
 	v, _ := c.Get(string(CompanyIDKey))
 	id, _ := v.(uuid.UUID)
 	return id
+}
+
+// GetJurisdiction extracts jurisdiction from gin context. Defaults to "PH".
+func GetJurisdiction(c *gin.Context) string {
+	v, _ := c.Get(string(JurisdictionKey))
+	j, _ := v.(string)
+	if j == "" {
+		return "PH"
+	}
+	return j
 }

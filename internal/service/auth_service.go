@@ -38,10 +38,11 @@ func NewAuthService(q *sqlc.Queries, cfg config.JWTConfig) *AuthService {
 }
 
 type RegisterInput struct {
-	Email       string
-	Password    string
-	FullName    string
-	CompanyName string
+	Email        string
+	Password     string
+	FullName     string
+	CompanyName  string
+	Jurisdiction string
 }
 
 type TokenPair struct {
@@ -64,6 +65,10 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*domai
 
 	// Create standalone company
 	companyID := uuid.New()
+	jurisdiction := input.Jurisdiction
+	if jurisdiction == "" {
+		jurisdiction = "PH"
+	}
 	_, err = s.q.CreateCompany(ctx, sqlc.CreateCompanyParams{
 		ID:                companyID,
 		CompanyName:       input.CompanyName,
@@ -72,6 +77,7 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*domai
 		Plan:              "free",
 		Settings:          []byte("{}"),
 		IsActive:          true,
+		Jurisdiction:      jurisdiction,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create company: %w", err)
@@ -125,18 +131,18 @@ func (s *AuthService) GetByEmail(ctx context.Context, email string) (*domain.Use
 	}, nil
 }
 
-func (s *AuthService) Login(ctx context.Context, email, password string) (*TokenPair, *uuid.UUID, error) {
+func (s *AuthService) Login(ctx context.Context, email, password string) (*TokenPair, *uuid.UUID, string, error) {
 	dbUser, err := s.q.GetUserByEmail(ctx, email)
 	if err != nil {
-		return nil, nil, ErrInvalidCreds
+		return nil, nil, "", ErrInvalidCreds
 	}
 
 	if !dbUser.IsActive {
-		return nil, nil, ErrUserInactive
+		return nil, nil, "", ErrUserInactive
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(dbUser.HashedPassword), []byte(password)); err != nil {
-		return nil, nil, ErrInvalidCreds
+		return nil, nil, "", ErrInvalidCreds
 	}
 
 	// Get the first company the user has access to
@@ -146,7 +152,7 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (*Token
 		Offset: 0,
 	})
 	if err != nil || len(companies) == 0 {
-		return nil, nil, ErrCompanyNotFound
+		return nil, nil, "", ErrCompanyNotFound
 	}
 
 	companyID := companies[0].ID
@@ -162,12 +168,18 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (*Token
 		}
 	}
 
-	tokens, err := s.generateTokenPair(dbUser.ID, companyID, dbUser.Email, role)
+	// Get company jurisdiction
+	company, err := s.q.GetCompanyByID(ctx, companyID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", ErrCompanyNotFound
 	}
 
-	return tokens, &companyID, nil
+	tokens, err := s.generateTokenPair(dbUser.ID, companyID, dbUser.Email, role, company.Jurisdiction)
+	if err != nil {
+		return nil, nil, "", err
+	}
+
+	return tokens, &companyID, company.Jurisdiction, nil
 }
 
 func (s *AuthService) RefreshToken(ctx context.Context, refreshToken string) (*TokenPair, error) {
@@ -201,7 +213,12 @@ func (s *AuthService) RefreshToken(ctx context.Context, refreshToken string) (*T
 		companyID = *claims.TenantID
 	}
 
-	tokens, err := s.generateTokenPair(claims.UserID, companyID, claims.Email, claims.Role)
+	jurisdiction := claims.Jurisdiction
+	if jurisdiction == "" {
+		jurisdiction = "PH"
+	}
+
+	tokens, err := s.generateTokenPair(claims.UserID, companyID, claims.Email, claims.Role, jurisdiction)
 	if err != nil {
 		return nil, err
 	}
@@ -228,13 +245,12 @@ func (s *AuthService) Logout(ctx context.Context, refreshToken string) error {
 	return nil
 }
 
-func (s *AuthService) SwitchCompany(ctx context.Context, userID, companyID uuid.UUID) (*TokenPair, error) {
+func (s *AuthService) SwitchCompany(ctx context.Context, userID, companyID uuid.UUID) (*TokenPair, string, error) {
 	// Verify company exists
 	company, err := s.q.GetCompanyByID(ctx, companyID)
 	if err != nil {
-		return nil, ErrCompanyNotFound
+		return nil, "", ErrCompanyNotFound
 	}
-	_ = company
 
 	// Verify user has access
 	effectiveRole, err := s.q.GetEffectiveRole(ctx, sqlc.GetEffectiveRoleParams{
@@ -242,20 +258,25 @@ func (s *AuthService) SwitchCompany(ctx context.Context, userID, companyID uuid.
 		CompanyID: companyID,
 	})
 	if err != nil || effectiveRole == nil {
-		return nil, ErrNoAccess
+		return nil, "", ErrNoAccess
 	}
 
 	role, ok := effectiveRole.(string)
 	if !ok {
-		return nil, ErrNoAccess
+		return nil, "", ErrNoAccess
 	}
 
 	user, err := s.q.GetUserByID(ctx, userID)
 	if err != nil {
-		return nil, fmt.Errorf("get user: %w", err)
+		return nil, "", fmt.Errorf("get user: %w", err)
 	}
 
-	return s.generateTokenPair(userID, companyID, user.Email, role)
+	tokens, err := s.generateTokenPair(userID, companyID, user.Email, role, company.Jurisdiction)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return tokens, company.Jurisdiction, nil
 }
 
 func (s *AuthService) GenerateAPIKey(ctx context.Context, userID uuid.UUID) (string, error) {
@@ -293,10 +314,11 @@ func (s *AuthService) ResolveAPIKey(ctx context.Context, key string) (*middlewar
 	}
 
 	return &middleware.Claims{
-		UserID:    dbUser.ID,
-		CompanyID: companies[0].ID,
-		Email:     dbUser.Email,
-		Role:      string(domain.CompanyRoleAdmin),
+		UserID:       dbUser.ID,
+		CompanyID:    companies[0].ID,
+		Email:        dbUser.Email,
+		Role:         string(domain.CompanyRoleAdmin),
+		Jurisdiction: companies[0].Jurisdiction,
 	}, nil
 }
 
@@ -305,9 +327,13 @@ func (s *AuthService) IsRevoked(ctx context.Context, jti string) (bool, error) {
 	return s.q.IsTokenRevoked(ctx, jti)
 }
 
-func (s *AuthService) generateTokenPair(userID, companyID uuid.UUID, email, role string) (*TokenPair, error) {
+func (s *AuthService) generateTokenPair(userID, companyID uuid.UUID, email, role, jurisdiction string) (*TokenPair, error) {
 	now := time.Now()
 	jti := uuid.New().String()
+
+	if jurisdiction == "" {
+		jurisdiction = "PH"
+	}
 
 	accessClaims := middleware.Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -315,10 +341,11 @@ func (s *AuthService) generateTokenPair(userID, companyID uuid.UUID, email, role
 			IssuedAt:  jwt.NewNumericDate(now),
 			ID:        jti,
 		},
-		UserID:    userID,
-		CompanyID: companyID,
-		Email:     email,
-		Role:      role,
+		UserID:       userID,
+		CompanyID:    companyID,
+		Email:        email,
+		Role:         role,
+		Jurisdiction: jurisdiction,
 		// Include tenant_id for backward compat with Vue frontend
 		TenantID: &companyID,
 	}
@@ -335,11 +362,12 @@ func (s *AuthService) generateTokenPair(userID, companyID uuid.UUID, email, role
 			IssuedAt:  jwt.NewNumericDate(now),
 			ID:        refreshJTI,
 		},
-		UserID:    userID,
-		CompanyID: companyID,
-		Email:     email,
-		Role:      role,
-		TenantID:  &companyID,
+		UserID:       userID,
+		CompanyID:    companyID,
+		Email:        email,
+		Role:         role,
+		Jurisdiction: jurisdiction,
+		TenantID:     &companyID,
 	}
 
 	refreshToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims).SignedString([]byte(s.cfg.Secret))

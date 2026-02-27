@@ -21,10 +21,11 @@ func NewAuthHandler(auth *service.AuthService, company *service.CompanyService) 
 }
 
 type registerRequest struct {
-	Email       string `json:"email" binding:"required,email"`
-	Password    string `json:"password" binding:"required,min=8"`
-	FullName    string `json:"full_name" binding:"required"`
-	CompanyName string `json:"company_name" binding:"required"`
+	Email        string `json:"email" binding:"required,email"`
+	Password     string `json:"password" binding:"required,min=8"`
+	FullName     string `json:"full_name" binding:"required"`
+	CompanyName  string `json:"company_name" binding:"required"`
+	Jurisdiction string `json:"jurisdiction"`
 }
 
 func (h *AuthHandler) Register(c *gin.Context) {
@@ -34,11 +35,17 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
+	jurisdiction := req.Jurisdiction
+	if jurisdiction != "SG" && jurisdiction != "PH" {
+		jurisdiction = "PH"
+	}
+
 	user, err := h.auth.Register(c.Request.Context(), service.RegisterInput{
-		Email:       req.Email,
-		Password:    req.Password,
-		FullName:    req.FullName,
-		CompanyName: req.CompanyName,
+		Email:        req.Email,
+		Password:     req.Password,
+		FullName:     req.FullName,
+		CompanyName:  req.CompanyName,
+		Jurisdiction: jurisdiction,
 	})
 	if err != nil {
 		if errors.Is(err, service.ErrEmailTaken) {
@@ -64,7 +71,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	tokens, companyID, err := h.auth.Login(c.Request.Context(), req.Email, req.Password)
+	tokens, companyID, jurisdiction, err := h.auth.Login(c.Request.Context(), req.Email, req.Password)
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidCreds) || errors.Is(err, service.ErrUserInactive) {
 			response.Unauthorized(c, "invalid email or password")
@@ -80,6 +87,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		"token_type":    tokens.TokenType,
 		"tenant_id":     companyID, // backward compat
 		"company_id":    companyID,
+		"jurisdiction":  jurisdiction,
 	})
 }
 
@@ -117,16 +125,18 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 func (h *AuthHandler) Me(c *gin.Context) {
 	userID := middleware.GetUserID(c)
 	companyID := middleware.GetCompanyID(c)
+	jurisdiction := middleware.GetJurisdiction(c)
 
 	email, _ := c.Get(string(middleware.EmailKey))
 	role, _ := c.Get(string(middleware.RoleKey))
 
 	response.OK(c, gin.H{
-		"user_id":    userID,
-		"company_id": companyID,
-		"tenant_id":  companyID, // backward compat
-		"email":      email,
-		"role":       role,
+		"user_id":      userID,
+		"company_id":   companyID,
+		"tenant_id":    companyID, // backward compat
+		"email":        email,
+		"role":         role,
+		"jurisdiction": jurisdiction,
 	})
 }
 
@@ -231,7 +241,7 @@ func (h *AuthHandler) SwitchCompany(c *gin.Context) {
 	}
 
 	userID := middleware.GetUserID(c)
-	tokens, err := h.auth.SwitchCompany(c.Request.Context(), userID, *companyID)
+	tokens, jurisdiction, err := h.auth.SwitchCompany(c.Request.Context(), userID, *companyID)
 	if err != nil {
 		if errors.Is(err, service.ErrNoAccess) {
 			response.Forbidden(c, "no access to this company")
@@ -251,5 +261,6 @@ func (h *AuthHandler) SwitchCompany(c *gin.Context) {
 		"token_type":    tokens.TokenType,
 		"tenant_id":     companyID,
 		"company_id":    companyID,
+		"jurisdiction":  jurisdiction,
 	})
 }

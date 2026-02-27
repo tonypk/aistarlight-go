@@ -2,6 +2,7 @@ package handler
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/tonypk/aistarlight-go/internal/handler/middleware"
 	"github.com/tonypk/aistarlight-go/internal/handler/response"
 	"github.com/tonypk/aistarlight-go/internal/service"
 )
@@ -18,7 +19,7 @@ func NewFormHandler(schemaSvc *service.FormSchemaService) *FormHandler {
 
 // List handles GET /api/v1/forms.
 func (h *FormHandler) List(c *gin.Context) {
-	forms, err := h.schemaSvc.ListForms(c.Request.Context())
+	forms, err := h.schemaSvc.ListForms(c.Request.Context(), middleware.GetJurisdiction(c))
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return

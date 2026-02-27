@@ -10,14 +10,13 @@ import (
 )
 
 const listAllChecklists = `-- name: ListAllChecklists :many
-SELECT id, form_type, check_id, check_name, severity, description, rule_ref, is_active, sort_order, created_at
-FROM compliance_checklists
-WHERE is_active = true
+SELECT id, form_type, check_id, check_name, severity, description, rule_ref, is_active, sort_order, created_at, jurisdiction FROM compliance_checklists
+WHERE is_active = true AND jurisdiction = $1
 ORDER BY form_type, sort_order
 `
 
-func (q *Queries) ListAllChecklists(ctx context.Context) ([]ComplianceChecklist, error) {
-	rows, err := q.db.Query(ctx, listAllChecklists)
+func (q *Queries) ListAllChecklists(ctx context.Context, jurisdiction string) ([]ComplianceChecklist, error) {
+	rows, err := q.db.Query(ctx, listAllChecklists, jurisdiction)
 	if err != nil {
 		return nil, err
 	}
@@ -36,6 +35,7 @@ func (q *Queries) ListAllChecklists(ctx context.Context) ([]ComplianceChecklist,
 			&i.IsActive,
 			&i.SortOrder,
 			&i.CreatedAt,
+			&i.Jurisdiction,
 		); err != nil {
 			return nil, err
 		}
@@ -48,8 +48,7 @@ func (q *Queries) ListAllChecklists(ctx context.Context) ([]ComplianceChecklist,
 }
 
 const listChecklistsByFormType = `-- name: ListChecklistsByFormType :many
-SELECT id, form_type, check_id, check_name, severity, description, rule_ref, is_active, sort_order, created_at
-FROM compliance_checklists
+SELECT id, form_type, check_id, check_name, severity, description, rule_ref, is_active, sort_order, created_at, jurisdiction FROM compliance_checklists
 WHERE form_type = $1 AND is_active = true
 ORDER BY sort_order
 `
@@ -74,6 +73,7 @@ func (q *Queries) ListChecklistsByFormType(ctx context.Context, formType string)
 			&i.IsActive,
 			&i.SortOrder,
 			&i.CreatedAt,
+			&i.Jurisdiction,
 		); err != nil {
 			return nil, err
 		}

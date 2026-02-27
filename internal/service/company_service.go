@@ -33,6 +33,7 @@ type CreateCompanyInput struct {
 	FiscalYearEnd     string
 	Industry          *string
 	Address           *string
+	Jurisdiction      string
 	CreatedByUserID   uuid.UUID
 }
 
@@ -65,6 +66,11 @@ func (s *CompanyService) Create(ctx context.Context, input CreateCompanyInput) (
 		orgID = pgtype.UUID{Bytes: *input.OrgID, Valid: true}
 	}
 
+	jurisdiction := input.Jurisdiction
+	if jurisdiction == "" {
+		jurisdiction = "PH"
+	}
+
 	dbCompany, err := s.q.CreateCompany(ctx, sqlc.CreateCompanyParams{
 		ID:                companyID,
 		OrganizationID:    orgID,
@@ -78,6 +84,7 @@ func (s *CompanyService) Create(ctx context.Context, input CreateCompanyInput) (
 		Plan:              "free",
 		Settings:          []byte("{}"),
 		IsActive:          true,
+		Jurisdiction:      jurisdiction,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create company: %w", err)
@@ -263,6 +270,7 @@ func toCompany(c sqlc.Company) *domain.Company {
 		Plan:              c.Plan,
 		Settings:          domain.JSON(c.Settings),
 		IsActive:          c.IsActive,
+		Jurisdiction:      c.Jurisdiction,
 		CreatedAt:         c.CreatedAt,
 		UpdatedAt:         c.UpdatedAt,
 	}

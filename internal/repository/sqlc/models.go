@@ -143,6 +143,7 @@ type Company struct {
 	IsActive          bool        `json:"is_active"`
 	CreatedAt         time.Time   `json:"created_at"`
 	UpdatedAt         time.Time   `json:"updated_at"`
+	Jurisdiction      string      `json:"jurisdiction"`
 }
 
 type CompanyMember struct {
@@ -153,16 +154,17 @@ type CompanyMember struct {
 }
 
 type ComplianceChecklist struct {
-	ID          uuid.UUID          `json:"id"`
-	FormType    string             `json:"form_type"`
-	CheckID     string             `json:"check_id"`
-	CheckName   string             `json:"check_name"`
-	Severity    string             `json:"severity"`
-	Description *string            `json:"description"`
-	RuleRef     *string            `json:"rule_ref"`
-	IsActive    *bool              `json:"is_active"`
-	SortOrder   *int32             `json:"sort_order"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	ID           uuid.UUID          `json:"id"`
+	FormType     string             `json:"form_type"`
+	CheckID      string             `json:"check_id"`
+	CheckName    string             `json:"check_name"`
+	Severity     string             `json:"severity"`
+	Description  *string            `json:"description"`
+	RuleRef      *string            `json:"rule_ref"`
+	IsActive     *bool              `json:"is_active"`
+	SortOrder    *int32             `json:"sort_order"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	Jurisdiction string             `json:"jurisdiction"`
 }
 
 type Correction struct {
@@ -215,6 +217,7 @@ type FormSchema struct {
 	CalculationRules []byte    `json:"calculation_rules"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
+	Jurisdiction     string    `json:"jurisdiction"`
 }
 
 type JournalEntry struct {
@@ -260,6 +263,7 @@ type KnowledgeChunk struct {
 	LawRef        *string          `json:"law_ref"`
 	EffectiveDate pgtype.Date      `json:"effective_date"`
 	ChunkType     *string          `json:"chunk_type"`
+	Jurisdiction  string           `json:"jurisdiction"`
 }
 
 type LinkToken struct {
@@ -439,6 +443,7 @@ type TaxRule struct {
 	SourceRef     *string            `json:"source_ref"`
 	Description   *string            `json:"description"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	Jurisdiction  string             `json:"jurisdiction"`
 }
 
 type TelegramUser struct {

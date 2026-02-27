@@ -29,8 +29,15 @@ func NewFormRouter() *FormRouter {
 	return &FormRouter{}
 }
 
-// RecommendForms returns the list of forms a company should file.
-func (r *FormRouter) RecommendForms(profile CompanyProfile) []FormRecommendation {
+// RecommendForms returns the list of forms a company should file based on jurisdiction.
+func (r *FormRouter) RecommendForms(profile CompanyProfile, jurisdiction string) []FormRecommendation {
+	if jurisdiction == "SG" {
+		return r.recommendSGForms(profile)
+	}
+	return r.recommendPHForms(profile)
+}
+
+func (r *FormRouter) recommendPHForms(profile CompanyProfile) []FormRecommendation {
 	var recs []FormRecommendation
 
 	entityType := strings.ToLower(profile.EntityType)
@@ -126,6 +133,88 @@ func (r *FormRouter) RecommendForms(profile CompanyProfile) []FormRecommendation
 			Reason:    "Issue to payees/suppliers when withholding expanded/creditable taxes",
 		})
 	}
+
+	return recs
+}
+
+func (r *FormRouter) recommendSGForms(profile CompanyProfile) []FormRecommendation {
+	var recs []FormRecommendation
+
+	entityType := strings.ToLower(profile.EntityType)
+	if entityType == "" {
+		entityType = "corporation"
+	}
+
+	// GST (Singapore's VAT equivalent)
+	if profile.VATRegistered {
+		recs = append(recs, FormRecommendation{
+			FormType:  "IRAS_GST_F5",
+			Name:      "GST Return (F5)",
+			Frequency: "quarterly",
+			Required:  true,
+			Reason:    "GST-registered businesses must file quarterly GST returns",
+		})
+	}
+
+	// Employee forms
+	if profile.HasEmployees {
+		recs = append(recs, FormRecommendation{
+			FormType:  "IRAS_IR8A",
+			Name:      "Return of Employee's Remuneration (IR8A)",
+			Frequency: "annual",
+			Required:  true,
+			Reason:    "Employers must report employee remuneration annually by 1 Mar",
+		})
+	}
+
+	// Corporate / Individual income tax
+	switch entityType {
+	case "individual":
+		recs = append(recs, FormRecommendation{
+			FormType:  "IRAS_FORM_B",
+			Name:      "Income Tax Return (Individuals) — Form B",
+			Frequency: "annual",
+			Required:  true,
+			Reason:    "Self-employed individuals must file Form B by 18 Apr",
+		})
+	default: // corporation
+		// Estimated Chargeable Income
+		recs = append(recs, FormRecommendation{
+			FormType:  "IRAS_ECI",
+			Name:      "Estimated Chargeable Income (ECI)",
+			Frequency: "annual",
+			Required:  true,
+			Reason:    "Companies must file ECI within 3 months of financial year-end",
+		})
+
+		// Determine Form C vs C-S based on revenue
+		if profile.RevenueScale == "micro" || profile.RevenueScale == "small" {
+			recs = append(recs, FormRecommendation{
+				FormType:  "IRAS_FORM_CS",
+				Name:      "Corporate Tax Return (Simplified) — Form C-S",
+				Frequency: "annual",
+				Required:  true,
+				Reason:    "Companies with revenue ≤ S$5M can file simplified Form C-S by 30 Nov",
+			})
+		} else {
+			recs = append(recs, FormRecommendation{
+				FormType:  "IRAS_FORM_C",
+				Name:      "Corporate Tax Return — Form C",
+				Frequency: "annual",
+				Required:  true,
+				Reason:    "Companies must file Form C by 30 Nov",
+			})
+		}
+	}
+
+	// S45 WHT (always recommended for companies that may have non-resident payments)
+	recs = append(recs, FormRecommendation{
+		FormType:  "IRAS_S45",
+		Name:      "Withholding Tax on Non-Resident Payments (S45)",
+		Frequency: "per-payment",
+		Required:  false,
+		Reason:    "File within 15 days of the 2nd month from payment date to non-residents",
+	})
 
 	return recs
 }

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/tonypk/aistarlight-go/internal/handler/middleware"
 	"github.com/tonypk/aistarlight-go/internal/handler/response"
 	"github.com/tonypk/aistarlight-go/internal/service"
 	"github.com/tonypk/aistarlight-go/pkg/pagination"
@@ -27,7 +28,7 @@ func (h *KnowledgeHandler) List(c *gin.Context) {
 		cat = &category
 	}
 
-	results, err := h.knowledge.RetrieveRelevant(c.Request.Context(), "", cat, p.Limit)
+	results, err := h.knowledge.RetrieveRelevant(c.Request.Context(), "", cat, p.Limit, middleware.GetJurisdiction(c))
 	if err != nil {
 		// Return empty list instead of error when no knowledge found
 		response.Paginated(c, []service.KnowledgeResult{}, 0, p.Page, p.Limit)

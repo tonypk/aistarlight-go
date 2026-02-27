@@ -36,12 +36,13 @@ func (h *ChatHandler) Message(c *gin.Context) {
 
 	companyID := middleware.GetCompanyID(c)
 	userID := middleware.GetUserID(c)
+	jurisdiction := middleware.GetJurisdiction(c)
 
 	// Load recent history
 	history, _ := h.svc.ListHistory(c.Request.Context(), companyID, 20)
 
 	// Process message
-	chatResp, err := h.svc.ProcessMessage(c.Request.Context(), req.Content, history, companyID)
+	chatResp, err := h.svc.ProcessMessage(c.Request.Context(), req.Content, history, companyID, jurisdiction)
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return
@@ -70,6 +71,7 @@ func (h *ChatHandler) Stream(c *gin.Context) {
 
 	companyID := middleware.GetCompanyID(c)
 	userID := middleware.GetUserID(c)
+	jurisdiction := middleware.GetJurisdiction(c)
 
 	// Load recent history
 	history, _ := h.svc.ListHistory(c.Request.Context(), companyID, 20)
@@ -78,7 +80,7 @@ func (h *ChatHandler) Stream(c *gin.Context) {
 	_ = h.svc.SaveMessage(c.Request.Context(), companyID, userID, "user", req.Content, nil)
 
 	// Process message with streaming
-	tokenCh, toolResults, err := h.svc.ProcessMessageStream(c.Request.Context(), req.Content, history, companyID)
+	tokenCh, toolResults, err := h.svc.ProcessMessageStream(c.Request.Context(), req.Content, history, companyID, jurisdiction)
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return

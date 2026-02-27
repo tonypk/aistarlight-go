@@ -91,8 +91,18 @@ var filingRules = []filingRule{
 	},
 }
 
-// GenerateFilingCalendar generates upcoming BIR filing deadlines.
-func GenerateFilingCalendar(year int, monthsAhead int) []FilingEntry {
+// GenerateFilingCalendar generates upcoming filing deadlines.
+// Routes to jurisdiction-specific calendar based on the jurisdiction parameter.
+func GenerateFilingCalendar(year int, monthsAhead int, jurisdiction string) []FilingEntry {
+	if jurisdiction == "SG" {
+		entries := GenerateSGFilingCalendar(year, monthsAhead)
+		sort.Slice(entries, func(i, j int) bool {
+			return entries[i].Deadline < entries[j].Deadline
+		})
+		return entries
+	}
+
+	// Default: Philippine (BIR) deadlines
 	now := time.Now()
 	endDate := now.AddDate(0, monthsAhead, 0)
 

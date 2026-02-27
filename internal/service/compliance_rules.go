@@ -28,7 +28,14 @@ func newCheck(id, name, severity string, passed bool, msg string) CheckResult {
 }
 
 // RunAllChecks executes all compliance rules against report data.
+// Routes to jurisdiction-specific checks based on report type prefix.
 func RunAllChecks(data map[string]interface{}, reportType string, priorData map[string]interface{}, existingReports []map[string]interface{}) []CheckResult {
+	// Route IRAS_ prefixed forms to Singapore checks
+	if strings.HasPrefix(reportType, "IRAS_") {
+		return RunSGChecks(data, reportType, priorData, existingReports)
+	}
+
+	// Default: Philippine (BIR) checks
 	var results []CheckResult
 
 	results = append(results, checkRequiredFields(data, reportType))

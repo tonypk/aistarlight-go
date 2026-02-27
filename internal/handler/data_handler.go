@@ -312,7 +312,11 @@ func (h *DataHandler) SuggestMapping(c *gin.Context) {
 	}
 
 	if req.ReportType == "" {
-		req.ReportType = "BIR_2550M"
+		if middleware.GetJurisdiction(c) == "SG" {
+			req.ReportType = "IRAS_GST_F5"
+		} else {
+			req.ReportType = "BIR_2550M"
+		}
 	}
 
 	// Look up saved preferences to seed AI mapping
@@ -352,6 +356,7 @@ func (h *DataHandler) SuggestMapping(c *gin.Context) {
 	result, err := h.colMapper.AutoMapColumns(c.Request.Context(), req.Columns, req.SampleRows, req.ReportType, existingMappings, service.AutoMapColumnsOpts{
 		DataCategory:    req.DataCategory,
 		CorrectionHints: correctionHints,
+		Jurisdiction:    middleware.GetJurisdiction(c),
 	})
 	if err != nil {
 		slog.Error("column mapping failed", "error", err)

@@ -38,7 +38,8 @@ func (h *DashboardHandler) Calendar(c *gin.Context) {
 	year, _ := strconv.Atoi(c.DefaultQuery("year", strconv.Itoa(time.Now().Year())))
 	months, _ := strconv.Atoi(c.DefaultQuery("months_ahead", "3"))
 
-	entries := service.GenerateFilingCalendar(year, months)
+	jurisdiction := middleware.GetJurisdiction(c)
+	entries := service.GenerateFilingCalendar(year, months, jurisdiction)
 	response.OK(c, entries)
 }
 

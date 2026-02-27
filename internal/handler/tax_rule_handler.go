@@ -3,6 +3,7 @@ package handler
 import (
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
+	"github.com/tonypk/aistarlight-go/internal/handler/middleware"
 	"github.com/tonypk/aistarlight-go/internal/handler/response"
 	"github.com/tonypk/aistarlight-go/internal/service"
 )
@@ -21,7 +22,7 @@ func NewTaxRuleHandler(taxRuleSvc *service.TaxRuleService) *TaxRuleHandler {
 func (h *TaxRuleHandler) ListRules(c *gin.Context) {
 	ruleType := c.DefaultQuery("type", "rate")
 
-	rules, err := h.taxRuleSvc.ListActiveRules(c.Request.Context(), ruleType)
+	rules, err := h.taxRuleSvc.ListActiveRules(c.Request.Context(), ruleType, middleware.GetJurisdiction(c))
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return
@@ -50,7 +51,7 @@ func (h *TaxRuleHandler) CalculatePenalty(c *gin.Context) {
 		Period:   req.Period,
 		DaysLate: req.DaysLate,
 		TaxDue:   decimal.NewFromFloat(req.TaxDue),
-	})
+	}, middleware.GetJurisdiction(c))
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return

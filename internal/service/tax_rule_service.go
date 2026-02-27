@@ -64,11 +64,15 @@ func toPgDate(t time.Time) pgtype.Date {
 }
 
 // GetRate retrieves the current tax rate for a given rule key.
-func (s *TaxRuleService) GetRate(ctx context.Context, ruleKey string, asOf time.Time) (decimal.Decimal, error) {
+func (s *TaxRuleService) GetRate(ctx context.Context, ruleKey string, asOf time.Time, jurisdiction string) (decimal.Decimal, error) {
+	if jurisdiction == "" {
+		jurisdiction = "PH"
+	}
 	rule, err := s.q.GetActiveRule(ctx, sqlc.GetActiveRuleParams{
 		RuleType:      "rate",
 		RuleKey:       ruleKey,
 		EffectiveFrom: toPgDate(asOf),
+		Jurisdiction:  jurisdiction,
 	})
 	if err != nil {
 		return decimal.Zero, fmt.Errorf("rule %s not found: %w", ruleKey, err)
@@ -88,14 +92,17 @@ func (s *TaxRuleService) GetRate(ctx context.Context, ruleKey string, asOf time.
 }
 
 // CalculatePenalty computes penalties for late filing/payment.
-func (s *TaxRuleService) CalculatePenalty(ctx context.Context, input PenaltyInput) (*PenaltyResult, error) {
+func (s *TaxRuleService) CalculatePenalty(ctx context.Context, input PenaltyInput, jurisdiction string) (*PenaltyResult, error) {
+	if jurisdiction == "" {
+		jurisdiction = "PH"
+	}
 	now := time.Now()
 
 	// 1. Get surcharge rate
 	surchargeRate := decimal.NewFromFloat(0.25) // default
 	surchargeRef := "NIRC Sec 248(A)"
 	surchargeRule, err := s.q.GetActiveRule(ctx, sqlc.GetActiveRuleParams{
-		RuleType: "penalty", RuleKey: "LATE_FILING_SURCHARGE", EffectiveFrom: toPgDate(now),
+		RuleType: "penalty", RuleKey: "LATE_FILING_SURCHARGE", EffectiveFrom: toPgDate(now), Jurisdiction: jurisdiction,
 	})
 	if err == nil {
 		var v map[string]interface{}
@@ -111,7 +118,7 @@ func (s *TaxRuleService) CalculatePenalty(ctx context.Context, input PenaltyInpu
 	interestRate := decimal.NewFromFloat(0.12) // default
 	interestRef := "NIRC Sec 249"
 	interestRule, err := s.q.GetActiveRule(ctx, sqlc.GetActiveRuleParams{
-		RuleType: "penalty", RuleKey: "INTEREST_RATE", EffectiveFrom: toPgDate(now),
+		RuleType: "penalty", RuleKey: "INTEREST_RATE", EffectiveFrom: toPgDate(now), Jurisdiction: jurisdiction,
 	})
 	if err == nil {
 		var v map[string]interface{}
@@ -134,7 +141,7 @@ func (s *TaxRuleService) CalculatePenalty(ctx context.Context, input PenaltyInpu
 	compromise := decimal.Zero
 	compromiseRef := "RMO 7-2015"
 	compromiseRule, err := s.q.GetActiveRule(ctx, sqlc.GetActiveRuleParams{
-		RuleType: "penalty", RuleKey: "COMPROMISE_LATE_PAYMENT", EffectiveFrom: toPgDate(now),
+		RuleType: "penalty", RuleKey: "COMPROMISE_LATE_PAYMENT", EffectiveFrom: toPgDate(now), Jurisdiction: jurisdiction,
 	})
 	if err == nil {
 		var v map[string]interface{}
@@ -162,8 +169,14 @@ func (s *TaxRuleService) CalculatePenalty(ctx context.Context, input PenaltyInpu
 }
 
 // ListRules returns all rules of a given type.
-func (s *TaxRuleService) ListRules(ctx context.Context, ruleType string) ([]TaxRuleDTO, error) {
-	rules, err := s.q.ListRulesByType(ctx, ruleType)
+func (s *TaxRuleService) ListRules(ctx context.Context, ruleType string, jurisdiction string) ([]TaxRuleDTO, error) {
+	if jurisdiction == "" {
+		jurisdiction = "PH"
+	}
+	rules, err := s.q.ListRulesByType(ctx, sqlc.ListRulesByTypeParams{
+		RuleType:     ruleType,
+		Jurisdiction: jurisdiction,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list rules: %w", err)
 	}
@@ -171,10 +184,14 @@ func (s *TaxRuleService) ListRules(ctx context.Context, ruleType string) ([]TaxR
 }
 
 // ListActiveRules returns currently active rules of a given type.
-func (s *TaxRuleService) ListActiveRules(ctx context.Context, ruleType string) ([]TaxRuleDTO, error) {
+func (s *TaxRuleService) ListActiveRules(ctx context.Context, ruleType string, jurisdiction string) ([]TaxRuleDTO, error) {
+	if jurisdiction == "" {
+		jurisdiction = "PH"
+	}
 	rules, err := s.q.ListActiveRulesByType(ctx, sqlc.ListActiveRulesByTypeParams{
 		RuleType:      ruleType,
 		EffectiveFrom: toPgDate(time.Now()),
+		Jurisdiction:  jurisdiction,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list active rules: %w", err)

@@ -3,7 +3,7 @@ package service
 import "testing"
 
 func TestGenerateFilingCalendar_NotEmpty(t *testing.T) {
-	entries := GenerateFilingCalendar(2026, 12)
+	entries := GenerateFilingCalendar(2026, 12, "PH")
 	if len(entries) == 0 {
 		t.Fatal("GenerateFilingCalendar returned no entries for 12 months ahead")
 	}
@@ -17,7 +17,7 @@ func TestGenerateFilingCalendar_NotEmpty(t *testing.T) {
 }
 
 func TestGenerateFilingCalendar_HasAllForms(t *testing.T) {
-	entries := GenerateFilingCalendar(2026, 12)
+	entries := GenerateFilingCalendar(2026, 12, "PH")
 
 	formSeen := make(map[string]bool)
 	for _, e := range entries {
@@ -33,7 +33,7 @@ func TestGenerateFilingCalendar_HasAllForms(t *testing.T) {
 }
 
 func TestGenerateFilingCalendar_StatusValues(t *testing.T) {
-	entries := GenerateFilingCalendar(2026, 12)
+	entries := GenerateFilingCalendar(2026, 12, "PH")
 	validStatuses := map[string]bool{
 		"overdue":   true,
 		"upcoming":  true,
@@ -68,7 +68,7 @@ func TestQuarterEndMonth(t *testing.T) {
 
 func TestMakeEntry_StatusLogic(t *testing.T) {
 	// This indirectly tests makeEntry via GenerateFilingCalendar
-	entries := GenerateFilingCalendar(2026, 12)
+	entries := GenerateFilingCalendar(2026, 12, "PH")
 	for _, e := range entries {
 		if e.DaysRemaining < 0 && e.Status != "overdue" {
 			t.Errorf("Entry with negative days (%d) should be overdue, got %q: %s %s",

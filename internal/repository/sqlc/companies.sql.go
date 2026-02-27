@@ -56,9 +56,9 @@ func (q *Queries) CountCompaniesByUser(ctx context.Context, userID uuid.UUID) (i
 }
 
 const createCompany = `-- name: CreateCompany :one
-INSERT INTO companies (id, organization_id, company_name, tin_number, rdo_code, vat_classification, fiscal_year_end, industry, address, plan, settings, is_active, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())
-RETURNING id, organization_id, company_name, tin_number, rdo_code, vat_classification, fiscal_year_end, industry, address, plan, settings, is_active, created_at, updated_at
+INSERT INTO companies (id, organization_id, company_name, tin_number, rdo_code, vat_classification, fiscal_year_end, industry, address, plan, settings, is_active, jurisdiction, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW())
+RETURNING id, organization_id, company_name, tin_number, rdo_code, vat_classification, fiscal_year_end, industry, address, plan, settings, is_active, created_at, updated_at, jurisdiction
 `
 
 type CreateCompanyParams struct {
@@ -74,6 +74,7 @@ type CreateCompanyParams struct {
 	Plan              string      `json:"plan"`
 	Settings          []byte      `json:"settings"`
 	IsActive          bool        `json:"is_active"`
+	Jurisdiction      string      `json:"jurisdiction"`
 }
 
 func (q *Queries) CreateCompany(ctx context.Context, arg CreateCompanyParams) (Company, error) {
@@ -90,6 +91,7 @@ func (q *Queries) CreateCompany(ctx context.Context, arg CreateCompanyParams) (C
 		arg.Plan,
 		arg.Settings,
 		arg.IsActive,
+		arg.Jurisdiction,
 	)
 	var i Company
 	err := row.Scan(
@@ -107,12 +109,13 @@ func (q *Queries) CreateCompany(ctx context.Context, arg CreateCompanyParams) (C
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Jurisdiction,
 	)
 	return i, err
 }
 
 const getCompanyByID = `-- name: GetCompanyByID :one
-SELECT id, organization_id, company_name, tin_number, rdo_code, vat_classification, fiscal_year_end, industry, address, plan, settings, is_active, created_at, updated_at FROM companies WHERE id = $1
+SELECT id, organization_id, company_name, tin_number, rdo_code, vat_classification, fiscal_year_end, industry, address, plan, settings, is_active, created_at, updated_at, jurisdiction FROM companies WHERE id = $1
 `
 
 func (q *Queries) GetCompanyByID(ctx context.Context, id uuid.UUID) (Company, error) {
@@ -133,6 +136,7 @@ func (q *Queries) GetCompanyByID(ctx context.Context, id uuid.UUID) (Company, er
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Jurisdiction,
 	)
 	return i, err
 }
@@ -185,7 +189,7 @@ func (q *Queries) GetEffectiveRole(ctx context.Context, arg GetEffectiveRolePara
 }
 
 const listAllCompanies = `-- name: ListAllCompanies :many
-SELECT id, organization_id, company_name, tin_number, rdo_code, vat_classification, fiscal_year_end, industry, address, plan, settings, is_active, created_at, updated_at FROM companies WHERE is_active = true ORDER BY created_at
+SELECT id, organization_id, company_name, tin_number, rdo_code, vat_classification, fiscal_year_end, industry, address, plan, settings, is_active, created_at, updated_at, jurisdiction FROM companies WHERE is_active = true ORDER BY created_at
 `
 
 func (q *Queries) ListAllCompanies(ctx context.Context) ([]Company, error) {
@@ -212,6 +216,7 @@ func (q *Queries) ListAllCompanies(ctx context.Context) ([]Company, error) {
 			&i.IsActive,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Jurisdiction,
 		); err != nil {
 			return nil, err
 		}
@@ -224,7 +229,7 @@ func (q *Queries) ListAllCompanies(ctx context.Context) ([]Company, error) {
 }
 
 const listCompaniesByOrg = `-- name: ListCompaniesByOrg :many
-SELECT id, organization_id, company_name, tin_number, rdo_code, vat_classification, fiscal_year_end, industry, address, plan, settings, is_active, created_at, updated_at FROM companies
+SELECT id, organization_id, company_name, tin_number, rdo_code, vat_classification, fiscal_year_end, industry, address, plan, settings, is_active, created_at, updated_at, jurisdiction FROM companies
 WHERE organization_id = $1 AND is_active = true
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3
@@ -260,6 +265,7 @@ func (q *Queries) ListCompaniesByOrg(ctx context.Context, arg ListCompaniesByOrg
 			&i.IsActive,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Jurisdiction,
 		); err != nil {
 			return nil, err
 		}
@@ -272,7 +278,7 @@ func (q *Queries) ListCompaniesByOrg(ctx context.Context, arg ListCompaniesByOrg
 }
 
 const listCompaniesByUser = `-- name: ListCompaniesByUser :many
-SELECT DISTINCT c.id, c.organization_id, c.company_name, c.tin_number, c.rdo_code, c.vat_classification, c.fiscal_year_end, c.industry, c.address, c.plan, c.settings, c.is_active, c.created_at, c.updated_at FROM companies c
+SELECT DISTINCT c.id, c.organization_id, c.company_name, c.tin_number, c.rdo_code, c.vat_classification, c.fiscal_year_end, c.industry, c.address, c.plan, c.settings, c.is_active, c.created_at, c.updated_at, c.jurisdiction FROM companies c
 LEFT JOIN company_members cm ON c.id = cm.company_id
 LEFT JOIN org_members om ON c.organization_id = om.organization_id
 WHERE (cm.user_id = $1 OR om.user_id = $1)
@@ -311,6 +317,7 @@ func (q *Queries) ListCompaniesByUser(ctx context.Context, arg ListCompaniesByUs
 			&i.IsActive,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Jurisdiction,
 		); err != nil {
 			return nil, err
 		}

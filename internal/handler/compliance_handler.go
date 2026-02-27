@@ -14,7 +14,7 @@ type ComplianceHandler struct {
 	compliance   *service.ComplianceService
 	reportSvc    *service.ReportService
 	ai           *oai.Client
-	calendar     func(int, int) []service.FilingEntry
+	calendar     func(int, int, string) []service.FilingEntry
 	ruleResolver *service.RuleResolver
 }
 
@@ -136,7 +136,7 @@ func (h *ComplianceHandler) Checklists(c *gin.Context) {
 	formType := c.Query("form_type")
 	if formType == "" {
 		// Return all checklists
-		items, err := h.ruleResolver.ListAll(c.Request.Context())
+		items, err := h.ruleResolver.ListAll(c.Request.Context(), middleware.GetJurisdiction(c))
 		if err != nil {
 			response.InternalError(c, err.Error())
 			return
@@ -165,6 +165,7 @@ func (h *ComplianceHandler) FilingCalendar(c *gin.Context) {
 		req.MonthsAhead = 3
 	}
 
-	entries := h.calendar(req.Year, req.MonthsAhead)
+	jurisdiction := middleware.GetJurisdiction(c)
+	entries := h.calendar(req.Year, req.MonthsAhead, jurisdiction)
 	response.OK(c, entries)
 }

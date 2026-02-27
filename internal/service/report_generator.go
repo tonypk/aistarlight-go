@@ -9,7 +9,9 @@ import (
 
 	"github.com/go-pdf/fpdf"
 	"github.com/tonypk/aistarlight-go/internal/service/birpdf"
+	"github.com/tonypk/aistarlight-go/internal/service/iraspdf"
 	"github.com/tonypk/aistarlight-go/pkg/birforms"
+	"github.com/tonypk/aistarlight-go/pkg/irasforms"
 )
 
 // CompanyInfo holds company metadata for PDF report headers.
@@ -19,8 +21,33 @@ type CompanyInfo struct {
 	RDOCode     string
 }
 
-// GeneratePDFReport generates a BIR form PDF using the official-style layout.
+// GeneratePDFReport generates a tax form PDF using the appropriate layout.
 func GeneratePDFReport(w io.Writer, reportType string, data map[string]string, company CompanyInfo) error {
+	// Singapore IRAS forms
+	if strings.HasPrefix(reportType, "IRAS_") {
+		sgCo := iraspdf.CompanyData{
+			Name: company.CompanyName,
+			UEN:  company.TINNumber,
+		}
+		switch reportType {
+		case irasforms.FormGSTF5:
+			return iraspdf.GenerateGSTF5(w, data, sgCo)
+		case irasforms.FormFormC:
+			return iraspdf.GenerateFormC(w, data, sgCo)
+		case irasforms.FormFormCS:
+			return iraspdf.GenerateFormCS(w, data, sgCo)
+		case irasforms.FormFormB:
+			return iraspdf.GenerateFormB(w, data, sgCo)
+		case irasforms.FormIR8A:
+			return iraspdf.GenerateIR8A(w, data, sgCo)
+		case irasforms.FormS45:
+			return iraspdf.GenerateS45(w, data, sgCo)
+		default:
+			return generateGenericPDF(w, reportType, data, company)
+		}
+	}
+
+	// Philippine BIR forms
 	co := birpdf.CompanyData{
 		Name:    company.CompanyName,
 		TIN:     company.TINNumber,

@@ -8,6 +8,7 @@ SELECT id, source, category, content, metadata, created_at,
        section_ref, law_ref, effective_date, chunk_type,
        embedding <=> $1::vector AS distance
 FROM knowledge_chunks
+WHERE jurisdiction = $3
 ORDER BY embedding <=> $1::vector
 LIMIT $2;
 
@@ -16,7 +17,7 @@ SELECT id, source, category, content, metadata, created_at,
        section_ref, law_ref, effective_date, chunk_type,
        embedding <=> $1::vector AS distance
 FROM knowledge_chunks
-WHERE category = $2
+WHERE category = $2 AND jurisdiction = $4
 ORDER BY embedding <=> $1::vector
 LIMIT $3;
 
@@ -25,7 +26,7 @@ SELECT id, source, category, content, metadata, created_at,
        section_ref, law_ref, effective_date, chunk_type,
        embedding <=> $1::vector AS distance
 FROM knowledge_chunks
-WHERE chunk_type = $2
+WHERE chunk_type = $2 AND jurisdiction = $4
 ORDER BY embedding <=> $1::vector
 LIMIT $3;
 

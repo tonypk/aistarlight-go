@@ -11,16 +11,16 @@ SELECT * FROM accounts WHERE company_id = $1 AND account_number = $2;
 
 -- name: ListAccountsByCompany :many
 SELECT * FROM accounts
-WHERE company_id = $1
+WHERE company_id = $1 AND is_active = true
 ORDER BY account_number ASC
 LIMIT $2 OFFSET $3;
 
 -- name: CountAccountsByCompany :one
-SELECT COUNT(*) FROM accounts WHERE company_id = $1;
+SELECT COUNT(*) FROM accounts WHERE company_id = $1 AND is_active = true;
 
 -- name: ListAccountsByType :many
 SELECT * FROM accounts
-WHERE company_id = $1 AND account_type = $2
+WHERE company_id = $1 AND account_type = $2 AND is_active = true
 ORDER BY account_number ASC;
 
 -- name: UpdateAccount :exec

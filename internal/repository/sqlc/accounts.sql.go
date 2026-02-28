@@ -61,7 +61,7 @@ func (q *Queries) AccountBalance(ctx context.Context, arg AccountBalanceParams) 
 }
 
 const countAccountsByCompany = `-- name: CountAccountsByCompany :one
-SELECT COUNT(*) FROM accounts WHERE company_id = $1
+SELECT COUNT(*) FROM accounts WHERE company_id = $1 AND is_active = true
 `
 
 func (q *Queries) CountAccountsByCompany(ctx context.Context, companyID uuid.UUID) (int64, error) {
@@ -241,7 +241,7 @@ func (q *Queries) GetAccountByQBOID(ctx context.Context, arg GetAccountByQBOIDPa
 
 const listAccountsByCompany = `-- name: ListAccountsByCompany :many
 SELECT id, company_id, account_number, name, account_type, sub_type, parent_id, description, is_active, is_system, normal_balance, qbo_account_id, created_at, updated_at FROM accounts
-WHERE company_id = $1
+WHERE company_id = $1 AND is_active = true
 ORDER BY account_number ASC
 LIMIT $2 OFFSET $3
 `
@@ -289,7 +289,7 @@ func (q *Queries) ListAccountsByCompany(ctx context.Context, arg ListAccountsByC
 
 const listAccountsByType = `-- name: ListAccountsByType :many
 SELECT id, company_id, account_number, name, account_type, sub_type, parent_id, description, is_active, is_system, normal_balance, qbo_account_id, created_at, updated_at FROM accounts
-WHERE company_id = $1 AND account_type = $2
+WHERE company_id = $1 AND account_type = $2 AND is_active = true
 ORDER BY account_number ASC
 `
 

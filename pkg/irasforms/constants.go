@@ -57,8 +57,8 @@ type WHTIncomeType struct {
 var WHTNatureOfIncome = map[string]WHTIncomeType{
 	"INT":  {Description: "Interest", Rate: decimal.NewFromFloat(0.15)},
 	"ROY":  {Description: "Royalties / IP", Rate: decimal.NewFromFloat(0.10)},
-	"TECH": {Description: "Technical Fees", Rate: decimal.NewFromFloat(0.10)},
-	"MGMT": {Description: "Management Fees", Rate: decimal.NewFromFloat(0.10)},
+	"TECH": {Description: "Technical Fees", Rate: decimal.NewFromFloat(0.17)},
+	"MGMT": {Description: "Management Fees", Rate: decimal.NewFromFloat(0.17)},
 	"DIR":  {Description: "Director Fees (non-resident)", Rate: decimal.NewFromFloat(0.22)},
 	"RENT": {Description: "Rental of Moveable Property", Rate: decimal.NewFromFloat(0.15)},
 	"SFC":  {Description: "SRS Withdrawal by Non-Resident", Rate: decimal.NewFromFloat(0.22)},

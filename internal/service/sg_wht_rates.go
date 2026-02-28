@@ -19,7 +19,8 @@ type SGWHTRate struct {
 var SGWHTRates = map[string]SGWHTRate{
 	"INT":  {"INT", "Interest", decimal.NewFromFloat(0.15), []string{"interest", "loan", "deposit", "bond"}},
 	"ROY":  {"ROY", "Royalties / IP", decimal.NewFromFloat(0.10), []string{"royalty", "ip", "patent", "copyright", "license"}},
-	"TECH": {"TECH", "Technical / Management Fees", decimal.NewFromFloat(0.17), []string{"technical", "management", "consulting", "advisory"}},
+	"TECH": {"TECH", "Technical Fees", decimal.NewFromFloat(0.17), []string{"technical", "consulting", "advisory"}},
+	"MGMT": {"MGMT", "Management Fees", decimal.NewFromFloat(0.17), []string{"management", "admin fee"}},
 	"DIR":  {"DIR", "Director Fees (non-resident)", decimal.NewFromFloat(0.22), []string{"director", "board"}},
 	"RENT": {"RENT", "Rental of Moveable Property", decimal.NewFromFloat(0.15), []string{"rent", "lease", "equipment", "moveable"}},
 	"SFC":  {"SFC", "SRS Withdrawal by Non-Resident", decimal.NewFromFloat(0.22), []string{"srs", "supplementary", "retirement"}},

@@ -36,6 +36,10 @@ WHERE id = $1;
 -- name: DeleteAccount :exec
 DELETE FROM accounts WHERE id = $1 AND is_system = false;
 
+-- name: DeactivateSystemAccountsNotIn :exec
+UPDATE accounts SET is_active = false, updated_at = NOW()
+WHERE company_id = $1 AND is_system = true AND account_number != ALL($2::text[]);
+
 -- name: GetAccountByQBOID :one
 SELECT * FROM accounts WHERE company_id = $1 AND qbo_account_id = $2;
 

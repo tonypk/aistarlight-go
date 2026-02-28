@@ -149,14 +149,31 @@ func (s *AccountService) Seed(ctx context.Context, companyID uuid.UUID, jurisdic
 	}
 	created := 0
 
+	// Collect template account numbers for orphan detection
+	templateNumbers := make([]string, len(templates))
+	for i, t := range templates {
+		templateNumbers[i] = t.Number
+	}
+
 	for _, t := range templates {
-		// Skip if already exists
-		_, err := s.q.GetAccountByNumber(ctx, sqlc.GetAccountByNumberParams{
+		// Check if already exists
+		existing, err := s.q.GetAccountByNumber(ctx, sqlc.GetAccountByNumberParams{
 			CompanyID:     companyID,
 			AccountNumber: t.Number,
 		})
 		if err == nil {
-			continue // already exists
+			// Update existing system account if name/description changed (e.g. PH→SG re-seed)
+			if existing.IsSystem && (existing.Name != t.Name || ptrStr(existing.Description) != t.Description) {
+				_ = s.q.UpdateAccount(ctx, sqlc.UpdateAccountParams{
+					ID:          existing.ID,
+					Name:        t.Name,
+					SubType:     &t.SubType,
+					Description: &t.Description,
+					IsActive:    true,
+				})
+				created++
+			}
+			continue
 		}
 
 		_, err = s.q.CreateAccount(ctx, sqlc.CreateAccountParams{
@@ -177,6 +194,12 @@ func (s *AccountService) Seed(ctx context.Context, companyID uuid.UUID, jurisdic
 		created++
 	}
 
+	// Deactivate orphaned system accounts from previous jurisdiction seed
+	_ = s.q.DeactivateSystemAccountsNotIn(ctx, sqlc.DeactivateSystemAccountsNotInParams{
+		CompanyID: companyID,
+		Column2:   templateNumbers,
+	})
+
 	return created, nil
 }
 
@@ -190,6 +213,13 @@ func (s *AccountService) GetBalance(ctx context.Context, accountID uuid.UUID, as
 		return nil, fmt.Errorf("account balance: %w", err)
 	}
 	return &row, nil
+}
+
+func ptrStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 func toAccount(a sqlc.Account) *domain.Account {

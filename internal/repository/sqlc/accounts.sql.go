@@ -127,6 +127,21 @@ func (q *Queries) CreateAccount(ctx context.Context, arg CreateAccountParams) (A
 	return i, err
 }
 
+const deactivateSystemAccountsNotIn = `-- name: DeactivateSystemAccountsNotIn :exec
+UPDATE accounts SET is_active = false, updated_at = NOW()
+WHERE company_id = $1 AND is_system = true AND account_number != ALL($2::text[])
+`
+
+type DeactivateSystemAccountsNotInParams struct {
+	CompanyID uuid.UUID `json:"company_id"`
+	Column2   []string  `json:"column_2"`
+}
+
+func (q *Queries) DeactivateSystemAccountsNotIn(ctx context.Context, arg DeactivateSystemAccountsNotInParams) error {
+	_, err := q.db.Exec(ctx, deactivateSystemAccountsNotIn, arg.CompanyID, arg.Column2)
+	return err
+}
+
 const deleteAccount = `-- name: DeleteAccount :exec
 DELETE FROM accounts WHERE id = $1 AND is_system = false
 `

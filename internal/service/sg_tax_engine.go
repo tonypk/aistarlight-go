@@ -69,24 +69,24 @@ func CalculateGSTF5(input map[string]interface{}) (TaxResult, error) {
 	// Box 6: Output tax
 	outputTax := standardRatedSupplies.Mul(irasforms.GSTRate)
 
-	// Box 7: Total input tax
-	totalInputTax := inputTaxClaimed.Add(badDebtRelief).Add(preRegInputTax).Add(touristRefund)
+	// Box 7: Input tax and refunds claimed (does NOT include bad debt relief or tourist refund)
+	totalInputTax := inputTaxClaimed.Add(preRegInputTax)
 
-	// Box 8: Net GST
+	// Box 8: Net GST = Output tax - Input tax claimed
 	netGST := outputTax.Sub(totalInputTax)
 
 	return TaxResult{
-		"box_1_standard_rated_supplies": standardRatedSupplies.Round(2).String(),
-		"box_2_zero_rated_supplies":     zeroRatedSupplies.Round(2).String(),
-		"box_3_exempt_supplies":         exemptSupplies.Round(2).String(),
-		"box_4_total_supplies":          totalSupplies.Round(2).String(),
-		"box_5_taxable_purchases":       taxablePurchases.Round(2).String(),
-		"box_6_output_tax":              outputTax.Round(2).String(),
-		"box_7_input_tax_claimed":       totalInputTax.Round(2).String(),
-		"box_8_net_gst":                 netGST.Round(2).String(),
-		"box_9_bad_debt_relief":         badDebtRelief.Round(2).String(),
-		"box_10_pre_reg_input_tax":      preRegInputTax.Round(2).String(),
-		"box_11_tourist_refund":         touristRefund.Round(2).String(),
+		"box_1_standard_rated_supplies": standardRatedSupplies.StringFixed(2),
+		"box_2_zero_rated_supplies":     zeroRatedSupplies.StringFixed(2),
+		"box_3_exempt_supplies":         exemptSupplies.StringFixed(2),
+		"box_4_total_supplies":          totalSupplies.StringFixed(2),
+		"box_5_taxable_purchases":       taxablePurchases.StringFixed(2),
+		"box_6_output_tax":              outputTax.StringFixed(2),
+		"box_7_input_tax_claimed":       totalInputTax.StringFixed(2),
+		"box_8_net_gst":                 netGST.StringFixed(2),
+		"box_9_bad_debt_relief":         badDebtRelief.StringFixed(2),
+		"box_10_pre_reg_input_tax":      preRegInputTax.StringFixed(2),
+		"box_11_tourist_refund":         touristRefund.StringFixed(2),
 		"gst_rate":                      irasforms.GSTRate.String(),
 	}, nil
 }
@@ -126,21 +126,21 @@ func CalculateFormC(input map[string]interface{}) (TaxResult, error) {
 	taxPayable := taxableIncome.Mul(irasforms.CorporateRate)
 
 	return TaxResult{
-		"revenue":              revenue.Round(2).String(),
-		"cost_of_sales":        costOfSales.Round(2).String(),
-		"gross_profit":         grossProfit.Round(2).String(),
-		"operating_expenses":   operatingExpenses.Round(2).String(),
-		"other_income":         otherIncome.Round(2).String(),
-		"non_deductible":       nonDeductible.Round(2).String(),
-		"capital_allowances":   capitalAllowances.Round(2).String(),
-		"adjusted_profit":      adjustedProfit.Round(2).String(),
-		"donation_deduction":   donationDeduction.Round(2).String(),
-		"losses_utilized":      lossesCarriedForward.Round(2).String(),
-		"chargeable_income":    chargeableIncome.Round(2).String(),
-		"partial_exemption":    exemptAmount.Round(2).String(),
-		"taxable_income":       taxableIncome.Round(2).String(),
+		"revenue":              revenue.StringFixed(2),
+		"cost_of_sales":        costOfSales.StringFixed(2),
+		"gross_profit":         grossProfit.StringFixed(2),
+		"operating_expenses":   operatingExpenses.StringFixed(2),
+		"other_income":         otherIncome.StringFixed(2),
+		"non_deductible":       nonDeductible.StringFixed(2),
+		"capital_allowances":   capitalAllowances.StringFixed(2),
+		"adjusted_profit":      adjustedProfit.StringFixed(2),
+		"donation_deduction":   donationDeduction.StringFixed(2),
+		"losses_utilized":      lossesCarriedForward.StringFixed(2),
+		"chargeable_income":    chargeableIncome.StringFixed(2),
+		"partial_exemption":    exemptAmount.StringFixed(2),
+		"taxable_income":       taxableIncome.StringFixed(2),
 		"corporate_tax_rate":   irasforms.CorporateRate.String(),
-		"tax_payable":          taxPayable.Round(2).String(),
+		"tax_payable":          taxPayable.StringFixed(2),
 	}, nil
 }
 
@@ -172,16 +172,16 @@ func CalculateFormCS(input map[string]interface{}) (TaxResult, error) {
 	taxPayable := taxableIncome.Mul(irasforms.CorporateRate)
 
 	return TaxResult{
-		"revenue":            revenue.Round(2).String(),
-		"total_expenses":     expenses.Round(2).String(),
-		"tax_adjustments":    adjustments.Round(2).String(),
-		"capital_allowances": capitalAllowances.Round(2).String(),
-		"adjusted_profit":    adjustedProfit.Round(2).String(),
-		"chargeable_income":  chargeableIncome.Round(2).String(),
-		"partial_exemption":  exemptAmount.Round(2).String(),
-		"taxable_income":     taxableIncome.Round(2).String(),
+		"revenue":            revenue.StringFixed(2),
+		"total_expenses":     expenses.StringFixed(2),
+		"tax_adjustments":    adjustments.StringFixed(2),
+		"capital_allowances": capitalAllowances.StringFixed(2),
+		"adjusted_profit":    adjustedProfit.StringFixed(2),
+		"chargeable_income":  chargeableIncome.StringFixed(2),
+		"partial_exemption":  exemptAmount.StringFixed(2),
+		"taxable_income":     taxableIncome.StringFixed(2),
 		"corporate_tax_rate": irasforms.CorporateRate.String(),
-		"tax_payable":        taxPayable.Round(2).String(),
+		"tax_payable":        taxPayable.StringFixed(2),
 	}, nil
 }
 
@@ -210,15 +210,15 @@ func CalculateFormB(input map[string]interface{}) (TaxResult, error) {
 	taxPayable := computeSGProgressiveTax(chargeableIncome)
 
 	return TaxResult{
-		"employment_income":  employmentIncome.Round(2).String(),
-		"trade_income":       tradeIncome.Round(2).String(),
-		"rental_income":      rentalIncome.Round(2).String(),
-		"other_income":       otherIncome.Round(2).String(),
-		"total_income":       totalIncome.Round(2).String(),
-		"total_reliefs":      reliefs.Round(2).String(),
-		"donation_deduction": donationDeduction.Round(2).String(),
-		"chargeable_income":  chargeableIncome.Round(2).String(),
-		"tax_payable":        taxPayable.Round(2).String(),
+		"employment_income":  employmentIncome.StringFixed(2),
+		"trade_income":       tradeIncome.StringFixed(2),
+		"rental_income":      rentalIncome.StringFixed(2),
+		"other_income":       otherIncome.StringFixed(2),
+		"total_income":       totalIncome.StringFixed(2),
+		"total_reliefs":      reliefs.StringFixed(2),
+		"donation_deduction": donationDeduction.StringFixed(2),
+		"chargeable_income":  chargeableIncome.StringFixed(2),
+		"tax_payable":        taxPayable.StringFixed(2),
 	}, nil
 }
 
@@ -255,15 +255,15 @@ func CalculateIR8A(input map[string]interface{}) (TaxResult, error) {
 	netSalary := totalGross.Sub(employeeCPF)
 
 	return TaxResult{
-		"gross_salary":      grossSalary.Round(2).String(),
-		"bonus":             bonus.Round(2).String(),
-		"director_fees":     directorFees.Round(2).String(),
-		"other_allowances":  otherAllowances.Round(2).String(),
-		"benefits_in_kind":  benefitsInKind.Round(2).String(),
-		"total_gross":       totalGross.Round(2).String(),
-		"employer_cpf":      employerCPF.Round(2).String(),
-		"employee_cpf":      employeeCPF.Round(2).String(),
-		"net_salary":        netSalary.Round(2).String(),
+		"gross_salary":      grossSalary.StringFixed(2),
+		"bonus":             bonus.StringFixed(2),
+		"director_fees":     directorFees.StringFixed(2),
+		"other_allowances":  otherAllowances.StringFixed(2),
+		"benefits_in_kind":  benefitsInKind.StringFixed(2),
+		"total_gross":       totalGross.StringFixed(2),
+		"employer_cpf":      employerCPF.StringFixed(2),
+		"employee_cpf":      employeeCPF.StringFixed(2),
+		"net_salary":        netSalary.StringFixed(2),
 		"cpf_employer_rate": irasforms.CPFEmployer.String(),
 		"cpf_employee_rate": irasforms.CPFEmployee.String(),
 	}, nil
@@ -302,12 +302,12 @@ func CalculateS45(input map[string]interface{}) (TaxResult, error) {
 	netPayment := paymentAmount.Sub(taxWithheld)
 
 	return TaxResult{
-		"payment_amount": paymentAmount.Round(2).String(),
+		"payment_amount": paymentAmount.StringFixed(2),
 		"income_type":    incomeType,
 		"description":    description,
 		"wht_rate":       whtRate.String(),
-		"tax_withheld":   taxWithheld.Round(2).String(),
-		"net_payment":    netPayment.Round(2).String(),
+		"tax_withheld":   taxWithheld.StringFixed(2),
+		"net_payment":    netPayment.StringFixed(2),
 	}, nil
 }
 

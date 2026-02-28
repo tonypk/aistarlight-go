@@ -8,18 +8,17 @@ import (
 
 func TestRunAllChecks_AllPass(t *testing.T) {
 	data := map[string]interface{}{
-		"vatable_sales":        100000.0,
-		"sales_to_government":  10000.0,
-		"zero_rated_sales":     5000.0,
-		"exempt_sales":         2000.0,
-		"total_sales":          117000.0,
-		"output_vat":           12000.0,
+		"vatable_sales":         100000.0,
+		"sales_to_government":   10000.0,
+		"zero_rated_sales":      5000.0,
+		"vat_exempt_sales":      2000.0,
+		"total_sales":           117000.0,
+		"output_vat":            12000.0,
 		"output_vat_government": 500.0,
-		"total_input_vat":      8000.0,
-		"amount_due":           4000.0,
-		"tax_due":              4000.0,
-		"tin_number":           "123-456-789-000",
-		"period":               "2030-01",
+		"total_input_vat":       8000.0,
+		"total_amount_due":      4000.0,
+		"tin_number":            "123-456-789-000",
+		"period":                "2030-01",
 	}
 
 	results := RunAllChecks(data, birforms.FormBIR2550M, nil, nil)
@@ -47,10 +46,9 @@ func TestCheckRequiredFields_Missing(t *testing.T) {
 
 func TestCheckRequiredFields_1601C(t *testing.T) {
 	data := map[string]interface{}{
-		"total_compensation": 50000.0,
-		"tax_withheld":       5000.0,
-		"tax_due":            5000.0,
-		"amount_remitted":    5000.0,
+		"line_1_total_compensation":  50000.0,
+		"line_9_tax_withheld":        5000.0,
+		"line_11_total_tax_remitted": 5000.0,
 	}
 
 	result := checkRequiredFields(data, birforms.FormBIR1601C)
@@ -65,7 +63,7 @@ func TestCheckCrossFieldConsistency(t *testing.T) {
 		"vatable_sales":       80000.0,
 		"sales_to_government": 10000.0,
 		"zero_rated_sales":    5000.0,
-		"exempt_sales":        5000.0,
+		"vat_exempt_sales":    5000.0,
 		"total_sales":         100000.0,
 	}
 	result := checkCrossFieldConsistency(data, birforms.FormBIR2550M)
@@ -238,14 +236,14 @@ func TestCheckCapitalGoodsThreshold(t *testing.T) {
 
 func TestCheckZeroFiling(t *testing.T) {
 	// Non-zero → pass
-	data := map[string]interface{}{"amount_due": 1000.0, "tax_due": 500.0}
+	data := map[string]interface{}{"total_amount_due": 1000.0, "income_tax_due": 500.0}
 	result := checkZeroFilingWarning(data, birforms.FormBIR2550M)
 	if !result.Passed {
 		t.Errorf("Expected pass: %s", result.Message)
 	}
 
 	// Zero filing
-	data = map[string]interface{}{"amount_due": 0.0, "tax_due": 0.0}
+	data = map[string]interface{}{"total_amount_due": 0.0, "income_tax_due": 0.0}
 	result = checkZeroFilingWarning(data, birforms.FormBIR2550M)
 	if result.Passed {
 		t.Error("Expected fail for zero filing")

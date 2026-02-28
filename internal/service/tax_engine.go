@@ -177,7 +177,14 @@ func CalculateBIR2550M(input map[string]interface{}) (TaxResult, error) {
 
 			inputVAT := vatAmount
 			if inputVAT.IsZero() {
-				inputVAT = amount.Mul(birforms.VATRate)
+				// H-5: Support VAT-inclusive purchases
+				isInclusive := toBool(row["is_vat_inclusive"])
+				if isInclusive {
+					// VAT extraction: amount * 12/112
+					inputVAT = amount.Mul(birforms.VATRate).Div(decimal.NewFromInt(1).Add(birforms.VATRate))
+				} else {
+					inputVAT = amount.Mul(birforms.VATRate)
+				}
 			}
 
 			switch category {
@@ -271,13 +278,30 @@ func CalculateBIR1601C(input map[string]interface{}) (TaxResult, error) {
 	interest := toDecimal(compData["interest"])
 	compromise := toDecimal(compData["compromise"])
 
+	// H-3: Validate 13th month pay cap (TRAIN Law: ₱90,000 tax-free ceiling)
+	thirteenthMonthCap := decimal.NewFromInt(90000)
+	var warnings []string
+	if thirteenth.GreaterThan(thirteenthMonthCap) {
+		warnings = append(warnings, fmt.Sprintf(
+			"13th month pay (%.2f) exceeds ₱90,000 tax-free ceiling per TRAIN Law; excess is taxable",
+			thirteenth.InexactFloat64()))
+	}
+
+	// H-4: Validate de minimis benefits ceiling (RR 2-98 as amended: ₱90,000 aggregate)
+	deminimisCap := decimal.NewFromInt(90000)
+	if deminimis.GreaterThan(deminimisCap) {
+		warnings = append(warnings, fmt.Sprintf(
+			"De minimis benefits (%.2f) exceeds ₱90,000 aggregate ceiling per RR 2-98; excess is taxable",
+			deminimis.InexactFloat64()))
+	}
+
 	totalNontaxable := minWage.Add(thirteenth).Add(deminimis).Add(sssGSIS).Add(otherNT)
 	taxableComp := decMax(totalComp.Sub(totalNontaxable), decimal.Zero)
 	totalTaxRemitted := taxWithheld.Add(adjustment)
 	totalPenalties := surcharge.Add(interest).Add(compromise)
 	totalDue := totalTaxRemitted.Add(totalPenalties)
 
-	return TaxResult{
+	result := TaxResult{
 		"line_1_total_compensation":   totalComp.String(),
 		"line_2_statutory_minimum_wage": minWage.String(),
 		"line_3_nontaxable_13th_month": thirteenth.String(),
@@ -294,7 +318,11 @@ func CalculateBIR1601C(input map[string]interface{}) (TaxResult, error) {
 		"line_14_compromise":          compromise.String(),
 		"line_15_total_penalties":     totalPenalties.String(),
 		"line_16_total_amount_due":    totalDue.String(),
-	}, nil
+	}
+	if len(warnings) > 0 {
+		result["warnings"] = strings.Join(warnings, "; ")
+	}
+	return result, nil
 }
 
 // CalculateBIR0619E computes Monthly Expanded Withholding Tax (BIR 0619-E).
@@ -421,13 +449,19 @@ func CalculateBIR1702(input map[string]interface{}) (TaxResult, error) {
 	interest := toDecimal(incomeData["interest"])
 	compromise := toDecimal(incomeData["compromise"])
 	isSME := toBool(incomeData["is_sme"])
+	taxableYear := toInt(incomeData["taxable_year"])
+	if taxableYear == 0 {
+		taxableYear = 2024 // Default to current regime
+	}
 
 	grossProfit := decMax(grossIncome.Sub(costOfSales), decimal.Zero)
 	totalGross := grossProfit.Add(otherIncome)
 
 	var totalDeductions, osdAmount decimal.Decimal
 	if deductionMethod == "osd" {
-		osdAmount = grossIncome.Mul(decimal.NewFromFloat(0.40))
+		// Corporate OSD = 40% of gross income (NIRC Sec 34(L))
+		// Gross income for corporations = gross sales/receipts - COGS = grossProfit
+		osdAmount = grossProfit.Mul(decimal.NewFromFloat(0.40))
 		totalDeductions = osdAmount
 	} else {
 		osdAmount = decimal.Zero
@@ -443,14 +477,19 @@ func CalculateBIR1702(input map[string]interface{}) (TaxResult, error) {
 	}
 	rcitAmount := netTaxable.Mul(rcitRate)
 
-	// MCIT (1% of gross income)
-	mcitBase := grossIncome
-	mcitAmount := mcitBase.Mul(birforms.MCIT)
+	// MCIT per NIRC Sec 27(E)(2): 2% standard, 1% during CREATE Act (2020-2022)
+	// Gross income = Gross sales/receipts - Cost of goods sold/services
+	mcitRate := birforms.MCITRate(taxableYear)
+	mcitBase := grossProfit
+	mcitAmount := mcitBase.Mul(mcitRate)
 
 	// Tax due = higher of RCIT or MCIT
 	var taxDue decimal.Decimal
+	var excessMCITCurrent decimal.Decimal
 	if mcitAmount.GreaterThan(rcitAmount) {
 		taxDue = mcitAmount
+		// Excess MCIT can be carried forward for 3 consecutive years (NIRC Sec 27(E)(2))
+		excessMCITCurrent = mcitAmount.Sub(rcitAmount)
 	} else {
 		taxDue = rcitAmount
 		// Can apply excess MCIT from prior years against RCIT
@@ -475,10 +514,12 @@ func CalculateBIR1702(input map[string]interface{}) (TaxResult, error) {
 		"net_taxable_income":         netTaxable.String(),
 		"rcit_rate":                  rcitRate.String(),
 		"rcit_amount":                rcitAmount.String(),
+		"mcit_rate":                  mcitRate.String(),
 		"mcit_base":                  mcitBase.String(),
 		"mcit_amount":                mcitAmount.String(),
 		"income_tax_due":             taxDue.String(),
 		"excess_mcit_prior":          excessMCITPrior.String(),
+		"excess_mcit_current":        excessMCITCurrent.String(),
 		"creditable_withholding_tax": cwt.String(),
 		"quarterly_payments":         quarterlyPayments.String(),
 		"other_credits":              otherCredits.String(),
@@ -730,6 +771,28 @@ func toString(v interface{}) string {
 		return s
 	}
 	return fmt.Sprintf("%v", v)
+}
+
+func toInt(v interface{}) int {
+	if v == nil {
+		return 0
+	}
+	switch val := v.(type) {
+	case int:
+		return val
+	case int64:
+		return int(val)
+	case float64:
+		return int(val)
+	case string:
+		d, err := decimal.NewFromString(val)
+		if err != nil {
+			return 0
+		}
+		return int(d.IntPart())
+	default:
+		return 0
+	}
 }
 
 func toBool(v interface{}) bool {

@@ -57,11 +57,11 @@ func checkRequiredFields(data map[string]interface{}, reportType string) CheckRe
 	var required []string
 	switch reportType {
 	case birforms.FormBIR2550M, birforms.FormBIR2550Q:
-		required = []string{"vatable_sales", "sales_to_government", "zero_rated_sales", "exempt_sales", "output_vat", "total_input_vat"}
+		required = []string{"vatable_sales", "sales_to_government", "zero_rated_sales", "vat_exempt_sales", "output_vat", "total_input_vat"}
 	case birforms.FormBIR1601C:
-		required = []string{"total_compensation", "tax_withheld", "tax_due", "amount_remitted"}
+		required = []string{"line_1_total_compensation", "line_9_tax_withheld", "line_11_total_tax_remitted"}
 	case birforms.FormBIR0619E:
-		required = []string{"tax_base", "tax_rate", "tax_due"}
+		required = []string{"line_1_total_amount_of_income_payments", "line_2_total_taxes_withheld", "line_9_total_amount_due"}
 	default:
 		required = []string{}
 	}
@@ -88,7 +88,7 @@ func checkCrossFieldConsistency(data map[string]interface{}, reportType string) 
 	vatable := toDecimal(data["vatable_sales"])
 	govt := toDecimal(data["sales_to_government"])
 	zeroRated := toDecimal(data["zero_rated_sales"])
-	exempt := toDecimal(data["exempt_sales"])
+	exempt := toDecimal(data["vat_exempt_sales"])
 	totalSales := toDecimal(data["total_sales"])
 
 	computed := vatable.Add(govt).Add(zeroRated).Add(exempt)
@@ -144,9 +144,10 @@ func checkGovernmentVATRate(data map[string]interface{}, reportType string) Chec
 
 func checkAmountRanges(data map[string]interface{}, _ string) CheckResult {
 	amountFields := []string{
-		"vatable_sales", "sales_to_government", "zero_rated_sales", "exempt_sales",
-		"total_sales", "output_vat", "total_input_vat", "total_compensation",
-		"tax_withheld", "tax_due", "amount_remitted", "tax_base",
+		"vatable_sales", "sales_to_government", "zero_rated_sales", "vat_exempt_sales",
+		"total_sales", "output_vat", "total_input_vat",
+		"line_1_total_compensation", "line_9_tax_withheld", "line_11_total_tax_remitted",
+		"line_1_total_amount_of_income_payments", "line_2_total_taxes_withheld",
 	}
 
 	for _, f := range amountFields {
@@ -225,9 +226,11 @@ func checkPeriodOverPeriodAnomaly(data map[string]interface{}, reportType string
 	case birforms.FormBIR2550M, birforms.FormBIR2550Q:
 		field = "total_sales"
 	case birforms.FormBIR1601C:
-		field = "total_compensation"
+		field = "line_1_total_compensation"
+	case birforms.FormBIR0619E:
+		field = "line_9_total_amount_due"
 	default:
-		field = "tax_due"
+		field = "total_amount_due"
 	}
 
 	current := toDecimal(data[field])
@@ -289,9 +292,16 @@ func checkCapitalGoodsThreshold(data map[string]interface{}, reportType string) 
 }
 
 func checkZeroFilingWarning(data map[string]interface{}, _ string) CheckResult {
-	amountDue := toDecimal(data["amount_due"])
+	// Check common amount_due field names across forms
+	amountDue := toDecimal(data["total_amount_due"])
 	if amountDue.IsZero() {
-		taxDue := toDecimal(data["tax_due"])
+		amountDue = toDecimal(data["line_16_total_amount_due"])
+	}
+	if amountDue.IsZero() {
+		amountDue = toDecimal(data["line_9_total_amount_due"])
+	}
+	if amountDue.IsZero() {
+		taxDue := toDecimal(data["income_tax_due"])
 		if taxDue.IsZero() {
 			return newCheck("zero_filing", "Zero Filing", "low", false,
 				"Total amount due is zero — this is a nil return filing")

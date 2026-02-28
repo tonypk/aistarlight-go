@@ -286,8 +286,8 @@ func TestCalculateBIR1702_RCIT_vs_MCIT(t *testing.T) {
 	assert.Equal(t, "5500000", result["net_taxable_income"])
 	// RCIT = 5500000 * 0.25 = 1375000
 	assert.Equal(t, "1375000", result["rcit_amount"])
-	// MCIT = 10000000 * 0.01 = 100000
-	assert.Equal(t, "100000", result["mcit_amount"])
+	// MCIT = gross_profit * 0.02 = 7000000 * 0.02 = 140000 (2% for 2024+)
+	assert.Equal(t, "140000", result["mcit_amount"])
 	// Tax due = RCIT (higher) = 1375000
 	assert.Equal(t, "1375000", result["income_tax_due"])
 	// Tax payable = 1375000 - (200000 + 100000) = 1075000
@@ -295,14 +295,15 @@ func TestCalculateBIR1702_RCIT_vs_MCIT(t *testing.T) {
 }
 
 func TestCalculateBIR1702_MCIT_Higher(t *testing.T) {
-	// MCIT > RCIT scenario (low profit margin, high gross income)
+	// MCIT > RCIT scenario: high gross profit but massive deductions → low net taxable
+	// MCIT = gross_profit * 1%, RCIT = net_taxable * 25%
 	input := map[string]interface{}{
 		"income_data": map[string]interface{}{
-			"gross_income":               "50000000",
-			"cost_of_sales":              "45000000",
+			"gross_income":               "20000000",
+			"cost_of_sales":              "10000000",
 			"other_income":               "0",
 			"deduction_method":           "itemized",
-			"itemized_deductions":        "3000000",
+			"itemized_deductions":        "9800000",
 			"creditable_withholding_tax": "0",
 			"quarterly_payments":         "0",
 			"other_credits":              "0",
@@ -312,14 +313,16 @@ func TestCalculateBIR1702_MCIT_Higher(t *testing.T) {
 	result, err := CalculateBIR1702(input)
 	require.NoError(t, err)
 
-	// Gross profit = 50M - 45M = 5M
-	// Net taxable = 5M - 3M = 2M
-	// RCIT = 2M * 0.25 = 500000
-	assert.Equal(t, "500000", result["rcit_amount"])
-	// MCIT = 50M * 0.01 = 500000
-	assert.Equal(t, "500000", result["mcit_amount"])
-	// MCIT == RCIT, so RCIT branch applies (MCIT is NOT strictly greater)
-	assert.Equal(t, "500000", result["income_tax_due"])
+	// Gross profit = 20M - 10M = 10M
+	// Net taxable = 10M - 9.8M = 200K
+	// RCIT = 200K * 0.25 = 50,000
+	assert.Equal(t, "50000", result["rcit_amount"])
+	// MCIT = gross_profit * 0.02 = 10M * 0.02 = 200,000 (2% for 2024+)
+	assert.Equal(t, "200000", result["mcit_amount"])
+	// MCIT > RCIT → tax due = MCIT = 200,000
+	assert.Equal(t, "200000", result["income_tax_due"])
+	// Excess MCIT for carryforward = 200K - 50K = 150K
+	assert.Equal(t, "150000", result["excess_mcit_current"])
 }
 
 func TestCalculateBIR1702_SME_Rate(t *testing.T) {

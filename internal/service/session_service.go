@@ -324,8 +324,37 @@ func (s *SessionService) AddFile(ctx context.Context, sessionID, companyID uuid.
 			"expense_amount", "gross_compensation", "basic_salary",
 			"taxable_income", "taxable_compensation",
 			"purchase_domestic_goods", "purchase_importation", "purchase_domestic_services",
+			// BIR SLSP format variations (normalized from "AMOUNT OF GROSS PURCHASE" etc.)
+			"amount_of_gross_purchase", "amount_of_gross_sales",
+			"amount_of_vatable_purchase", "amount_of_vatable_sales",
+			"amount_of_exempt_purchase", "amount_of_exempt_sales",
+			"total_purchase", "total_amount",
+			// SG GST variations
+			"standard_rated_supplies", "taxable_purchases",
 		}
 		amt := firstNonZeroAmount(row, amtKeys...)
+
+		// Fallback: if no known key matched, scan all row keys for any key
+		// containing "amount", "gross", "total", "sales", "purchase" with a numeric value.
+		if amt == 0 {
+			amt = fallbackAmountFromRow(row)
+			if amt != 0 && i == 0 {
+				slog.Info("amount found via fallback scan", "row", i, "amount", amt)
+			}
+		}
+
+		// Debug: log first row details if amount is still 0
+		if amt == 0 && i == 0 {
+			keys := make([]string, 0, len(row))
+			for k := range row {
+				keys = append(keys, k)
+			}
+			slog.Warn("row 0 has zero amount",
+				"keys", keys,
+				"column_mappings_count", len(input.ColumnMappings),
+			)
+		}
+
 		amountNum := pgtype.Numeric{}
 		scanNumeric(&amountNum, amt)
 
@@ -1120,6 +1149,54 @@ func parseFlexDate(s string) pgtype.Date {
 		}
 	}
 	return pgtype.Date{}
+}
+
+// fallbackAmountFromRow scans all row keys for any key containing amount-related
+// substrings (gross, amount, total, sales, purchase) and returns the first non-zero
+// numeric value found. This handles cases where column names don't match the
+// standard amtKeys list (e.g., "amount_of_gross_purchase" from BIR SLSP format).
+func fallbackAmountFromRow(row map[string]interface{}) float64 {
+	amountHints := []string{"amount", "gross", "total", "sales", "purchase", "income", "compensation"}
+	// Skip keys that are clearly non-amount fields
+	skipHints := []string{"date", "name", "tin", "address", "street", "city", "first", "middle", "last",
+		"barangay", "municipality", "province", "zip", "email", "phone", "status", "type",
+		"category", "source", "description", "invoice", "number", "code", "month", "year"}
+
+	for k, v := range row {
+		if v == nil {
+			continue
+		}
+		lk := strings.ToLower(k)
+
+		// Skip non-amount fields
+		isSkip := false
+		for _, s := range skipHints {
+			if lk == s || (strings.Contains(lk, s) && !strings.Contains(lk, "amount")) {
+				isSkip = true
+				break
+			}
+		}
+		if isSkip {
+			continue
+		}
+
+		// Check if key contains an amount hint
+		hasHint := false
+		for _, h := range amountHints {
+			if strings.Contains(lk, h) {
+				hasHint = true
+				break
+			}
+		}
+		if !hasHint {
+			continue
+		}
+
+		if amt := parseAmount(v); amt != 0 {
+			return amt
+		}
+	}
+	return 0
 }
 
 // firstNonZeroAmount returns the first non-zero amount from the given row keys.

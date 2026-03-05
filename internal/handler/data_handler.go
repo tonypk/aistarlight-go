@@ -115,6 +115,44 @@ func (h *DataHandler) Upload(c *gin.Context) {
 		return
 	}
 
+	// Also save cleaned data as JSON so loadRowsFromUpload can find it.
+	// Without this, AddFile re-parses the raw file with a different parser
+	// that may produce different column names or miss trailing empty cells,
+	// causing column mappings to fail (amounts = 0.00).
+	type jsonSheet struct {
+		Columns  []string                 `json:"columns"`
+		RowCount int                      `json:"row_count"`
+		Rows     []map[string]interface{} `json:"rows"`
+		Preview  []map[string]interface{} `json:"preview"`
+	}
+	type jsonSave struct {
+		Filename string                   `json:"filename"`
+		Sheets   map[string]*jsonSheet    `json:"sheets"`
+	}
+	jsonData := jsonSave{
+		Filename: header.Filename,
+		Sheets:   make(map[string]*jsonSheet),
+	}
+	for sheetName, sheet := range cleaningParsed.Sheets {
+		js := &jsonSheet{
+			Columns:  sheet.Columns,
+			RowCount: sheet.RowCount,
+			Preview:  sheet.Preview,
+		}
+		// Use full DataRows from cleaning result (not just preview)
+		if cr, ok := cleaningParsed.CleaningResults[sheetName]; ok && len(cr.DataRows) > 0 {
+			js.Rows = cr.DataRows
+			js.RowCount = len(cr.DataRows)
+		}
+		jsonData.Sheets[sheetName] = js
+	}
+	if jsonBytes, err := json.Marshal(jsonData); err == nil {
+		jsonPath := filepath.Join(uploadDir, fileID+".json")
+		if err := os.WriteFile(jsonPath, jsonBytes, 0o640); err != nil {
+			slog.Warn("failed to save cleaned JSON", "error", err)
+		}
+	}
+
 	// Extract first sheet info for convenience.
 	var columns []string
 	var sampleRows []map[string]interface{}

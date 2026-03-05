@@ -101,7 +101,8 @@ func GenerateVATSummary(transactions []map[string]interface{}, period string) VA
 		} else {
 			// Purchases
 			inputVAT := vatAmount
-			if inputVAT.IsZero() {
+			if inputVAT.IsZero() && vatType != "exempt" && vatType != "zero_rated" {
+				// Only compute 12% for vatable purchases; exempt/zero-rated have no input VAT
 				inputVAT = amount.Mul(birforms.VATRate)
 			}
 

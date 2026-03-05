@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -366,6 +367,9 @@ func (s *SessionService) AddFile(ctx context.Context, sessionID, companyID uuid.
 			"input_tax_capital_goods", "input_tax_domestic_goods",
 			"input_tax_importation", "input_tax_domestic_services",
 			"vat_paid_imports",
+			// BIR SLSP format variations
+			"amount_of_vat", "amount_of_vat_(input_tax)", "amount_of_input_tax",
+			"amount_of_output_tax", "amount_of_vat_(output_tax)",
 		)
 		vatNum := pgtype.Numeric{}
 		scanNumeric(&vatNum, vat)
@@ -422,7 +426,7 @@ func (s *SessionService) AddFile(ctx context.Context, sessionID, companyID uuid.
 
 		vatType := toString(row["vat_type"])
 		if vatType == "" {
-			vatType = "vatable"
+			vatType = inferVATType(row, amt)
 		}
 		category := toString(row["category"])
 		if category == "" {
@@ -1149,6 +1153,60 @@ func parseFlexDate(s string) pgtype.Date {
 		}
 	}
 	return pgtype.Date{}
+}
+
+// inferVATType determines the VAT type from SLSP-style columns.
+// BIR SLSP files have separate columns for exempt, vatable, and zero-rated amounts.
+// If the exempt amount equals the gross amount, the transaction is exempt.
+// If the vatable amount is present and non-zero, it's vatable.
+// Zero-rated sales/purchases are detected similarly.
+func inferVATType(row map[string]interface{}, grossAmount float64) string {
+	// Check exempt columns
+	exemptKeys := []string{
+		"exempt_sales", "exempt_purchase",
+		"amount_of_exempt_purchase", "amount_of_exempt_sales",
+		"vat_exempt_sales", "vat_exempt_purchase",
+	}
+	exemptAmt := firstNonZeroAmount(row, exemptKeys...)
+
+	// Check zero-rated columns
+	zeroRatedKeys := []string{
+		"zero_rated_sales", "zero_rated_purchase",
+		"amount_of_zero_rated_purchase", "amount_of_zero_rated_sales",
+	}
+	zeroRatedAmt := firstNonZeroAmount(row, zeroRatedKeys...)
+
+	// Check vatable columns
+	vatableKeys := []string{
+		"vatable_sales", "vatable_purchase",
+		"amount_of_vatable_purchase", "amount_of_vatable_sales",
+	}
+	vatableAmt := firstNonZeroAmount(row, vatableKeys...)
+
+	// If the gross amount matches the exempt amount, it's exempt
+	if exemptAmt != 0 && grossAmount != 0 && math.Abs(exemptAmt-grossAmount) < 0.01 {
+		return "exempt"
+	}
+	// If exempt amount is present (even if not matching gross), and no vatable amount
+	if exemptAmt != 0 && vatableAmt == 0 {
+		return "exempt"
+	}
+
+	// Zero-rated
+	if zeroRatedAmt != 0 && grossAmount != 0 && math.Abs(zeroRatedAmt-grossAmount) < 0.01 {
+		return "zero_rated"
+	}
+	if zeroRatedAmt != 0 && vatableAmt == 0 {
+		return "zero_rated"
+	}
+
+	// If vatable amount is present, it's vatable
+	if vatableAmt != 0 {
+		return "vatable"
+	}
+
+	// Default: vatable (most common for Philippine purchases)
+	return "vatable"
 }
 
 // fallbackAmountFromRow scans all row keys for any key containing amount-related

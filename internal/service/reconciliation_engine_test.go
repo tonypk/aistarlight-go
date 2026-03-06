@@ -67,6 +67,29 @@ func TestGenerateVATSummary_NetVAT(t *testing.T) {
 	assertDecimalEqual(t, "NetVAT", s.NetVAT, "8400")
 }
 
+func TestGenerateVATSummary_ExplicitOutputTax(t *testing.T) {
+	// When vat_amount (output_tax) is explicitly provided, use it instead of amount * 12%
+	transactions := []map[string]interface{}{
+		// Row with explicit output_tax: vatable_sales=5,743,199.49, output_tax=689,183.94
+		{"source_type": "sales_record", "amount": 5743199.49, "vat_amount": 689183.94, "vat_type": "vatable", "category": "sale"},
+		// Row with explicit output_tax: vatable_sales=3,410,061.39, output_tax=409,207.37
+		{"source_type": "sales_record", "amount": 3410061.39, "vat_amount": 409207.37, "vat_type": "vatable", "category": "sale"},
+		// Zero-rated row (no VAT)
+		{"source_type": "sales_record", "amount": 4681523.36, "vat_amount": 0.0, "vat_type": "zero_rated", "category": "sale"},
+	}
+
+	s := GenerateVATSummary(transactions, "2024-12")
+
+	// Vatable sales = 5,743,199.49 + 3,410,061.39 = 9,153,260.88
+	assertDecimalEqual(t, "VatableSales", s.VatableSales, "9153260.88")
+	// Zero-rated sales = 4,681,523.36
+	assertDecimalEqual(t, "ZeroRatedSales", s.ZeroRatedSales, "4681523.36")
+	// Output VAT should use explicit values: 689,183.94 + 409,207.37 = 1,098,391.31
+	// NOT computed: 9,153,260.88 * 0.12 = 1,098,391.3056
+	assertDecimalEqual(t, "OutputVAT", s.OutputVAT, "1098391.31")
+	assertDecimalEqual(t, "TotalOutputVAT", s.TotalOutputVAT, "1098391.31")
+}
+
 func TestGenerateVATSummary_Empty(t *testing.T) {
 	s := GenerateVATSummary(nil, "2024-01")
 

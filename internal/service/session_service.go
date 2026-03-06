@@ -316,22 +316,42 @@ func (s *SessionService) AddFile(ctx context.Context, sessionID, companyID uuid.
 			sourceType = "purchase_record"
 		}
 
-		// Extract amount: gross/total fields first, then vatable/net as fallback
-		amtKeys := []string{
-			"gross_sales", "gross_purchase", "gross_amount", "total_sales",
-			"gross_sales_receipts", "gross_income", "total_gross_income",
-			"amount", "landed_cost", "tax_base",
-			"vatable_sales", "net_sales",
-			"expense_amount", "gross_compensation", "basic_salary",
-			"taxable_income", "taxable_compensation",
-			"purchase_domestic_goods", "purchase_importation", "purchase_domestic_services",
-			// BIR SLSP format variations (normalized from "AMOUNT OF GROSS PURCHASE" etc.)
-			"amount_of_gross_purchase", "amount_of_gross_sales",
-			"amount_of_vatable_purchase", "amount_of_vatable_sales",
-			"amount_of_exempt_purchase", "amount_of_exempt_sales",
-			"total_purchase", "total_amount",
-			// SG GST variations
-			"standard_rated_supplies", "taxable_purchases",
+		// Extract amount: priority depends on source type.
+		// For sales/purchases: prefer vatable amount (correct for VAT computation)
+		// over gross amount (which includes exempt/zero-rated portions).
+		var amtKeys []string
+		switch sourceType {
+		case "sales_record":
+			amtKeys = []string{
+				"vatable_sales", "net_sales", "amount_of_vatable_sales",
+				"gross_sales", "gross_amount", "total_sales",
+				"gross_sales_receipts", "gross_income", "total_gross_income",
+				"amount_of_gross_sales", "amount", "tax_base", "total_amount",
+			}
+		case "purchase_record":
+			amtKeys = []string{
+				"vatable_purchase", "amount_of_vatable_purchase",
+				"gross_purchase", "gross_amount", "total_purchase",
+				"amount_of_gross_purchase",
+				"purchase_domestic_goods", "purchase_importation", "purchase_domestic_services",
+				"amount", "landed_cost", "tax_base", "total_amount",
+				"taxable_purchases",
+			}
+		default:
+			amtKeys = []string{
+				"gross_sales", "gross_purchase", "gross_amount", "total_sales",
+				"gross_sales_receipts", "gross_income", "total_gross_income",
+				"amount", "landed_cost", "tax_base",
+				"vatable_sales", "net_sales",
+				"expense_amount", "gross_compensation", "basic_salary",
+				"taxable_income", "taxable_compensation",
+				"purchase_domestic_goods", "purchase_importation", "purchase_domestic_services",
+				"amount_of_gross_purchase", "amount_of_gross_sales",
+				"amount_of_vatable_purchase", "amount_of_vatable_sales",
+				"amount_of_exempt_purchase", "amount_of_exempt_sales",
+				"total_purchase", "total_amount",
+				"standard_rated_supplies", "taxable_purchases",
+			}
 		}
 		amt := firstNonZeroAmount(row, amtKeys...)
 

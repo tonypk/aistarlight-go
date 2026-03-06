@@ -89,14 +89,22 @@ func GenerateVATSummary(transactions []map[string]interface{}, period string) VA
 			switch vatType {
 			case "government":
 				s.SalesToGovernment = s.SalesToGovernment.Add(amount)
-				s.OutputVATGovernment = s.OutputVATGovernment.Add(amount.Mul(birforms.GovtVATRate))
+				govVAT := vatAmount
+				if govVAT.IsZero() {
+					govVAT = amount.Mul(birforms.GovtVATRate)
+				}
+				s.OutputVATGovernment = s.OutputVATGovernment.Add(govVAT)
 			case "zero_rated":
 				s.ZeroRatedSales = s.ZeroRatedSales.Add(amount)
 			case "exempt":
 				s.VATExemptSales = s.VATExemptSales.Add(amount)
 			default: // vatable
 				s.VatableSales = s.VatableSales.Add(amount)
-				s.OutputVAT = s.OutputVAT.Add(amount.Mul(birforms.VATRate))
+				outputTax := vatAmount
+				if outputTax.IsZero() {
+					outputTax = amount.Mul(birforms.VATRate)
+				}
+				s.OutputVAT = s.OutputVAT.Add(outputTax)
 			}
 		} else {
 			// Purchases

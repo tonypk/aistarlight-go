@@ -79,6 +79,14 @@ func (s *SessionService) BatchUpdateTransactions(ctx context.Context, sessionID,
 			result.Errors = append(result.Errors, fmt.Sprintf("%s: update failed", item.ID))
 			continue
 		}
+
+		// Auto-create correction rules from user override
+		desc := ""
+		if txn.Description != nil {
+			desc = *txn.Description
+		}
+		s.autoCreateCorrectionRules(ctx, companyID, desc, txn.VatType, vatType, txn.Category, category)
+
 		result.Updated++
 	}
 

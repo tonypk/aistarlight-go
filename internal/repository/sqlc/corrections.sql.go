@@ -156,6 +156,53 @@ func (q *Queries) CreateValidationResult(ctx context.Context, arg CreateValidati
 	return i, err
 }
 
+const findCorrectionRuleByCompanyAndField = `-- name: FindCorrectionRuleByCompanyAndField :many
+SELECT id, company_id, rule_type, match_criteria, correction_field, correction_value, confidence, source_correction_count, is_active, created_at, updated_at FROM correction_rules
+WHERE company_id = $1
+  AND correction_field = $2
+  AND match_criteria @> $3::jsonb
+  AND is_active = true
+LIMIT 1
+`
+
+type FindCorrectionRuleByCompanyAndFieldParams struct {
+	CompanyID       uuid.UUID `json:"company_id"`
+	CorrectionField string    `json:"correction_field"`
+	Column3         []byte    `json:"column_3"`
+}
+
+func (q *Queries) FindCorrectionRuleByCompanyAndField(ctx context.Context, arg FindCorrectionRuleByCompanyAndFieldParams) ([]CorrectionRule, error) {
+	rows, err := q.db.Query(ctx, findCorrectionRuleByCompanyAndField, arg.CompanyID, arg.CorrectionField, arg.Column3)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CorrectionRule{}
+	for rows.Next() {
+		var i CorrectionRule
+		if err := rows.Scan(
+			&i.ID,
+			&i.CompanyID,
+			&i.RuleType,
+			&i.MatchCriteria,
+			&i.CorrectionField,
+			&i.CorrectionValue,
+			&i.Confidence,
+			&i.SourceCorrectionCount,
+			&i.IsActive,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getCorrectionRuleByID = `-- name: GetCorrectionRuleByID :one
 SELECT id, company_id, rule_type, match_criteria, correction_field, correction_value, confidence, source_correction_count, is_active, created_at, updated_at FROM correction_rules WHERE id = $1
 `

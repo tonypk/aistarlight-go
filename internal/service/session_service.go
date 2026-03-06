@@ -725,6 +725,13 @@ func (s *SessionService) UpdateTransaction(ctx context.Context, txnID, sessionID
 		ClassificationSource: "user_override",
 	})
 
+	// Auto-create correction rules from user override
+	desc := ""
+	if txn.Description != nil {
+		desc = *txn.Description
+	}
+	s.autoCreateCorrectionRules(ctx, companyID, desc, txn.VatType, vatType, txn.Category, category)
+
 	// Re-fetch
 	txn, err = s.q.GetTransactionByID(ctx, txnID)
 	if err != nil {
@@ -732,6 +739,75 @@ func (s *SessionService) UpdateTransaction(ctx context.Context, txnID, sessionID
 	}
 	resp := txnToResponse(txn)
 	return &resp, nil
+}
+
+// autoCreateCorrectionRules creates or updates correction rules from user overrides
+// so that future sessions auto-apply the same classification for matching descriptions.
+func (s *SessionService) autoCreateCorrectionRules(ctx context.Context, companyID uuid.UUID, description, oldVATType, newVATType, oldCategory, newCategory string) {
+	description = strings.TrimSpace(description)
+	if description == "" {
+		return
+	}
+
+	matchValue := strings.ToLower(description)
+	criteriaJSON, _ := json.Marshal(map[string]string{
+		"field":    "description",
+		"operator": "contains",
+		"value":    matchValue,
+	})
+
+	confNum := pgtype.Numeric{}
+	_ = confNum.Scan("0.95")
+
+	// Create rule for category if changed
+	if newCategory != "" && newCategory != oldCategory {
+		s.upsertCorrectionRule(ctx, companyID, criteriaJSON, "category", newCategory, confNum)
+	}
+
+	// Create rule for vat_type if changed
+	if newVATType != "" && newVATType != oldVATType {
+		s.upsertCorrectionRule(ctx, companyID, criteriaJSON, "vat_type", newVATType, confNum)
+	}
+}
+
+func (s *SessionService) upsertCorrectionRule(ctx context.Context, companyID uuid.UUID, criteriaJSON []byte, field, value string, conf pgtype.Numeric) {
+	existing, err := s.q.FindCorrectionRuleByCompanyAndField(ctx, sqlc.FindCorrectionRuleByCompanyAndFieldParams{
+		CompanyID:       companyID,
+		CorrectionField: field,
+		Column3:         criteriaJSON,
+	})
+	if err == nil && len(existing) > 0 {
+		rule := existing[0]
+		_ = s.q.UpdateCorrectionRule(ctx, sqlc.UpdateCorrectionRuleParams{
+			ID:                    rule.ID,
+			MatchCriteria:         criteriaJSON,
+			CorrectionValue:       value,
+			Confidence:            conf,
+			SourceCorrectionCount: rule.SourceCorrectionCount + 1,
+			IsActive:              true,
+		})
+		slog.Info("updated correction rule from user override",
+			"rule_id", rule.ID, "field", field, "value", value)
+		return
+	}
+
+	_, err = s.q.CreateCorrectionRule(ctx, sqlc.CreateCorrectionRuleParams{
+		ID:                    uuid.New(),
+		CompanyID:             companyID,
+		RuleType:              "auto_learned",
+		MatchCriteria:         criteriaJSON,
+		CorrectionField:       field,
+		CorrectionValue:       value,
+		Confidence:            conf,
+		SourceCorrectionCount: 1,
+		IsActive:              true,
+	})
+	if err != nil {
+		slog.Warn("failed to create correction rule", "error", err, "field", field, "value", value)
+	} else {
+		slog.Info("created correction rule from user override",
+			"field", field, "value", value, "company_id", companyID)
+	}
 }
 
 // DetectAnomalies runs anomaly detection on a session.

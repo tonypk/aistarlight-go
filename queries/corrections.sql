@@ -50,6 +50,14 @@ ORDER BY validated_at DESC LIMIT 1;
 SELECT * FROM validation_results WHERE report_id = $1
 ORDER BY validated_at DESC;
 
+-- name: FindCorrectionRuleByCompanyAndField :many
+SELECT * FROM correction_rules
+WHERE company_id = $1
+  AND correction_field = $2
+  AND match_criteria @> $3::jsonb
+  AND is_active = true
+LIMIT 1;
+
 -- name: ListMappingCorrections :many
 SELECT * FROM corrections
 WHERE company_id = $1 AND entity_type = $2

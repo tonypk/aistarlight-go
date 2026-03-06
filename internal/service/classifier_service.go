@@ -237,12 +237,21 @@ func applyLearnedRules(tx map[string]interface{}, rules []sqlc.CorrectionRule) *
 					conf = f.Float64
 				}
 			}
-			return &ClassificationResult{
-				VATType:              rule.CorrectionValue,
-				Category:            toString(tx["category"]),
+			result := &ClassificationResult{
+				VATType:              toString(tx["vat_type"]),
+				Category:             toString(tx["category"]),
 				Confidence:           conf,
 				ClassificationSource: "learned_rule",
 			}
+			switch rule.CorrectionField {
+			case "category":
+				result.Category = rule.CorrectionValue
+			case "vat_type":
+				result.VATType = rule.CorrectionValue
+			default:
+				result.VATType = rule.CorrectionValue
+			}
+			return result
 		}
 	}
 	return nil

@@ -441,6 +441,24 @@ field_confidence: per-column confidence (0.0-1.0) indicating how sure you are ab
 candidates: per-column list of up to 3 possible target fields with confidence and reasoning (only for ambiguous columns).
 conflicts: groups of source columns that compete for the same target field.`
 
+// detectMixedColumns checks if the column names indicate both sales and purchase data.
+func detectMixedColumns(columns []string) (hasSales, hasPurchases bool) {
+	for _, col := range columns {
+		lower := strings.ToLower(col)
+		if strings.Contains(lower, "sales") || strings.Contains(lower, "customer") ||
+			strings.Contains(lower, "output tax") || strings.Contains(lower, "output vat") ||
+			strings.Contains(lower, "buyer") {
+			hasSales = true
+		}
+		if strings.Contains(lower, "purchase") || strings.Contains(lower, "supplier") ||
+			strings.Contains(lower, "input tax") || strings.Contains(lower, "input vat") ||
+			strings.Contains(lower, "vendor") {
+			hasPurchases = true
+		}
+	}
+	return
+}
+
 func columnMapperPrompt(jurisdiction string) string {
 	if jurisdiction == "SG" {
 		return columnMapperSystemPromptSG
@@ -559,18 +577,34 @@ func (s *ColumnMapperService) AutoMapColumns(
 		string(sampleJSON),
 	)
 
-	// Data category hint — critical for disambiguating Sales vs Purchases
-	if opt.DataCategory != "" {
-		switch strings.ToLower(opt.DataCategory) {
-		case "purchases":
-			userPrompt += "\n\nIMPORTANT: This data contains PURCHASE transactions (SLP — Summary List of Purchases). " +
-				"Map amount columns to purchase fields (gross_purchase, input_tax, etc.), NOT to sales fields. " +
-				"Map party columns to supplier fields (supplier_name, supplier_tin), NOT customer fields."
-		case "sales":
-			userPrompt += "\n\nIMPORTANT: This data contains SALES transactions (SLS — Summary List of Sales). " +
-				"Map amount columns to sales fields (gross_sales, vatable_sales, output_tax, etc.), NOT to purchase fields. " +
-				"Map party columns to customer fields (customer_name, customer_tin), NOT supplier fields."
+	// Auto-detect combined files: if column names contain both sales and purchase
+	// indicators, override data category to "combined" so the AI maps correctly.
+	dataCategory := strings.ToLower(opt.DataCategory)
+	if dataCategory != "combined" {
+		hasSalesCols, hasPurchaseCols := detectMixedColumns(columns)
+		if hasSalesCols && hasPurchaseCols {
+			slog.Info("auto-detected combined sales+purchases file from column names")
+			dataCategory = "combined"
 		}
+	}
+
+	// Data category hint — critical for disambiguating Sales vs Purchases
+	switch dataCategory {
+	case "purchases":
+		userPrompt += "\n\nIMPORTANT: This data contains PURCHASE transactions (SLP — Summary List of Purchases). " +
+			"Map amount columns to purchase fields (gross_purchase, input_tax, etc.), NOT to sales fields. " +
+			"Map party columns to supplier fields (supplier_name, supplier_tin), NOT customer fields."
+	case "sales":
+		userPrompt += "\n\nIMPORTANT: This data contains SALES transactions (SLS — Summary List of Sales). " +
+			"Map amount columns to sales fields (gross_sales, vatable_sales, output_tax, etc.), NOT to purchase fields. " +
+			"Map party columns to customer fields (customer_name, customer_tin), NOT supplier fields."
+	case "combined":
+		userPrompt += "\n\nIMPORTANT: This file contains BOTH Sales and Purchase transactions in the same sheet. " +
+			"You MUST map each column to its correct type based on the column name:\n" +
+			"- Columns with \"Sales\"/\"Customer\"/\"Output\"/\"Buyer\" → map to SALES fields (gross_sales, vatable_sales, output_tax, customer_name, customer_tin, etc.)\n" +
+			"- Columns with \"Purchase\"/\"Supplier\"/\"Input\"/\"Vendor\" → map to PURCHASE fields (gross_purchase, vatable_purchase, input_tax, supplier_name, supplier_tin, etc.)\n" +
+			"- Generic columns (TIN, Date, Address, Name) → map to the most appropriate field based on context.\n" +
+			"Do NOT force all columns to one type. Each column must be mapped independently based on its name."
 	}
 
 	if len(existingMappings) > 0 {

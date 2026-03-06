@@ -322,6 +322,10 @@ func (s *SessionService) AddFile(ctx context.Context, sessionID, companyID uuid.
 		// Per-row detection: infer from mapped column values when the row
 		// has clear sales or purchase indicators (supports combined files).
 		sourceType = inferRowSourceType(row, sourceType)
+		// Normalize: "combined" is not a valid DB value — default to sales_record
+		if sourceType == "combined" {
+			sourceType = "sales_record"
+		}
 
 		// Extract amount: priority depends on source type.
 		// For sales/purchases: prefer vatable amount (correct for VAT computation)

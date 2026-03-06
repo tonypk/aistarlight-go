@@ -335,16 +335,20 @@ func (s *SessionService) AddFile(ctx context.Context, sessionID, companyID uuid.
 		case "sales_record":
 			amtKeys = []string{
 				"vatable_sales", "net_sales", "amount_of_vatable_sales",
+				"amount_of_taxable_sales", // BIR SLSP uses "taxable" instead of "vatable"
 				"gross_sales", "gross_amount", "total_sales",
 				"gross_sales_receipts", "gross_income", "total_gross_income",
-				"amount_of_gross_sales", "amount", "tax_base", "total_amount",
+				"amount_of_gross_sales", "amount_of_gross_taxable_sales",
+				"amount", "tax_base", "total_amount",
 			}
 		case "purchase_record":
 			amtKeys = []string{
 				"vatable_purchase", "amount_of_vatable_purchase",
+				"amount_of_taxable_purchase", // BIR SLSP uses "taxable" instead of "vatable"
 				"gross_purchase", "gross_amount", "total_purchase",
 				"amount_of_gross_purchase",
 				"purchase_domestic_goods", "purchase_importation", "purchase_domestic_services",
+				"amount_of_purchase_of_services",
 				"amount", "landed_cost", "tax_base", "total_amount",
 				"taxable_purchases",
 			}
@@ -1354,17 +1358,21 @@ func inferRowSourceType(row map[string]interface{}, fallback string) string {
 	salesSignals := firstNonZeroAmount(row,
 		"gross_sales", "vatable_sales", "output_tax",
 		"amount_of_gross_sales", "amount_of_vatable_sales",
-		"amount_of_output_tax", "zero_rated_sales", "exempt_sales",
+		"amount_of_taxable_sales", "amount_of_output_tax",
+		"zero_rated_sales", "exempt_sales",
 	)
-	hasSalesParty := toString(row["customer_name"]) != "" || toString(row["customer_tin"]) != ""
+	hasSalesParty := toString(row["customer_name"]) != "" || toString(row["customer_tin"]) != "" ||
+		toString(row["name_of_customer_(last_name,_first_name,_middle_name)"]) != ""
 
 	purchaseSignals := firstNonZeroAmount(row,
 		"gross_purchase", "vatable_purchase", "input_tax",
 		"amount_of_gross_purchase", "amount_of_vatable_purchase",
-		"amount_of_input_tax",
+		"amount_of_taxable_purchase", "amount_of_input_tax",
 		"purchase_domestic_goods", "purchase_importation", "purchase_domestic_services",
+		"amount_of_purchase_of_services",
 	)
-	hasPurchaseParty := toString(row["supplier_name"]) != "" || toString(row["supplier_tin"]) != ""
+	hasPurchaseParty := toString(row["supplier_name"]) != "" || toString(row["supplier_tin"]) != "" ||
+		toString(row["name_of_supplier_(last_name,_first_name,_middle_name)"]) != ""
 
 	hasSales := salesSignals != 0 || hasSalesParty
 	hasPurchase := purchaseSignals != 0 || hasPurchaseParty
@@ -1400,10 +1408,11 @@ func inferVATType(row map[string]interface{}, grossAmount float64) string {
 	}
 	zeroRatedAmt := firstNonZeroAmount(row, zeroRatedKeys...)
 
-	// Check vatable columns
+	// Check vatable columns (BIR SLSP uses "taxable" as synonym for "vatable")
 	vatableKeys := []string{
 		"vatable_sales", "vatable_purchase",
 		"amount_of_vatable_purchase", "amount_of_vatable_sales",
+		"amount_of_taxable_purchase", "amount_of_taxable_sales",
 	}
 	vatableAmt := firstNonZeroAmount(row, vatableKeys...)
 

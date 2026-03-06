@@ -177,7 +177,23 @@ func (h *SessionHandler) AddFile(c *gin.Context) {
 	response.OK(c, result)
 }
 
+// inferSheetSource determines if a sheet contains sales or purchase data
+// based on its name (e.g., "sales", "SLS", "purchases", "SLP").
+func inferSheetSource(sheetName string) string {
+	lower := strings.ToLower(sheetName)
+	if strings.Contains(lower, "sales") || strings.Contains(lower, "sls") {
+		return "sales"
+	}
+	if strings.Contains(lower, "purchase") || strings.Contains(lower, "slp") {
+		return "purchases"
+	}
+	return ""
+}
+
 // loadRowsFromUpload reads rows from a previously uploaded file by file_id.
+// When sheetName is empty and the file has multiple sheets, ALL sheets are
+// loaded and each row is tagged with _source ("sales" or "purchases") based
+// on the sheet name. This enables correct processing of combined files.
 func (h *SessionHandler) loadRowsFromUpload(ctx context.Context, fileID, sheetName string) ([]map[string]interface{}, string, error) {
 	uploadDir := h.cfg.UploadDir
 	if uploadDir == "" {
@@ -197,7 +213,32 @@ func (h *SessionHandler) loadRowsFromUpload(ctx context.Context, fileID, sheetNa
 		if err := json.Unmarshal(data, &parsed); err != nil {
 			return nil, "", fmt.Errorf("parse uploaded JSON: %w", err)
 		}
-		// Find the right sheet
+
+		// Multi-sheet with no specific sheet requested: merge ALL sheets
+		if sheetName == "" && len(parsed.Sheets) > 1 {
+			var allRows []map[string]interface{}
+			for name, sheet := range parsed.Sheets {
+				rows := sheet.Rows
+				if len(rows) == 0 {
+					rows = sheet.Preview
+				}
+				source := inferSheetSource(name)
+				for _, row := range rows {
+					if source != "" {
+						row["_source"] = source
+					}
+					allRows = append(allRows, row)
+				}
+				slog.Info("merged sheet into combined import",
+					"sheet", name, "source", source, "rows", len(rows))
+			}
+			if len(allRows) > 0 {
+				return allRows, parsed.Filename, nil
+			}
+			return nil, parsed.Filename, fmt.Errorf("no rows found in uploaded file")
+		}
+
+		// Single sheet or specific sheet requested
 		for name, sheet := range parsed.Sheets {
 			if sheetName != "" && !strings.EqualFold(name, sheetName) {
 				continue
@@ -223,12 +264,37 @@ func (h *SessionHandler) loadRowsFromUpload(ctx context.Context, fileID, sheetNa
 		if err != nil {
 			return nil, "", fmt.Errorf("re-parse uploaded file: %w", err)
 		}
+
+		// Multi-sheet with no specific sheet requested: merge ALL sheets
+		if sheetName == "" && len(parsed.Sheets) > 1 {
+			var allRows []map[string]interface{}
+			for name := range parsed.Sheets {
+				sheetRows, err := service.ParseUploadedFileAllRowsWithAI(ctx, h.ai, content, fileID+ext, name)
+				if err != nil {
+					slog.Warn("failed to parse sheet", "sheet", name, "error", err)
+					continue
+				}
+				source := inferSheetSource(name)
+				for _, row := range sheetRows {
+					if source != "" {
+						row["_source"] = source
+					}
+					allRows = append(allRows, row)
+				}
+				slog.Info("merged sheet into combined import",
+					"sheet", name, "source", source, "rows", len(sheetRows))
+			}
+			if len(allRows) > 0 {
+				return allRows, fileID + ext, nil
+			}
+			return nil, "", fmt.Errorf("no rows found in file")
+		}
+
+		// Single sheet or specific sheet requested
 		for name, sheet := range parsed.Sheets {
 			if sheetName != "" && !strings.EqualFold(name, sheetName) {
 				continue
 			}
-			// ParseUploadedFileWithAI only returns Preview (sample rows); we need all rows.
-			// Re-parse with full rows.
 			allRows, err := service.ParseUploadedFileAllRowsWithAI(ctx, h.ai, content, fileID+ext, name)
 			if err != nil {
 				return nil, "", fmt.Errorf("parse all rows: %w", err)

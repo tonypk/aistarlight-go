@@ -315,6 +315,9 @@ func (s *SessionService) AddFile(ctx context.Context, sessionID, companyID uuid.
 		} else if st == "purchases" {
 			sourceType = "purchase_record"
 		}
+		// Per-row detection: infer from mapped column values when the row
+		// has clear sales or purchase indicators (supports combined files).
+		sourceType = inferRowSourceType(row, sourceType)
 
 		// Extract amount: priority depends on source type.
 		// For sales/purchases: prefer vatable amount (correct for VAT computation)
@@ -1249,6 +1252,38 @@ func parseFlexDate(s string) pgtype.Date {
 		}
 	}
 	return pgtype.Date{}
+}
+
+// inferRowSourceType detects whether a row contains sales or purchase data
+// based on which mapped columns have non-zero values. This enables correct
+// processing of combined files that contain both sales and purchases.
+func inferRowSourceType(row map[string]interface{}, fallback string) string {
+	salesSignals := firstNonZeroAmount(row,
+		"gross_sales", "vatable_sales", "output_tax",
+		"amount_of_gross_sales", "amount_of_vatable_sales",
+		"amount_of_output_tax", "zero_rated_sales", "exempt_sales",
+	)
+	hasSalesParty := toString(row["customer_name"]) != "" || toString(row["customer_tin"]) != ""
+
+	purchaseSignals := firstNonZeroAmount(row,
+		"gross_purchase", "vatable_purchase", "input_tax",
+		"amount_of_gross_purchase", "amount_of_vatable_purchase",
+		"amount_of_input_tax",
+		"purchase_domestic_goods", "purchase_importation", "purchase_domestic_services",
+	)
+	hasPurchaseParty := toString(row["supplier_name"]) != "" || toString(row["supplier_tin"]) != ""
+
+	hasSales := salesSignals != 0 || hasSalesParty
+	hasPurchase := purchaseSignals != 0 || hasPurchaseParty
+
+	if hasSales && !hasPurchase {
+		return "sales_record"
+	}
+	if hasPurchase && !hasSales {
+		return "purchase_record"
+	}
+	// Both or neither — use file-level default
+	return fallback
 }
 
 // inferVATType determines the VAT type from SLSP-style columns.

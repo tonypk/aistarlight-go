@@ -302,6 +302,61 @@ func TestDateDiffDays(t *testing.T) {
 	}
 }
 
+func TestInferRowSourceType(t *testing.T) {
+	tests := []struct {
+		name     string
+		row      map[string]interface{}
+		fallback string
+		want     string
+	}{
+		{
+			name:     "sales row with gross_sales",
+			row:      map[string]interface{}{"gross_sales": "100000", "customer_name": "ABC Corp"},
+			fallback: "purchase_record",
+			want:     "sales_record",
+		},
+		{
+			name:     "purchase row with gross_purchase",
+			row:      map[string]interface{}{"gross_purchase": "50000", "supplier_name": "XYZ Inc"},
+			fallback: "sales_record",
+			want:     "purchase_record",
+		},
+		{
+			name:     "sales row with vatable_sales and output_tax",
+			row:      map[string]interface{}{"vatable_sales": "5743199.49", "output_tax": "689183.94"},
+			fallback: "purchase_record",
+			want:     "sales_record",
+		},
+		{
+			name:     "purchase row with input_tax only",
+			row:      map[string]interface{}{"input_tax": "5467.33", "supplier_tin": "123-456-789"},
+			fallback: "sales_record",
+			want:     "purchase_record",
+		},
+		{
+			name:     "ambiguous row falls back to default",
+			row:      map[string]interface{}{"amount": "10000", "description": "Payment"},
+			fallback: "purchase_record",
+			want:     "purchase_record",
+		},
+		{
+			name:     "combined row with both signals uses fallback",
+			row:      map[string]interface{}{"gross_sales": "100000", "gross_purchase": "50000"},
+			fallback: "sales_record",
+			want:     "sales_record",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := inferRowSourceType(tt.row, tt.fallback)
+			if got != tt.want {
+				t.Errorf("inferRowSourceType() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 // assertDecimalEqual is a test helper for decimal comparisons.
 func assertDecimalEqual(t *testing.T, name string, got decimal.Decimal, wantStr string) {
 	t.Helper()

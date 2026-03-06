@@ -986,6 +986,9 @@ func (s *SessionService) GetVATSummary(ctx context.Context, sessionID, companyID
 
 	summary := GenerateVATSummary(txnMaps, session.Period)
 
+	// Run post-import validation to catch common data issues
+	summary.ValidationWarnings = ValidateImportResult(summary, session.SourceFiles, txnMaps)
+
 	// Cache summary on session
 	summaryJSON, _ := json.Marshal(summary)
 	_ = s.q.UpdateReconciliationSession(ctx, sqlc.UpdateReconciliationSessionParams{

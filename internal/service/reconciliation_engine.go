@@ -36,6 +36,9 @@ type VATSummary struct {
 	// Stats
 	TransactionCount    int            `json:"transaction_count"`
 	ClassificationStats map[string]int `json:"classification_stats"`
+
+	// Post-import validation warnings
+	ValidationWarnings []ValidationWarning `json:"validation_warnings,omitempty"`
 }
 
 // MatchedPair represents a matched record-bank entry pair.

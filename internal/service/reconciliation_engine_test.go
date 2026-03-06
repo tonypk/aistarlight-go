@@ -302,6 +302,73 @@ func TestDateDiffDays(t *testing.T) {
 	}
 }
 
+func TestFixMixedColumnMappings(t *testing.T) {
+	tests := []struct {
+		name     string
+		mappings map[string]string
+		want     map[string]string
+	}{
+		{
+			name: "combined file with purchases data category",
+			mappings: map[string]string{
+				"GROSS SALES":    "gross_purchase", // mismatch: sales raw → purchase field
+				"VATABLE SALES":  "vatable_purchase",
+				"OUTPUT TAX":     "input_tax",
+				"CUSTOMER NAME":  "supplier_name",
+				"GROSS PURCHASE": "gross_purchase", // correct
+				"INPUT TAX":      "input_tax",      // correct
+				"SUPPLIER NAME":  "supplier_name",  // correct
+				"TIN":            "tin",             // neutral
+			},
+			want: map[string]string{
+				"GROSS SALES":    "gross_sales",    // corrected
+				"VATABLE SALES":  "vatable_sales",  // corrected
+				"OUTPUT TAX":     "output_tax",     // corrected
+				"CUSTOMER NAME":  "customer_name",  // corrected
+				"GROSS PURCHASE": "gross_purchase",
+				"INPUT TAX":      "input_tax",
+				"SUPPLIER NAME":  "supplier_name",
+				"TIN":            "tin",
+			},
+		},
+		{
+			name: "sales-only file unchanged",
+			mappings: map[string]string{
+				"GROSS SALES":   "gross_sales",
+				"CUSTOMER NAME": "customer_name",
+			},
+			want: map[string]string{
+				"GROSS SALES":   "gross_sales",
+				"CUSTOMER NAME": "customer_name",
+			},
+		},
+		{
+			name: "purchase-only file unchanged",
+			mappings: map[string]string{
+				"GROSS PURCHASE": "gross_purchase",
+				"SUPPLIER NAME":  "supplier_name",
+			},
+			want: map[string]string{
+				"GROSS PURCHASE": "gross_purchase",
+				"SUPPLIER NAME":  "supplier_name",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := fixMixedColumnMappings(tt.mappings)
+			for key, wantVal := range tt.want {
+				if gotVal, ok := got[key]; !ok {
+					t.Errorf("missing key %q", key)
+				} else if gotVal != wantVal {
+					t.Errorf("key %q = %q, want %q", key, gotVal, wantVal)
+				}
+			}
+		})
+	}
+}
+
 func TestInferRowSourceType(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -289,6 +289,10 @@ func (s *SessionService) AddFile(ctx context.Context, sessionID, companyID uuid.
 		return nil, fmt.Errorf("session not found")
 	}
 
+	// Fix mismatched mappings for combined files (e.g., raw "Gross Sales" mapped
+	// to gross_purchase because the user selected "Purchases" data category).
+	input.ColumnMappings = fixMixedColumnMappings(input.ColumnMappings)
+
 	imported := 0
 	var warnings []map[string]interface{}
 	for i, row := range input.Rows {
@@ -1252,6 +1256,91 @@ func parseFlexDate(s string) pgtype.Date {
 		}
 	}
 	return pgtype.Date{}
+}
+
+// salesToPurchaseField maps sales field names to their purchase equivalents.
+var salesToPurchaseField = map[string]string{
+	"gross_sales": "gross_purchase", "vatable_sales": "vatable_purchase",
+	"output_tax": "input_tax", "customer_name": "supplier_name",
+	"customer_tin": "supplier_tin", "exempt_sales": "exempt_purchase",
+	"zero_rated_sales": "zero_rated_purchase",
+	"amount_of_gross_sales": "amount_of_gross_purchase",
+	"amount_of_vatable_sales": "amount_of_vatable_purchase",
+	"amount_of_exempt_sales": "amount_of_exempt_purchase",
+}
+
+// purchaseToSalesField is the reverse of salesToPurchaseField.
+var purchaseToSalesField = func() map[string]string {
+	m := make(map[string]string, len(salesToPurchaseField))
+	for s, p := range salesToPurchaseField {
+		m[p] = s
+	}
+	return m
+}()
+
+// rawColumnIndicatesSales checks if the raw column name contains sales indicators.
+func rawColumnIndicatesSales(rawCol string) bool {
+	lower := strings.ToLower(rawCol)
+	return strings.Contains(lower, "sales") || strings.Contains(lower, "customer") ||
+		strings.Contains(lower, "output tax") || strings.Contains(lower, "output_tax") ||
+		strings.Contains(lower, "buyer")
+}
+
+// rawColumnIndicatesPurchase checks if the raw column name contains purchase indicators.
+func rawColumnIndicatesPurchase(rawCol string) bool {
+	lower := strings.ToLower(rawCol)
+	return strings.Contains(lower, "purchase") || strings.Contains(lower, "supplier") ||
+		strings.Contains(lower, "input tax") || strings.Contains(lower, "input_tax") ||
+		strings.Contains(lower, "vendor")
+}
+
+// fixMixedColumnMappings detects when a combined file has sales columns
+// incorrectly mapped to purchase fields (or vice versa) and corrects them.
+// This happens when a user uploads a file with both sales and purchases
+// but selects a single data category (e.g., "Purchases").
+func fixMixedColumnMappings(mappings map[string]string) map[string]string {
+	if len(mappings) == 0 {
+		return mappings
+	}
+
+	hasSalesRaw := false
+	hasPurchaseRaw := false
+	for rawCol := range mappings {
+		if rawColumnIndicatesSales(rawCol) {
+			hasSalesRaw = true
+		}
+		if rawColumnIndicatesPurchase(rawCol) {
+			hasPurchaseRaw = true
+		}
+	}
+
+	// Not a combined file — no correction needed
+	if !hasSalesRaw || !hasPurchaseRaw {
+		return mappings
+	}
+
+	corrected := make(map[string]string, len(mappings))
+	for rawCol, mappedField := range mappings {
+		if rawColumnIndicatesSales(rawCol) {
+			// Raw column is sales-related; ensure it maps to a sales field
+			if salesField, ok := purchaseToSalesField[mappedField]; ok {
+				corrected[rawCol] = salesField
+			} else {
+				corrected[rawCol] = mappedField
+			}
+		} else if rawColumnIndicatesPurchase(rawCol) {
+			// Raw column is purchase-related; ensure it maps to a purchase field
+			if purchaseField, ok := salesToPurchaseField[mappedField]; ok {
+				corrected[rawCol] = purchaseField
+			} else {
+				corrected[rawCol] = mappedField
+			}
+		} else {
+			corrected[rawCol] = mappedField
+		}
+	}
+
+	return corrected
 }
 
 // inferRowSourceType detects whether a row contains sales or purchase data

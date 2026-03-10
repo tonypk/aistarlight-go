@@ -61,6 +61,7 @@ type StreamEvent struct {
 	Done       bool            `json:"done,omitempty"`
 	Content    string          `json:"content,omitempty"`
 	Error      string          `json:"error,omitempty"`
+	ThreadID   string          `json:"thread_id,omitempty"`
 	ToolCalls  json.RawMessage `json:"tool_calls,omitempty"`
 	Actions    json.RawMessage `json:"actions,omitempty"`
 	Citations  json.RawMessage `json:"citations,omitempty"`

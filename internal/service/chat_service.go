@@ -418,6 +418,8 @@ func (s *ChatService) executeTool(ctx context.Context, name, argsJSON string, co
 		return s.executeLookupTaxRule(ctx, args, jurisdiction)
 	case "get_user_preferences":
 		return s.executeGetPreferences(ctx, args, companyID)
+	case "validate_report":
+		return s.executeValidateReport(ctx, args, companyID)
 	default:
 		return jsonError(fmt.Sprintf("unknown tool: %s", name))
 	}
@@ -441,6 +443,9 @@ func (s *ChatService) executeGenerateReport(ctx context.Context, args map[string
 					"existing_report_id": r.ID.String(),
 					"status":             r.Status,
 					"message":            fmt.Sprintf("A %s report for %s already exists.", reportType, period),
+					"action":             "view_report",
+					"action_label":       "View Report",
+					"action_route":       fmt.Sprintf("/reports/%s", r.ID.String()),
 				})
 				return string(result)
 			}
@@ -448,10 +453,12 @@ func (s *ChatService) executeGenerateReport(ctx context.Context, args map[string
 	}
 
 	result, _ := json.Marshal(map[string]interface{}{
-		"action":      "upload_required",
-		"report_type": reportType,
-		"period":      period,
-		"message":     fmt.Sprintf("To generate %s for %s, please upload your sales/purchase data first.", reportType, period),
+		"action":       "upload_required",
+		"action_label": "Upload Data",
+		"action_route": "/upload",
+		"report_type":  reportType,
+		"period":       period,
+		"message":      fmt.Sprintf("To generate %s for %s, please upload your sales/purchase data first.", reportType, period),
 	})
 	return string(result)
 }
@@ -517,6 +524,75 @@ func (s *ChatService) executeGetPreferences(ctx context.Context, args map[string
 		"report_type":     prefs.ReportType,
 		"column_mappings": json.RawMessage(prefs.ColumnMappings),
 		"format_rules":    json.RawMessage(prefs.FormatRules),
+	})
+	return string(result)
+}
+
+func (s *ChatService) executeValidateReport(ctx context.Context, args map[string]interface{}, companyID uuid.UUID) string {
+	reportIDStr := toString(args["report_id"])
+	reportID, err := uuid.Parse(reportIDStr)
+	if err != nil {
+		return jsonError("invalid report_id format")
+	}
+
+	report, err := s.q.GetReportByID(ctx, reportID)
+	if err != nil {
+		return jsonError("report not found")
+	}
+	if report.CompanyID != companyID {
+		return jsonError("report not found")
+	}
+
+	var calcData map[string]interface{}
+	if len(report.CalculatedData) > 0 {
+		_ = json.Unmarshal(report.CalculatedData, &calcData)
+	}
+	if calcData == nil {
+		calcData = make(map[string]interface{})
+	}
+	calcData["period"] = report.Period
+	calcData["report_type"] = report.ReportType
+
+	checks := RunAllChecks(calcData, report.ReportType, nil, nil)
+
+	critical := 0
+	high := 0
+	issues := make([]map[string]string, 0, len(checks))
+	for _, c := range checks {
+		if !c.Passed {
+			issues = append(issues, map[string]string{
+				"check":    c.CheckName,
+				"severity": c.Severity,
+				"message":  c.Message,
+			})
+			switch c.Severity {
+			case "critical":
+				critical++
+			case "high":
+				high++
+			}
+		}
+	}
+
+	status := "compliant"
+	if critical > 0 {
+		status = "critical_issues"
+	} else if high > 0 {
+		status = "issues_found"
+	} else if len(issues) > 0 {
+		status = "minor_issues"
+	}
+
+	result, _ := json.Marshal(map[string]interface{}{
+		"report_id":   report.ID.String(),
+		"report_type": report.ReportType,
+		"period":      report.Period,
+		"status":      status,
+		"total_checks": len(checks),
+		"issues":      issues,
+		"action":      "view_report",
+		"action_label": "View Report Details",
+		"action_route": fmt.Sprintf("/reports/%s", report.ID.String()),
 	})
 	return string(result)
 }

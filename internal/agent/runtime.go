@@ -145,6 +145,13 @@ func (rt *Runtime) ProcessStream(ctx context.Context, req AgentRequest) (<-chan 
 			if tcJSON, err := json.Marshal(toolResults); err == nil {
 				ch <- StreamEvent{ToolCalls: tcJSON}
 			}
+
+			// Extract actions from tool results and emit as Actions event
+			if actions := extractActions(toolResults); len(actions) > 0 {
+				if actJSON, err := json.Marshal(actions); err == nil {
+					ch <- StreamEvent{Actions: actJSON}
+				}
+			}
 		} else if choice.Message.Content != "" {
 			// No tool calls, direct response
 			content := choice.Message.Content
@@ -333,6 +340,53 @@ func uuidToPgtype(id uuid.UUID) pgtype.UUID {
 		return pgtype.UUID{}
 	}
 	return pgtype.UUID{Bytes: id, Valid: true}
+}
+
+// ActionButton represents a clickable action in the chat UI.
+type ActionButton struct {
+	Label string `json:"label"`
+	Route string `json:"route"`
+	Type  string `json:"type"` // "navigate", "action"
+}
+
+// extractActions inspects tool results for action fields and returns UI buttons.
+func extractActions(results []ToolCallResult) []ActionButton {
+	var actions []ActionButton
+	for _, r := range results {
+		var data map[string]interface{}
+		if err := json.Unmarshal([]byte(r.Result), &data); err != nil {
+			continue
+		}
+		action, _ := data["action"].(string)
+		if action == "" {
+			continue
+		}
+		label, _ := data["action_label"].(string)
+		route, _ := data["action_route"].(string)
+		if label == "" {
+			// Default labels for known actions
+			switch action {
+			case "upload_required":
+				label = "Upload Data"
+				if route == "" {
+					route = "/upload"
+				}
+			case "view_report":
+				label = "View Report"
+			default:
+				label = action
+			}
+		}
+		if route == "" {
+			continue
+		}
+		actions = append(actions, ActionButton{
+			Label: label,
+			Route: route,
+			Type:  "navigate",
+		})
+	}
+	return actions
 }
 
 func jsonError(msg string) string {

@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/tonypk/aistarlight-go/internal/service"
@@ -11,14 +10,7 @@ import (
 
 // ToolExecutor routes tool calls from agents to existing service methods.
 type ToolExecutor struct {
-	knowledge   *service.KnowledgeService
-	q           interface{ GetUserPreferenceByCompanyAndType(ctx context.Context, arg interface{}) (interface{}, error) }
-	reportQ     reportQuerier
-	chatSvc     *service.ChatService // reuse existing tool execution for backward compat
-}
-
-type reportQuerier interface {
-	ListReportsByCompanyAndType(ctx context.Context, arg interface{}) (interface{}, error)
+	chatSvc *service.ChatService // reuse existing tool execution for backward compat
 }
 
 // NewToolExecutor creates a tool executor that bridges to existing services.
@@ -41,14 +33,3 @@ func (te *ToolExecutor) MakeExecuteFunc() ToolExecuteFunc {
 	}
 }
 
-func toStringFromMap(args map[string]interface{}, key string) string {
-	v, ok := args[key]
-	if !ok || v == nil {
-		return ""
-	}
-	s, ok := v.(string)
-	if ok {
-		return s
-	}
-	return fmt.Sprintf("%v", v)
-}

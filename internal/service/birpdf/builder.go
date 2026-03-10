@@ -206,13 +206,6 @@ func (b *birFormBuilder) partHeader(text string) {
 	b.y += h
 }
 
-// sectionDivider draws a thin line divider.
-func (b *birFormBuilder) sectionDivider() {
-	b.pdf.SetDrawColor(0, 0, 0)
-	b.pdf.SetLineWidth(birLineWidth)
-	b.pdf.Line(b.marginL, b.y, b.marginL+b.contentW(), b.y)
-}
-
 // -------------------------------------------------------------------
 // TIN boxes
 // -------------------------------------------------------------------

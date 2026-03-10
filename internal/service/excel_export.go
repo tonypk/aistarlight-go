@@ -15,7 +15,7 @@ func GenerateTransactionExcel(w io.Writer, txns []TransactionResponse, period st
 	defer f.Close()
 
 	sheet := "Transactions"
-	f.SetSheetName("Sheet1", sheet)
+	_ = f.SetSheetName("Sheet1", sheet)
 
 	// Styles
 	headerStyle, _ := f.NewStyle(&excelize.Style{
@@ -34,12 +34,12 @@ func GenerateTransactionExcel(w io.Writer, txns []TransactionResponse, period st
 	})
 
 	// Title row
-	f.SetCellValue(sheet, "A1", fmt.Sprintf("%s — Transactions (%s)", company.CompanyName, period))
+	_ = f.SetCellValue(sheet, "A1", fmt.Sprintf("%s — Transactions (%s)", company.CompanyName, period))
 	titleStyle, _ := f.NewStyle(&excelize.Style{
 		Font: &excelize.Font{Bold: true, Size: 14},
 	})
-	f.SetCellStyle(sheet, "A1", "A1", titleStyle)
-	f.MergeCell(sheet, "A1", "K1")
+	_ = f.SetCellStyle(sheet, "A1", "A1", titleStyle)
+	_ = f.MergeCell(sheet, "A1", "K1")
 
 	// Headers
 	headers := []string{
@@ -48,9 +48,9 @@ func GenerateTransactionExcel(w io.Writer, txns []TransactionResponse, period st
 	}
 	for i, h := range headers {
 		col, _ := excelize.ColumnNumberToName(i + 1)
-		f.SetCellValue(sheet, fmt.Sprintf("%s3", col), h)
+		_ = f.SetCellValue(sheet, fmt.Sprintf("%s3", col), h)
 	}
-	f.SetCellStyle(sheet, "A3", fmt.Sprintf("%s3", colName(len(headers))), headerStyle)
+	_ = f.SetCellStyle(sheet, "A3", fmt.Sprintf("%s3", colName(len(headers))), headerStyle)
 
 	// Data
 	for i, txn := range txns {
@@ -68,24 +68,24 @@ func GenerateTransactionExcel(w io.Writer, txns []TransactionResponse, period st
 			tin = *txn.TIN
 		}
 
-		f.SetCellValue(sheet, fmt.Sprintf("A%d", row), date)
-		f.SetCellValue(sheet, fmt.Sprintf("B%d", row), desc)
-		f.SetCellValue(sheet, fmt.Sprintf("C%d", row), txn.Amount)
-		f.SetCellValue(sheet, fmt.Sprintf("D%d", row), txn.VATAmount)
-		f.SetCellValue(sheet, fmt.Sprintf("E%d", row), txn.VATType)
-		f.SetCellValue(sheet, fmt.Sprintf("F%d", row), txn.Category)
-		f.SetCellValue(sheet, fmt.Sprintf("G%d", row), tin)
-		f.SetCellValue(sheet, fmt.Sprintf("H%d", row), txn.Confidence)
-		f.SetCellValue(sheet, fmt.Sprintf("I%d", row), txn.ClassificationSource)
-		f.SetCellValue(sheet, fmt.Sprintf("J%d", row), txn.MatchStatus)
-		f.SetCellValue(sheet, fmt.Sprintf("K%d", row), txn.SourceType)
+		_ = f.SetCellValue(sheet, fmt.Sprintf("A%d", row), date)
+		_ = f.SetCellValue(sheet, fmt.Sprintf("B%d", row), desc)
+		_ = f.SetCellValue(sheet, fmt.Sprintf("C%d", row), txn.Amount)
+		_ = f.SetCellValue(sheet, fmt.Sprintf("D%d", row), txn.VATAmount)
+		_ = f.SetCellValue(sheet, fmt.Sprintf("E%d", row), txn.VATType)
+		_ = f.SetCellValue(sheet, fmt.Sprintf("F%d", row), txn.Category)
+		_ = f.SetCellValue(sheet, fmt.Sprintf("G%d", row), tin)
+		_ = f.SetCellValue(sheet, fmt.Sprintf("H%d", row), txn.Confidence)
+		_ = f.SetCellValue(sheet, fmt.Sprintf("I%d", row), txn.ClassificationSource)
+		_ = f.SetCellValue(sheet, fmt.Sprintf("J%d", row), txn.MatchStatus)
+		_ = f.SetCellValue(sheet, fmt.Sprintf("K%d", row), txn.SourceType)
 	}
 
 	// Apply number formats
 	lastRow := len(txns) + 3
 	if lastRow > 3 {
-		f.SetCellStyle(sheet, "C4", fmt.Sprintf("D%d", lastRow), amountStyle)
-		f.SetCellStyle(sheet, "H4", fmt.Sprintf("H%d", lastRow), pctStyle)
+		_ = f.SetCellStyle(sheet, "C4", fmt.Sprintf("D%d", lastRow), amountStyle)
+		_ = f.SetCellStyle(sheet, "H4", fmt.Sprintf("H%d", lastRow), pctStyle)
 	}
 
 	// Auto-fit column widths (approximate)
@@ -94,7 +94,7 @@ func GenerateTransactionExcel(w io.Writer, txns []TransactionResponse, period st
 		"F": 15, "G": 18, "H": 12, "I": 16, "J": 14, "K": 16,
 	}
 	for col, width := range widths {
-		f.SetColWidth(sheet, col, col, width)
+		_ = f.SetColWidth(sheet, col, col, width)
 	}
 
 	return f.Write(w)
@@ -109,7 +109,7 @@ func GenerateReportExcel(w io.Writer, reportType string, calcData map[string]str
 	if len(sheet) > 31 { // Excel sheet name limit
 		sheet = sheet[:31]
 	}
-	f.SetSheetName("Sheet1", sheet)
+	_ = f.SetSheetName("Sheet1", sheet)
 
 	// Styles
 	headerStyle, _ := f.NewStyle(&excelize.Style{
@@ -125,24 +125,24 @@ func GenerateReportExcel(w io.Writer, reportType string, calcData map[string]str
 	})
 
 	// Title
-	f.SetCellValue(sheet, "A1", fmt.Sprintf("%s — %s", company.CompanyName, reportType))
+	_ = f.SetCellValue(sheet, "A1", fmt.Sprintf("%s — %s", company.CompanyName, reportType))
 	titleStyle, _ := f.NewStyle(&excelize.Style{
 		Font: &excelize.Font{Bold: true, Size: 14},
 	})
-	f.SetCellStyle(sheet, "A1", "A1", titleStyle)
-	f.MergeCell(sheet, "A1", "C1")
+	_ = f.SetCellStyle(sheet, "A1", "A1", titleStyle)
+	_ = f.MergeCell(sheet, "A1", "C1")
 
 	// Company info
-	f.SetCellValue(sheet, "A2", "TIN:")
-	f.SetCellValue(sheet, "B2", company.TINNumber)
-	f.SetCellValue(sheet, "A3", "RDO Code:")
-	f.SetCellValue(sheet, "B3", company.RDOCode)
-	f.SetCellStyle(sheet, "A2", "A3", labelStyle)
+	_ = f.SetCellValue(sheet, "A2", "TIN:")
+	_ = f.SetCellValue(sheet, "B2", company.TINNumber)
+	_ = f.SetCellValue(sheet, "A3", "RDO Code:")
+	_ = f.SetCellValue(sheet, "B3", company.RDOCode)
+	_ = f.SetCellStyle(sheet, "A2", "A3", labelStyle)
 
 	// Header row
-	f.SetCellValue(sheet, "A5", "Field")
-	f.SetCellValue(sheet, "B5", "Value")
-	f.SetCellStyle(sheet, "A5", "B5", headerStyle)
+	_ = f.SetCellValue(sheet, "A5", "Field")
+	_ = f.SetCellValue(sheet, "B5", "Value")
+	_ = f.SetCellStyle(sheet, "A5", "B5", headerStyle)
 
 	// Sort fields for consistent output
 	keys := make([]string, 0, len(calcData))
@@ -154,20 +154,20 @@ func GenerateReportExcel(w io.Writer, reportType string, calcData map[string]str
 	// Data rows
 	row := 6
 	for _, key := range keys {
-		f.SetCellValue(sheet, fmt.Sprintf("A%d", row), key)
-		f.SetCellValue(sheet, fmt.Sprintf("B%d", row), calcData[key])
-		f.SetCellStyle(sheet, fmt.Sprintf("A%d", row), fmt.Sprintf("A%d", row), labelStyle)
+		_ = f.SetCellValue(sheet, fmt.Sprintf("A%d", row), key)
+		_ = f.SetCellValue(sheet, fmt.Sprintf("B%d", row), calcData[key])
+		_ = f.SetCellStyle(sheet, fmt.Sprintf("A%d", row), fmt.Sprintf("A%d", row), labelStyle)
 		row++
 	}
 
 	// Try to format amount cells
 	if row > 6 {
-		f.SetCellStyle(sheet, "B6", fmt.Sprintf("B%d", row-1), amountStyle)
+		_ = f.SetCellStyle(sheet, "B6", fmt.Sprintf("B%d", row-1), amountStyle)
 	}
 
 	// Column widths
-	f.SetColWidth(sheet, "A", "A", 30)
-	f.SetColWidth(sheet, "B", "B", 25)
+	_ = f.SetColWidth(sheet, "A", "A", 30)
+	_ = f.SetColWidth(sheet, "B", "B", 25)
 
 	return f.Write(w)
 }

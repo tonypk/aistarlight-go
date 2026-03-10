@@ -58,7 +58,6 @@ func DetectDataRegions(rows CellGrid) []DataRegion {
 				inRegion = true
 				regionStart = i
 				regionNonEmpty = 0
-				consecutiveBlanks = 0
 			}
 			consecutiveBlanks = 0
 			regionNonEmpty++

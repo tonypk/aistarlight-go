@@ -685,9 +685,7 @@ func (s *ColumnMapperService) AutoMapColumns(
 		if idx := strings.Index(content, "\n"); idx != -1 {
 			content = content[idx+1:]
 		}
-		if strings.HasSuffix(content, "```") {
-			content = content[:len(content)-3]
-		}
+		content = strings.TrimSuffix(content, "```")
 		content = strings.TrimSpace(content)
 	}
 

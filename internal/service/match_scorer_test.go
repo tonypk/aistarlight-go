@@ -280,15 +280,22 @@ func TestMatchTransactions_SplitMatch(t *testing.T) {
 
 func TestTokenize(t *testing.T) {
 	words := tokenize("ABC Company, Inc. - Monthly Payment")
-	expected := map[string]bool{"abc": true, "company": true, "monthly": true, "payment": true}
-	for _, w := range words {
-		if !expected[w] {
-			// OK — might include extra words, just make sure stop words are removed
-		}
-	}
 	for _, w := range words {
 		if stopWords[w] {
 			t.Errorf("stop word %q should have been removed", w)
+		}
+	}
+	expected := map[string]bool{"abc": true, "company": true, "monthly": true, "payment": true}
+	for _, exp := range []string{"abc", "company", "monthly", "payment"} {
+		found := false
+		for _, w := range words {
+			if w == exp {
+				found = true
+				break
+			}
+		}
+		if !found && expected[exp] {
+			t.Errorf("expected word %q not found in tokenized output", exp)
 		}
 	}
 }

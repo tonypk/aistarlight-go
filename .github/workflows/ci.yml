@@ -84,6 +84,7 @@ jobs:
         run: |
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o aistarlight-api ./cmd/api
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o aistarlight-worker ./cmd/worker
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o aistarlight-bot ./cmd/bot
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o aistarlight-migrate ./cmd/migrate
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -92,6 +93,7 @@ jobs:
           path: |
             aistarlight-api
             aistarlight-worker
+            aistarlight-bot
             aistarlight-migrate
           retention-days: 7
 
@@ -117,7 +119,7 @@ jobs:
       - name: Upload binaries to server
         run: |
           scp -i ~/.ssh/deploy_key \
-            aistarlight-api aistarlight-worker aistarlight-migrate \
+            aistarlight-api aistarlight-worker aistarlight-bot aistarlight-migrate \
             ${{ secrets.GCE_USER }}@${{ secrets.GCE_HOST }}:/tmp/
 
       - name: Upload config files
@@ -139,8 +141,8 @@ jobs:
             COMPOSE="sudo docker compose -p aistarlight -f docker-compose.prod.yml"
 
             # Copy binaries and config
-            sudo cp /tmp/aistarlight-api /tmp/aistarlight-worker /tmp/aistarlight-migrate "$PROJECT_DIR/"
-            sudo chmod +x "$PROJECT_DIR"/aistarlight-{api,worker,migrate}
+            sudo cp /tmp/aistarlight-api /tmp/aistarlight-worker /tmp/aistarlight-bot /tmp/aistarlight-migrate "$PROJECT_DIR/"
+            sudo chmod +x "$PROJECT_DIR"/aistarlight-{api,worker,bot,migrate}
             sudo cp -r /tmp/aistarlight-deploy/migrations "$PROJECT_DIR/"
             sudo cp -r /tmp/aistarlight-deploy/docker "$PROJECT_DIR/"
             sudo cp -r /tmp/aistarlight-deploy/deploy "$PROJECT_DIR/"
@@ -153,8 +155,8 @@ jobs:
             $COMPOSE run --rm migrate
 
             # Build and restart
-            $COMPOSE build api worker
-            $COMPOSE up -d api worker
+            $COMPOSE build api worker bot
+            $COMPOSE up -d api worker bot
 
             # Reload nginx to pick up new container IPs
             $COMPOSE exec -T nginx nginx -s reload 2>/dev/null || true
@@ -176,4 +178,4 @@ jobs:
 
             # Cleanup
             sudo docker image prune -f
-            rm -rf /tmp/aistarlight-{api,worker,migrate} /tmp/aistarlight-deploy
+            rm -rf /tmp/aistarlight-{api,worker,bot,migrate} /tmp/aistarlight-deploy

@@ -26,6 +26,8 @@ import (
 	pg "github.com/tonypk/aistarlight-go/internal/platform/postgres"
 	"github.com/tonypk/aistarlight-go/internal/platform/qbo"
 	rd "github.com/tonypk/aistarlight-go/internal/platform/redis"
+	"github.com/tonypk/aistarlight-go/internal/agent"
+	"github.com/tonypk/aistarlight-go/internal/agent/agents"
 	"github.com/tonypk/aistarlight-go/internal/repository/sqlc"
 	"github.com/tonypk/aistarlight-go/internal/service"
 )
@@ -257,6 +259,7 @@ type handlers struct {
 	Telegram       *handler.TelegramHandler
 	Notification   *handler.NotificationHandler
 	Health         *handler.HealthHandler
+	Agent          *handler.AgentHandler
 	// Pipeline bridge handlers
 	ReceiptBridge  *handler.ReceiptBridgeHandler
 	JournalBridge  *handler.JournalBridgeHandler
@@ -264,7 +267,15 @@ type handlers struct {
 	TaxBridge      *handler.TaxBridgeHandler
 }
 
+func newAgentRuntime(ai *oai.Client, q *sqlc.Queries, chatSvc *service.ChatService) *agent.Runtime {
+	registry := agent.NewRegistry()
+	agents.RegisterAll(registry)
+	toolExec := agent.NewToolExecutor(chatSvc)
+	return agent.NewRuntime(registry, ai, q, toolExec.MakeExecuteFunc())
+}
+
 func newHandlers(svc services, cfg *config.Config, ai *oai.Client, q *sqlc.Queries) handlers {
+	agentRuntime := newAgentRuntime(ai, q, svc.Chat)
 	return handlers{
 		Auth:           handler.NewAuthHandler(svc.Auth, svc.Company),
 		Org:            handler.NewOrgHandler(svc.Org),
@@ -295,6 +306,7 @@ func newHandlers(svc services, cfg *config.Config, ai *oai.Client, q *sqlc.Queri
 		Telegram:       handler.NewTelegramHandler(q, cfg.Telegram.BotUsername),
 		Notification:   handler.NewNotificationHandler(svc.Notification),
 		Health:         handler.NewHealthHandler(ai),
+		Agent:          handler.NewAgentHandler(agentRuntime),
 		// Pipeline bridges
 		ReceiptBridge:  handler.NewReceiptBridgeHandler(svc.ReceiptBridge),
 		JournalBridge:  handler.NewJournalBridgeHandler(svc.JournalGen),
@@ -349,6 +361,7 @@ func newGinEngine(cfg *config.Config, rdb *redis.Client, svc services, h handler
 		Telegram:       h.Telegram,
 		Notification:   h.Notification,
 		Health:         h.Health,
+		Agent:          h.Agent,
 		ReceiptBridge:  h.ReceiptBridge,
 		JournalBridge:  h.JournalBridge,
 		FinStatement:   h.FinStatement,

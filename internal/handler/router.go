@@ -38,6 +38,8 @@ type Router struct {
 	Telegram       *TelegramHandler
 	Notification   *NotificationHandler
 	Health         *HealthHandler
+	// AI Agent handler
+	Agent          *AgentHandler
 	// Pipeline bridge handlers
 	ReceiptBridge  *ReceiptBridgeHandler
 	JournalBridge  *JournalBridgeHandler
@@ -164,13 +166,26 @@ func (rt *Router) Setup(r *gin.Engine) {
 		}
 	}
 
-	// Chat routes (AI agent)
+	// Chat routes (AI agent — backward compatible)
 	chat := api.Group("/chat")
 	chat.Use(authMw)
 	{
 		chat.POST("/message", rt.Chat.Message)
 		chat.POST("/stream", rt.Chat.Stream)
 		chat.GET("/history", rt.Chat.History)
+	}
+
+	// AI Agent routes (multi-agent system)
+	if rt.Agent != nil {
+		agentGroup := api.Group("/agents")
+		agentGroup.Use(authMw)
+		{
+			agentGroup.GET("", rt.Agent.ListAgents)
+			agentGroup.GET("/:agentId", rt.Agent.GetAgent)
+			agentGroup.POST("/:agentId/stream", rt.Agent.Stream)
+			agentGroup.GET("/:agentId/threads", rt.Agent.ListThreads)
+			agentGroup.GET("/:agentId/threads/:threadId/messages", rt.Agent.ThreadMessages)
+		}
 	}
 
 	// Reconciliation routes (canonical)

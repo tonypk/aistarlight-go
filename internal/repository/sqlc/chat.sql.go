@@ -14,7 +14,7 @@ import (
 const createChatMessage = `-- name: CreateChatMessage :one
 INSERT INTO chat_messages (id, company_id, user_id, role, content, tool_calls, created_at)
 VALUES ($1, $2, $3, $4, $5, $6, NOW())
-RETURNING id, company_id, user_id, role, content, tool_calls, created_at
+RETURNING id, company_id, user_id, role, content, tool_calls, created_at, thread_id, agent_id, message_type, citations_json, action_results_json
 `
 
 type CreateChatMessageParams struct {
@@ -44,12 +44,17 @@ func (q *Queries) CreateChatMessage(ctx context.Context, arg CreateChatMessagePa
 		&i.Content,
 		&i.ToolCalls,
 		&i.CreatedAt,
+		&i.ThreadID,
+		&i.AgentID,
+		&i.MessageType,
+		&i.CitationsJson,
+		&i.ActionResultsJson,
 	)
 	return i, err
 }
 
 const listChatMessagesByCompany = `-- name: ListChatMessagesByCompany :many
-SELECT id, company_id, user_id, role, content, tool_calls, created_at FROM chat_messages
+SELECT id, company_id, user_id, role, content, tool_calls, created_at, thread_id, agent_id, message_type, citations_json, action_results_json FROM chat_messages
 WHERE company_id = $1
 ORDER BY created_at DESC
 LIMIT $2
@@ -77,6 +82,11 @@ func (q *Queries) ListChatMessagesByCompany(ctx context.Context, arg ListChatMes
 			&i.Content,
 			&i.ToolCalls,
 			&i.CreatedAt,
+			&i.ThreadID,
+			&i.AgentID,
+			&i.MessageType,
+			&i.CitationsJson,
+			&i.ActionResultsJson,
 		); err != nil {
 			return nil, err
 		}

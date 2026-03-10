@@ -400,6 +400,11 @@ func (s *ChatService) buildMessages(history []domain.ChatMessage, userMessage st
 	return messages
 }
 
+// ExecuteTool executes a named tool with JSON arguments. Exported for use by agent runtime.
+func (s *ChatService) ExecuteTool(ctx context.Context, name, argsJSON string, companyID uuid.UUID, jurisdiction string) string {
+	return s.executeTool(ctx, name, argsJSON, companyID, jurisdiction)
+}
+
 func (s *ChatService) executeTool(ctx context.Context, name, argsJSON string, companyID uuid.UUID, jurisdiction string) string {
 	var args map[string]interface{}
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {

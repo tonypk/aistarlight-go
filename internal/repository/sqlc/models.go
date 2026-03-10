@@ -43,6 +43,34 @@ type AccountingPeriod struct {
 	UpdatedAt  time.Time          `json:"updated_at"`
 }
 
+type AgentActionLog struct {
+	ID           uuid.UUID   `json:"id"`
+	ThreadID     pgtype.UUID `json:"thread_id"`
+	CompanyID    uuid.UUID   `json:"company_id"`
+	UserID       uuid.UUID   `json:"user_id"`
+	AgentID      string      `json:"agent_id"`
+	ActionName   string      `json:"action_name"`
+	ActionInput  []byte      `json:"action_input"`
+	ActionResult []byte      `json:"action_result"`
+	Status       string      `json:"status"`
+	CreatedAt    time.Time   `json:"created_at"`
+}
+
+type AgentThread struct {
+	ID           uuid.UUID   `json:"id"`
+	CompanyID    uuid.UUID   `json:"company_id"`
+	UserID       uuid.UUID   `json:"user_id"`
+	AgentID      string      `json:"agent_id"`
+	WorkflowType *string     `json:"workflow_type"`
+	EntityType   *string     `json:"entity_type"`
+	EntityID     pgtype.UUID `json:"entity_id"`
+	Title        *string     `json:"title"`
+	Status       string      `json:"status"`
+	ContextJson  []byte      `json:"context_json"`
+	CreatedAt    time.Time   `json:"created_at"`
+	UpdatedAt    time.Time   `json:"updated_at"`
+}
+
 type Anomaly struct {
 	ID             uuid.UUID          `json:"id"`
 	CompanyID      uuid.UUID          `json:"company_id"`
@@ -108,13 +136,18 @@ type BankReconciliationBatch struct {
 }
 
 type ChatMessage struct {
-	ID        uuid.UUID `json:"id"`
-	CompanyID uuid.UUID `json:"company_id"`
-	UserID    uuid.UUID `json:"user_id"`
-	Role      string    `json:"role"`
-	Content   string    `json:"content"`
-	ToolCalls []byte    `json:"tool_calls"`
-	CreatedAt time.Time `json:"created_at"`
+	ID                uuid.UUID   `json:"id"`
+	CompanyID         uuid.UUID   `json:"company_id"`
+	UserID            uuid.UUID   `json:"user_id"`
+	Role              string      `json:"role"`
+	Content           string      `json:"content"`
+	ToolCalls         []byte      `json:"tool_calls"`
+	CreatedAt         time.Time   `json:"created_at"`
+	ThreadID          pgtype.UUID `json:"thread_id"`
+	AgentID           *string     `json:"agent_id"`
+	MessageType       *string     `json:"message_type"`
+	CitationsJson     []byte      `json:"citations_json"`
+	ActionResultsJson []byte      `json:"action_results_json"`
 }
 
 type CleaningTemplate struct {

@@ -459,11 +459,51 @@ func detectMixedColumns(columns []string) (hasSales, hasPurchases bool) {
 	return
 }
 
+const columnMapperSystemPromptLK = `Expert Sri Lanka Chartered Accountant assistant for IRD tax return filing.
+Map spreadsheet columns to official IRD Sri Lanka form fields.
+Supports: VAT Return, CIT, Income Tax Return, PAYE/APIT, WHT, SSCL.
+
+=== Target fields by report type ===
+
+IRDSL_VAT_RETURN (VAT Return):
+  Standard-Rated Supplies:
+    supply_date, invoice_number, customer_name, customer_tin,
+    standard_rated_supplies, zero_rated_supplies, exempt_supplies,
+    total_supplies, output_vat
+  Purchases:
+    supplier_name, supplier_tin, purchase_date, purchase_invoice_number,
+    taxable_purchases, input_vat_claimed, svat_credits
+  VAT Computation:
+    net_vat_payable
+
+IRDSL_CIT (Corporate Income Tax):
+  Income: revenue, other_income, total_income
+  Deductions: expenses, depreciation, exempt_income
+  Tax: taxable_income, tax_rate, tax_payable, wht_credits, net_tax_payable
+
+IRDSL_PAYE / IRDSL_APIT (PAYE/APIT):
+  Payroll: employee_name, employee_tin, gross_salary, epf_employee, epf_employer,
+    etf_employer, apit_deducted, net_salary
+
+IRDSL_WHT (Withholding Tax):
+  Payment: payee_name, payee_tin, payment_amount, income_type, wht_rate, tax_withheld
+
+=== Mapping rules ===
+Always map to the most specific field that matches.
+Use Sri Lanka terminology: TIN (not UEN), VAT (not GST), EPF/ETF (not CPF).
+Currency: LKR (Sri Lankan Rupee).
+If unsure, return null for the mapping.
+Respond ONLY with valid JSON.`
+
 func columnMapperPrompt(jurisdiction string) string {
-	if jurisdiction == "SG" {
+	switch jurisdiction {
+	case "SG":
 		return columnMapperSystemPromptSG
+	case "LK":
+		return columnMapperSystemPromptLK
+	default:
+		return columnMapperSystemPromptPH
 	}
-	return columnMapperSystemPromptPH
 }
 
 // ColumnMapperService handles AI-powered column mapping.

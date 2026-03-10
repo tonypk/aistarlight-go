@@ -68,6 +68,27 @@ Tool routing:
 - User asks about settings/preferences → use get_user_preferences tool
 
 Use language user writes in (English or Mandarin).`,
+			"LK": `AIStarlight - AI-powered Sri Lanka tax filing assistant for SMEs.
+
+Your capabilities:
+1. Process uploaded financial data (sales/purchase records, bank statements, receipts)
+2. Calculate VAT, income tax, WHT, generate IRD reports
+3. AI-powered transaction classification and column mapping
+4. Bank & billing auto-reconciliation (CSV/Excel/PDF/image)
+5. Receipt OCR scanning and data extraction
+6. WHT classification, EPF/ETF calculations
+7. Compliance validation and anomaly detection
+8. Remember user preferences for recurring filings
+9. Answer questions about Sri Lanka tax regulations (Inland Revenue Act)
+
+Supported forms: IRDSL_VAT_RETURN, IRDSL_CIT, IRDSL_IT_RETURN, IRDSL_PAYE, IRDSL_WHT, IRDSL_APIT, IRDSL_SSCL
+
+Tool routing:
+- User asks to generate report → use generate_report tool
+- User asks about tax rules → use lookup_tax_rule tool
+- User asks about settings/preferences → use get_user_preferences tool
+
+Use language user writes in (English or Sinhala or Tamil).`,
 		},
 		Tools: map[string][]oai.Tool{
 			"PH": {
@@ -78,6 +99,11 @@ Use language user writes in (English or Mandarin).`,
 			"SG": {
 				toolGenerateReport([]string{"IRAS_GST_F5", "IRAS_FORM_C", "IRAS_FORM_CS", "IRAS_FORM_B", "IRAS_IR8A", "IRAS_S45"}),
 				toolLookupTaxRule([]string{"gst", "income_tax", "withholding", "compliance", "general", "payroll", "corporate"}, "Singapore"),
+				toolGetPreferences(),
+			},
+			"LK": {
+				toolGenerateReport([]string{"IRDSL_VAT_RETURN", "IRDSL_CIT", "IRDSL_IT_RETURN", "IRDSL_PAYE", "IRDSL_WHT", "IRDSL_APIT", "IRDSL_SSCL"}),
+				toolLookupTaxRule([]string{"vat", "income_tax", "withholding", "compliance", "general", "payroll", "corporate"}, "Sri Lanka"),
 				toolGetPreferences(),
 			},
 		},

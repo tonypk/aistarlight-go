@@ -58,6 +58,28 @@ Tool routing:
 
 Use language user writes in (English or Mandarin).`
 
+const chatSystemPromptLK = `AIStarlight - AI-powered Sri Lanka tax filing assistant for SMEs.
+
+Your capabilities:
+1. Process uploaded financial data (sales/purchase records, bank statements, receipts)
+2. Calculate VAT, income tax, WHT, generate IRD reports
+3. AI-powered transaction classification and column mapping
+4. Bank & billing auto-reconciliation (CSV/Excel/PDF/image)
+5. Receipt OCR scanning and data extraction
+6. WHT classification, EPF/ETF calculations
+7. Compliance validation and anomaly detection
+8. Remember user preferences for recurring filings
+9. Answer questions about Sri Lanka tax regulations (Inland Revenue Act)
+
+Supported forms: IRDSL_VAT_RETURN, IRDSL_CIT, IRDSL_IT_RETURN, IRDSL_PAYE, IRDSL_WHT, IRDSL_APIT, IRDSL_SSCL, IRDSL_SVAT
+
+Tool routing:
+- User asks to generate report → use generate_report tool
+- User asks about tax rules → use lookup_tax_rule tool
+- User asks about settings/preferences → use get_user_preferences tool
+
+Use language user writes in (English or Sinhala or Tamil).`
+
 var chatToolsPH = []oai.Tool{
 	{
 		Type: oai.ToolTypeFunction,
@@ -152,18 +174,73 @@ var chatToolsSG = []oai.Tool{
 	},
 }
 
+var chatToolsLK = []oai.Tool{
+	{
+		Type: oai.ToolTypeFunction,
+		Function: &oai.FunctionDefinition{
+			Name:        "generate_report",
+			Description: "Generate an IRD Sri Lanka tax report for a specific period",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"report_type": {"type": "string", "enum": ["IRDSL_VAT_RETURN", "IRDSL_CIT", "IRDSL_IT_RETURN", "IRDSL_PAYE", "IRDSL_WHT", "IRDSL_APIT", "IRDSL_SSCL"]},
+					"period": {"type": "string", "description": "YYYY-MM format"}
+				},
+				"required": ["report_type", "period"]
+			}`),
+		},
+	},
+	{
+		Type: oai.ToolTypeFunction,
+		Function: &oai.FunctionDefinition{
+			Name:        "lookup_tax_rule",
+			Description: "Look up a Sri Lanka tax regulation or rule",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"query": {"type": "string", "description": "The tax rule query"},
+					"category": {"type": "string", "enum": ["vat", "income_tax", "withholding", "compliance", "general", "payroll", "corporate"]}
+				},
+				"required": ["query"]
+			}`),
+		},
+	},
+	{
+		Type: oai.ToolTypeFunction,
+		Function: &oai.FunctionDefinition{
+			Name:        "get_user_preferences",
+			Description: "Retrieve saved user preferences for a report type",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"report_type": {"type": "string"}
+				},
+				"required": ["report_type"]
+			}`),
+		},
+	},
+}
+
 func chatToolsForJurisdiction(jurisdiction string) []oai.Tool {
-	if jurisdiction == "SG" {
+	switch jurisdiction {
+	case "SG":
 		return chatToolsSG
+	case "LK":
+		return chatToolsLK
+	default:
+		return chatToolsPH
 	}
-	return chatToolsPH
 }
 
 func chatSystemPrompt(jurisdiction string) string {
-	if jurisdiction == "SG" {
+	switch jurisdiction {
+	case "SG":
 		return chatSystemPromptSG
+	case "LK":
+		return chatSystemPromptLK
+	default:
+		return chatSystemPromptPH
 	}
-	return chatSystemPromptPH
 }
 
 // ChatService handles AI agent orchestration with tool calling.

@@ -76,10 +76,14 @@ func (s *ComplianceService) GenerateAutoFixSuggestions(ctx context.Context, repo
 	failedJSON, _ := json.Marshal(failedChecks)
 
 	var sysPrompt, taxRules string
-	if jurisdiction == "SG" {
+	switch jurisdiction {
+	case "SG":
 		sysPrompt = "You are a Singapore IRAS tax compliance expert. Provide precise, calculation-based fix suggestions following IRAS regulations."
 		taxRules = "Use Singapore tax rules (9% GST, 17% corporate tax, CPF contributions, S45 withholding tax rates)."
-	} else {
+	case "LK":
+		sysPrompt = "You are a Sri Lanka IRD tax compliance expert. Provide precise, calculation-based fix suggestions following the Inland Revenue Act."
+		taxRules = "Use Sri Lanka tax rules (18% VAT, 30% corporate tax, EPF 12%+8%, ETF 3%, WHT rates per IRA)."
+	default:
 		sysPrompt = "You are a Philippine BIR tax compliance expert. Provide precise, calculation-based fix suggestions."
 		taxRules = "Use Philippine tax rules (12% VAT, 5% government VAT, etc.)."
 	}

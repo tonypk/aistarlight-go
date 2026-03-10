@@ -29,11 +29,23 @@ If you're not sure, say so rather than guessing.
 Context:
 %s`
 
+const knowledgeSystemPromptLK = `Expert Sri Lanka tax consultant AI assistant.
+Use the following tax regulation context to answer questions accurately.
+Always cite the relevant IRD regulation, Inland Revenue Act, or VAT Act section when possible.
+If you're not sure, say so rather than guessing.
+
+Context:
+%s`
+
 func knowledgePrompt(jurisdiction string) string {
-	if jurisdiction == "SG" {
+	switch jurisdiction {
+	case "SG":
 		return knowledgeSystemPromptSG
+	case "LK":
+		return knowledgeSystemPromptLK
+	default:
+		return knowledgeSystemPromptPH
 	}
-	return knowledgeSystemPromptPH
 }
 
 // KnowledgeService provides RAG-based tax knowledge retrieval and answering.
@@ -274,8 +286,11 @@ func (s *KnowledgeService) AnswerQuestion(ctx context.Context, question string, 
 
 	if len(resp.Choices) == 0 {
 		fallback := "I couldn't generate an answer. Please consult the BIR website (www.bir.gov.ph)."
-		if jurisdiction == "SG" {
+		switch jurisdiction {
+		case "SG":
 			fallback = "I couldn't generate an answer. Please consult the IRAS website (www.iras.gov.sg)."
+		case "LK":
+			fallback = "I couldn't generate an answer. Please consult the IRD website (www.ird.gov.lk)."
 		}
 		return fallback, nil
 	}

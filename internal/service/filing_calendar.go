@@ -94,8 +94,15 @@ var filingRules = []filingRule{
 // GenerateFilingCalendar generates upcoming filing deadlines.
 // Routes to jurisdiction-specific calendar based on the jurisdiction parameter.
 func GenerateFilingCalendar(year int, monthsAhead int, jurisdiction string) []FilingEntry {
-	if jurisdiction == "SG" {
+	switch jurisdiction {
+	case "SG":
 		entries := GenerateSGFilingCalendar(year, monthsAhead)
+		sort.Slice(entries, func(i, j int) bool {
+			return entries[i].Deadline < entries[j].Deadline
+		})
+		return entries
+	case "LK":
+		entries := GenerateLKFilingCalendar(year, monthsAhead)
 		sort.Slice(entries, func(i, j int) bool {
 			return entries[i].Deadline < entries[j].Deadline
 		})

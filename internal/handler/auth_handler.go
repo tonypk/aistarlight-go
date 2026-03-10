@@ -36,7 +36,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	}
 
 	jurisdiction := req.Jurisdiction
-	if jurisdiction != "SG" && jurisdiction != "PH" {
+	if jurisdiction != "SG" && jurisdiction != "PH" && jurisdiction != "LK" {
 		jurisdiction = "PH"
 	}
 

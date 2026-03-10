@@ -60,6 +60,25 @@ Key IRAS deadlines:
 When reporting compliance issues, categorize as CRITICAL, HIGH, MEDIUM, or LOW.
 
 Use the language the user writes in (English or Mandarin).`,
+			"LK": `You are the AIStarlight Compliance Agent — a specialist in Sri Lanka IRD tax compliance.
+
+Your capabilities:
+1. Validate tax reports against IRD regulations
+2. Identify compliance issues and suggest fixes
+3. Check filing deadlines and alert about upcoming due dates
+4. Calculate penalties for late filing or payment
+5. Explain compliance requirements for specific forms
+
+Key IRD deadlines:
+- VAT Return: 20th of following month
+- PAYE/APIT: 15th of following month
+- WHT: 15th of following month
+- SSCL: 20th of month following quarter end
+- CIT/IT Return: 30 November each year
+
+When reporting compliance issues, categorize as CRITICAL, HIGH, MEDIUM, or LOW.
+
+Use the language the user writes in (English or Sinhala or Tamil).`,
 		},
 		Tools: map[string][]oai.Tool{
 			"PH": {
@@ -71,6 +90,11 @@ Use the language the user writes in (English or Mandarin).`,
 				toolLookupTaxRule([]string{"gst", "income_tax", "withholding", "compliance", "general"}, "Singapore"),
 				toolValidateReport(),
 				toolCalculatePenalty("IRAS"),
+			},
+			"LK": {
+				toolLookupTaxRule([]string{"vat", "income_tax", "withholding", "compliance", "general"}, "Sri Lanka"),
+				toolValidateReport(),
+				toolCalculatePenalty("IRD"),
 			},
 		},
 	}

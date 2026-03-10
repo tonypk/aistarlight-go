@@ -31,10 +31,14 @@ func NewFormRouter() *FormRouter {
 
 // RecommendForms returns the list of forms a company should file based on jurisdiction.
 func (r *FormRouter) RecommendForms(profile CompanyProfile, jurisdiction string) []FormRecommendation {
-	if jurisdiction == "SG" {
+	switch jurisdiction {
+	case "SG":
 		return r.recommendSGForms(profile)
+	case "LK":
+		return r.recommendLKForms(profile)
+	default:
+		return r.recommendPHForms(profile)
 	}
-	return r.recommendPHForms(profile)
 }
 
 func (r *FormRouter) recommendPHForms(profile CompanyProfile) []FormRecommendation {
@@ -214,6 +218,84 @@ func (r *FormRouter) recommendSGForms(profile CompanyProfile) []FormRecommendati
 		Frequency: "per-payment",
 		Required:  false,
 		Reason:    "File within 15 days of the 2nd month from payment date to non-residents",
+	})
+
+	return recs
+}
+
+func (r *FormRouter) recommendLKForms(profile CompanyProfile) []FormRecommendation {
+	var recs []FormRecommendation
+
+	entityType := strings.ToLower(profile.EntityType)
+	if entityType == "" {
+		entityType = "corporation"
+	}
+
+	// VAT Return (mandatory for VAT-registered)
+	if profile.VATRegistered {
+		recs = append(recs, FormRecommendation{
+			FormType:  "IRDSL_VAT_RETURN",
+			Name:      "VAT Return",
+			Frequency: "monthly",
+			Required:  true,
+			Reason:    "VAT-registered businesses must file monthly VAT returns by the 20th",
+		})
+	}
+
+	// Employee forms
+	if profile.HasEmployees {
+		recs = append(recs, FormRecommendation{
+			FormType:  "IRDSL_PAYE",
+			Name:      "PAYE / APIT Return",
+			Frequency: "monthly",
+			Required:  true,
+			Reason:    "Employers must remit APIT by 15th of following month",
+		})
+		recs = append(recs, FormRecommendation{
+			FormType:  "IRDSL_APIT",
+			Name:      "Annual APIT Statement",
+			Frequency: "annual",
+			Required:  true,
+			Reason:    "Annual statement of APIT deductions due 30 Apr",
+		})
+	}
+
+	// Corporate / Individual income tax
+	switch entityType {
+	case "individual", "sole_proprietor":
+		recs = append(recs, FormRecommendation{
+			FormType:  "IRDSL_IT_RETURN",
+			Name:      "Individual Income Tax Return",
+			Frequency: "annual",
+			Required:  true,
+			Reason:    "Individuals must file income tax return by 30 Nov",
+		})
+	default:
+		recs = append(recs, FormRecommendation{
+			FormType:  "IRDSL_CIT",
+			Name:      "Corporate Income Tax Return",
+			Frequency: "annual",
+			Required:  true,
+			Reason:    "Companies must file CIT return by 30 Nov",
+		})
+	}
+
+	// WHT (recommended for companies with non-resident payments)
+	recs = append(recs, FormRecommendation{
+		FormType:  "IRDSL_WHT",
+		Name:      "Withholding Tax Return",
+		Frequency: "per-payment",
+		Required:  false,
+		Reason:    "WHT on specified payments due by 15th of following month",
+	})
+
+	// SSCL (mandatory for businesses with turnover > LKR 120M/quarter)
+	recs = append(recs, FormRecommendation{
+		FormType:  "IRDSL_SSCL",
+		Name:      "Social Security Contribution Levy",
+		Frequency: "quarterly",
+		Required:  false,
+		Reason:    "SSCL at 2.5% on turnover exceeding LKR 120M/quarter",
 	})
 
 	return recs

@@ -350,9 +350,12 @@ func (h *DataHandler) SuggestMapping(c *gin.Context) {
 	}
 
 	if req.ReportType == "" {
-		if middleware.GetJurisdiction(c) == "SG" {
+		switch middleware.GetJurisdiction(c) {
+		case "SG":
 			req.ReportType = "IRAS_GST_F5"
-		} else {
+		case "LK":
+			req.ReportType = "IRDSL_VAT_RETURN"
+		default:
 			req.ReportType = "BIR_2550M"
 		}
 	}

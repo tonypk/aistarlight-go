@@ -142,9 +142,12 @@ func (s *AccountService) Delete(ctx context.Context, id uuid.UUID) error {
 // Seed creates the standard COA for a company based on jurisdiction.
 func (s *AccountService) Seed(ctx context.Context, companyID uuid.UUID, jurisdiction string) (int, error) {
 	var templates []coa.AccountTemplate
-	if jurisdiction == "SG" {
+	switch jurisdiction {
+	case "SG":
 		templates = coa.SGStandardCOA()
-	} else {
+	case "LK":
+		templates = coa.LKStandardCOA()
+	default:
 		templates = coa.PHStandardCOA()
 	}
 	created := 0

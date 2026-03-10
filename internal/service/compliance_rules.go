@@ -34,6 +34,10 @@ func RunAllChecks(data map[string]interface{}, reportType string, priorData map[
 	if strings.HasPrefix(reportType, "IRAS_") {
 		return RunSGChecks(data, reportType, priorData, existingReports)
 	}
+	// Route IRDSL_ prefixed forms to Sri Lanka checks
+	if strings.HasPrefix(reportType, "IRDSL_") {
+		return RunLKChecks(data, reportType, priorData, existingReports)
+	}
 
 	// Default: Philippine (BIR) checks
 	var results []CheckResult

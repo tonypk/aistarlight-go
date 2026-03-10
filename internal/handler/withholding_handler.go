@@ -136,11 +136,14 @@ func (h *WithholdingHandler) GetCertificate(c *gin.Context) {
 // Rates handles GET /api/v1/withholding/rates and /ewt-rates.
 func (h *WithholdingHandler) Rates(c *gin.Context) {
 	jurisdiction := middleware.GetJurisdiction(c)
-	if jurisdiction == "SG" {
+	switch jurisdiction {
+	case "SG":
 		response.OK(c, service.ListSGWHTRates())
-		return
+	case "LK":
+		response.OK(c, service.ListLKWHTRates())
+	default:
+		response.OK(c, service.ListEWTRates())
 	}
-	response.OK(c, service.ListEWTRates())
 }
 
 // EWTSummary handles GET /api/v1/withholding/ewt-summary.

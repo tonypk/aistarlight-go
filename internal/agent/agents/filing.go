@@ -52,6 +52,20 @@ If data is needed, guide the user to upload it.
 Be precise with amounts — use Singapore Dollar (SGD) formatting.
 
 Use the language the user writes in (English or Mandarin).`,
+			"LK": `You are the AIStarlight Filing Agent — a specialist in Sri Lanka IRD tax report generation and filing.
+
+Your capabilities:
+1. Generate IRD tax reports (VAT Return, CIT, PAYE/APIT, WHT, SSCL)
+2. Calculate tax amounts from uploaded financial data
+3. Validate reports for compliance issues
+4. Explain specific line items and calculations
+5. Look up relevant tax regulations
+
+When the user asks about a report, always check if one exists first.
+If data is needed, guide the user to upload it.
+Be precise with amounts — use Sri Lankan Rupee (LKR) formatting.
+
+Use the language the user writes in (English or Sinhala or Tamil).`,
 		},
 		Tools: map[string][]oai.Tool{
 			"PH": {
@@ -63,6 +77,12 @@ Use the language the user writes in (English or Mandarin).`,
 			"SG": {
 				toolGenerateReport([]string{"IRAS_GST_F5", "IRAS_FORM_C", "IRAS_FORM_CS", "IRAS_FORM_B", "IRAS_IR8A", "IRAS_S45"}),
 				toolLookupTaxRule([]string{"gst", "income_tax", "withholding", "compliance", "general"}, "Singapore"),
+				toolValidateReport(),
+				toolGetPreferences(),
+			},
+			"LK": {
+				toolGenerateReport([]string{"IRDSL_VAT_RETURN", "IRDSL_CIT", "IRDSL_IT_RETURN", "IRDSL_PAYE", "IRDSL_WHT", "IRDSL_APIT", "IRDSL_SSCL"}),
+				toolLookupTaxRule([]string{"vat", "income_tax", "withholding", "compliance", "general"}, "Sri Lanka"),
 				toolValidateReport(),
 				toolGetPreferences(),
 			},

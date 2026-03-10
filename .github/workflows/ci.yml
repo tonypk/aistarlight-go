@@ -138,7 +138,7 @@ jobs:
           script: |
             set -euo pipefail
             PROJECT_DIR=/home/anna/aistarlight-go
-            COMPOSE="sudo docker compose -p aistarlight -f docker-compose.prod.yml"
+            COMPOSE="sudo docker compose --project-directory $PROJECT_DIR -p aistarlight -f $PROJECT_DIR/docker-compose.prod.yml"
 
             # Copy binaries and config
             sudo cp /tmp/aistarlight-api /tmp/aistarlight-worker /tmp/aistarlight-bot /tmp/aistarlight-migrate "$PROJECT_DIR/"
@@ -148,8 +148,6 @@ jobs:
             sudo cp -r /tmp/aistarlight-deploy/deploy "$PROJECT_DIR/"
             sudo cp /tmp/aistarlight-deploy/docker-compose.prod.yml "$PROJECT_DIR/"
             sudo chown -R anna:anna "$PROJECT_DIR"
-
-            cd "$PROJECT_DIR"
 
             # Run migrations before starting new containers
             $COMPOSE run --rm migrate

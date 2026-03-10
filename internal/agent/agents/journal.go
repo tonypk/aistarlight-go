@@ -14,6 +14,14 @@ func Journal() *agent.AgentDefinition {
 		Name:        "Journal Agent",
 		Description: "Create, search, and explain journal entries. Suggest accruals and reversals.",
 		Icon:        "book-open",
+		Color:       "#059669",
+		Hint:        "Create and explain journal entries",
+		SampleQuestions: []string{
+			"Create a journal entry for office rent payment",
+			"What's the correct entry for recording VAT payable?",
+			"Suggest month-end accrual entries",
+			"Explain the debit and credit for inventory purchase",
+		},
 		WorkflowTypes: []string{"journal-entries", "general-ledger", "accounts"},
 		SystemPrompts: map[string]string{
 			"PH": `You are the AIStarlight Journal Entries Agent — a specialist in double-entry accounting for Philippine businesses.

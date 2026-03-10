@@ -10,13 +10,17 @@ import (
 
 // AgentDefinition describes a specialized AI agent.
 type AgentDefinition struct {
-	ID            string            `json:"id"`
-	Name          string            `json:"name"`
-	Description   string            `json:"description"`
-	Icon          string            `json:"icon"`
-	SystemPrompts map[string]string `json:"-"` // jurisdiction -> prompt
-	Tools         map[string][]oai.Tool `json:"-"` // jurisdiction -> tools
-	WorkflowTypes []string          `json:"workflow_types"`
+	ID              string                `json:"id"`
+	Name            string                `json:"name"`
+	Description     string                `json:"description"`
+	Icon            string                `json:"icon"`
+	Color           string                `json:"color"`
+	Hint            string                `json:"hint"`
+	SampleQuestions []string              `json:"sample_questions"`
+	Recommended     bool                  `json:"recommended"`
+	SystemPrompts   map[string]string     `json:"-"` // jurisdiction -> prompt
+	Tools           map[string][]oai.Tool `json:"-"` // jurisdiction -> tools
+	WorkflowTypes   []string              `json:"workflow_types"`
 }
 
 // SystemPrompt returns the system prompt for a given jurisdiction.
@@ -37,21 +41,29 @@ func (d *AgentDefinition) ToolsFor(jurisdiction string) []oai.Tool {
 
 // AgentInfo is the public-facing agent metadata (for API responses).
 type AgentInfo struct {
-	ID            string   `json:"id"`
-	Name          string   `json:"name"`
-	Description   string   `json:"description"`
-	Icon          string   `json:"icon"`
-	WorkflowTypes []string `json:"workflow_types"`
+	ID              string   `json:"id"`
+	Name            string   `json:"name"`
+	Description     string   `json:"description"`
+	Icon            string   `json:"icon"`
+	Color           string   `json:"color"`
+	Hint            string   `json:"hint"`
+	SampleQuestions []string `json:"sample_questions"`
+	Recommended     bool     `json:"recommended"`
+	WorkflowTypes   []string `json:"workflow_types"`
 }
 
 // Info returns the public metadata for this agent.
 func (d *AgentDefinition) Info() AgentInfo {
 	return AgentInfo{
-		ID:            d.ID,
-		Name:          d.Name,
-		Description:   d.Description,
-		Icon:          d.Icon,
-		WorkflowTypes: d.WorkflowTypes,
+		ID:              d.ID,
+		Name:            d.Name,
+		Description:     d.Description,
+		Icon:            d.Icon,
+		Color:           d.Color,
+		Hint:            d.Hint,
+		SampleQuestions:  d.SampleQuestions,
+		Recommended:     d.Recommended,
+		WorkflowTypes:   d.WorkflowTypes,
 	}
 }
 

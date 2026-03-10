@@ -14,6 +14,14 @@ func Compliance() *agent.AgentDefinition {
 		Name:        "Compliance Agent",
 		Description: "Validate tax reports, suggest fixes, check deadlines, and calculate penalties.",
 		Icon:        "shield-check",
+		Color:       "#dc2626",
+		Hint:        "Check compliance and filing deadlines",
+		SampleQuestions: []string{
+			"What are my upcoming filing deadlines?",
+			"Validate my latest BIR 2550M for compliance issues",
+			"What's the penalty for late filing of 1601C?",
+			"Am I compliant with all BIR requirements this quarter?",
+		},
 		WorkflowTypes: []string{"reports", "calendar", "compliance"},
 		SystemPrompts: map[string]string{
 			"PH": `You are the AIStarlight Compliance Agent — a specialist in Philippine BIR tax compliance.

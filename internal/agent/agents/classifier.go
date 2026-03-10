@@ -14,6 +14,14 @@ func Classifier() *agent.AgentDefinition {
 		Name:        "Classification Agent",
 		Description: "Classify transactions by VAT type, explain classifications, and manage learned rules.",
 		Icon:        "tags",
+		Color:       "#d97706",
+		Hint:        "Classify and explain transaction types",
+		SampleQuestions: []string{
+			"Why was this transaction classified as zero-rated?",
+			"What's the difference between vatable and exempt sales?",
+			"How should I classify a sale to a government entity?",
+			"Review my classifications for this batch",
+		},
 		WorkflowTypes: []string{"classification", "reconciliation"},
 		SystemPrompts: map[string]string{
 			"PH": `You are the AIStarlight Classification Agent — a specialist in Philippine VAT transaction classification.

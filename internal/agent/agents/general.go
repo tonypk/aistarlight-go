@@ -14,6 +14,15 @@ func General() *agent.AgentDefinition {
 		Name:        "Tax Assistant",
 		Description: "General AI assistant for tax questions, report generation, and preferences",
 		Icon:        "chat",
+		Color:       "#4f46e5",
+		Hint:        "Ask me anything about tax",
+		Recommended: true,
+		SampleQuestions: []string{
+			"What is the current VAT rate and how is it calculated?",
+			"When is the deadline for filing BIR 2550M?",
+			"How do I generate my monthly VAT report?",
+			"What documents do I need for quarterly filing?",
+		},
 		WorkflowTypes: []string{"*"},
 		SystemPrompts: map[string]string{
 			"PH": `AIStarlight - AI-powered Philippine tax filing assistant for SMEs.

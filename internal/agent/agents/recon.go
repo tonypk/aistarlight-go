@@ -14,6 +14,14 @@ func Recon() *agent.AgentDefinition {
 		Name:        "Reconciliation Agent",
 		Description: "Match transactions, explain discrepancies, and manage reconciliation rules.",
 		Icon:        "git-compare",
+		Color:       "#7c3aed",
+		Hint:        "Reconcile transactions and find discrepancies",
+		SampleQuestions: []string{
+			"Why don't my sales records match the bank statement?",
+			"Show unmatched transactions for this period",
+			"Explain the discrepancy in my February data",
+			"Help me reconcile purchase records with payments",
+		},
 		WorkflowTypes: []string{"reconciliation", "bank-reconciliation"},
 		SystemPrompts: map[string]string{
 			"PH": `You are the AIStarlight Reconciliation Agent — a specialist in VAT and bank reconciliation for Philippine businesses.

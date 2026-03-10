@@ -14,6 +14,14 @@ func Filing() *agent.AgentDefinition {
 		Name:        "Filing Agent",
 		Description: "Generate, calculate, and validate tax reports. Explain line items and suggest corrections.",
 		Icon:        "file-text",
+		Color:       "#0891b2",
+		Hint:        "Generate and validate tax reports",
+		SampleQuestions: []string{
+			"Generate my BIR 2550M for this month",
+			"What does Line 20 on the 2550Q mean?",
+			"Validate my latest filing for errors",
+			"Compare this month's VAT with last month",
+		},
 		WorkflowTypes: []string{"reports", "form-router", "statements", "tax-bridge"},
 		SystemPrompts: map[string]string{
 			"PH": `You are the AIStarlight Filing Agent — a specialist in Philippine BIR tax report generation and filing.

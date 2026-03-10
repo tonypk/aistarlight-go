@@ -12,11 +12,16 @@ import (
 	"strings"
 	"time"
 
+	"strconv"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	tele "gopkg.in/telebot.v3"
 
+	"github.com/tonypk/aistarlight-go/internal/domain"
 	"github.com/tonypk/aistarlight-go/internal/repository/sqlc"
+	"github.com/tonypk/aistarlight-go/internal/service"
 	"github.com/tonypk/aistarlight-go/pkg/birforms"
 )
 
@@ -107,7 +112,53 @@ func (b *Bot) processReceipt(c tele.Context, fileID string) error {
 		return editError("Failed to record transaction.")
 	}
 
-	reply := formatReceiptReply(results[0], len(txns))
+	_, _ = b.B.Edit(processing, "Classifying transactions...")
+
+	// Classify transactions via AI.
+	var classResults []service.ClassificationResult
+	if len(txns) > 0 {
+		classInput := make([]map[string]interface{}, len(txns))
+		for i, txn := range txns {
+			classInput[i] = map[string]interface{}{
+				"id":          txn.ID.String(),
+				"description": derefStr(txn.Description),
+				"amount":      txn.Amount.String(),
+				"source_type": txn.SourceType,
+			}
+		}
+		classResults, err = b.classifier.ClassifyTransactions(ctx, classInput, tgUser.CompanyID, "")
+		if err != nil {
+			slog.Warn("classification failed, continuing without", "error", err)
+		} else {
+			for i, cr := range classResults {
+				if i >= len(txns) {
+					break
+				}
+				var conf pgtype.Numeric
+				_ = conf.Scan(strconv.FormatFloat(cr.Confidence, 'f', -1, 64))
+				_ = b.q.BulkUpdateTransactionClassification(ctx, sqlc.BulkUpdateTransactionClassificationParams{
+					ID:                   txns[i].ID,
+					VatType:              cr.VATType,
+					Category:             cr.Category,
+					Confidence:           conf,
+					ClassificationSource: cr.ClassificationSource,
+				})
+			}
+		}
+	}
+
+	// Generate journal entries.
+	var journalEntries []*domain.JournalEntry
+	for _, txn := range txns {
+		je, jeErr := b.journalGen.GenerateFromTransaction(ctx, tgUser.CompanyID, txn.ID, tgUser.UserID)
+		if jeErr != nil {
+			slog.Warn("journal generation failed for txn", "txn_id", txn.ID, "error", jeErr)
+			continue
+		}
+		journalEntries = append(journalEntries, je)
+	}
+
+	reply := formatReceiptReply(results[0], len(txns), classResults, journalEntries)
 	_, _ = b.B.Edit(processing, reply)
 	return nil
 }
@@ -189,4 +240,11 @@ func (b *Bot) getOrCreateSession(ctx context.Context, companyID, userID uuid.UUI
 // isNotFound checks if the error is a pgx "no rows" error.
 func isNotFound(err error) bool {
 	return errors.Is(err, pgx.ErrNoRows)
+}
+
+func derefStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }

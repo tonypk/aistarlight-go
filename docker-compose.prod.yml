@@ -74,6 +74,8 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-aistarlight}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aistarlight}?sslmode=disable
       OCR_SERVICE_URL: http://ocr:8001
       TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-AIStarlightbot}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
       LOG_FORMAT: json
       LOG_LEVEL: info
     depends_on:
@@ -82,7 +84,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 128M
+          memory: 256M
     logging:
       driver: json-file
       options:

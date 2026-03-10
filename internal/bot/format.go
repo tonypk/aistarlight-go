@@ -6,10 +6,11 @@ import (
 	"strings"
 
 	"github.com/shopspring/decimal"
+	"github.com/tonypk/aistarlight-go/internal/domain"
 	"github.com/tonypk/aistarlight-go/internal/service"
 )
 
-func formatReceiptReply(result service.ReceiptResult, txnCount int) string {
+func formatReceiptReply(result service.ReceiptResult, txnCount int, classResults []service.ClassificationResult, journalEntries []*domain.JournalEntry) string {
 	parsed := result.Parsed
 
 	// Amount
@@ -31,23 +32,26 @@ func formatReceiptReply(result service.ReceiptResult, txnCount int) string {
 		}
 	}
 
-	parts := []string{
-		fmt.Sprintf("Recorded P%s %s", addCommas(amount.StringFixed(2)), category),
+	var lines []string
+	line1Parts := []string{
+		fmt.Sprintf("Receipt Recorded\nP%s %s", addCommas(amount.StringFixed(2)), category),
 	}
 
 	// Date
 	if parsed.Date.Value != nil {
 		if v, ok := parsed.Date.Value.(string); ok && v != "" {
-			parts = append(parts, v)
+			line1Parts = append(line1Parts, v)
 		}
 	}
 
 	// Vendor
 	if parsed.VendorName.Value != nil {
 		if v, ok := parsed.VendorName.Value.(string); ok && v != "" {
-			parts = append(parts, v)
+			line1Parts = append(line1Parts, v)
 		}
 	}
+
+	lines = append(lines, strings.Join(line1Parts, " | "))
 
 	// VAT
 	if parsed.VATAmount.Value != nil {
@@ -59,11 +63,42 @@ func formatReceiptReply(result service.ReceiptResult, txnCount int) string {
 			vatAmount, _ = decimal.NewFromString(v)
 		}
 		if !vatAmount.IsZero() {
-			parts = append(parts, fmt.Sprintf("VAT: P%s", addCommas(vatAmount.StringFixed(2))))
+			lines = append(lines, fmt.Sprintf("VAT: P%s", addCommas(vatAmount.StringFixed(2))))
 		}
 	}
 
-	return strings.Join(parts, " | ")
+	// Classification results
+	if len(classResults) > 0 {
+		cr := classResults[0]
+		confPct := int(cr.Confidence * 100)
+		lines = append(lines, fmt.Sprintf("\nClassification: %s / %s (%d%%)", cr.VATType, cr.Category, confPct))
+	}
+
+	// Journal entries
+	if len(journalEntries) > 0 {
+		je := journalEntries[0]
+		if len(je.Lines) >= 2 {
+			dr := je.Lines[0]
+			cr := je.Lines[1]
+			lines = append(lines, fmt.Sprintf("Journal: DR %s P%s / CR %s P%s",
+				dr.AccountName, addCommas(dr.Debit.StringFixed(2)),
+				cr.AccountName, addCommas(cr.Credit.StringFixed(2)),
+			))
+		} else if len(je.Lines) == 1 {
+			l := je.Lines[0]
+			if !l.Debit.IsZero() {
+				lines = append(lines, fmt.Sprintf("Journal: DR %s P%s", l.AccountName, addCommas(l.Debit.StringFixed(2))))
+			} else {
+				lines = append(lines, fmt.Sprintf("Journal: CR %s P%s", l.AccountName, addCommas(l.Credit.StringFixed(2))))
+			}
+		}
+	}
+
+	if txnCount > 1 {
+		lines = append(lines, fmt.Sprintf("\n(%d transactions recorded)", txnCount))
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 // addCommas adds thousands separators to a decimal string like "5200.00" -> "5,200.00".

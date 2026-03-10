@@ -10,6 +10,7 @@ import (
 	"github.com/tonypk/aistarlight-go/internal/bot"
 	"github.com/tonypk/aistarlight-go/internal/config"
 	ocrclient "github.com/tonypk/aistarlight-go/internal/platform/ocr"
+	oai "github.com/tonypk/aistarlight-go/internal/platform/openai"
 	pg "github.com/tonypk/aistarlight-go/internal/platform/postgres"
 	"github.com/tonypk/aistarlight-go/internal/repository/sqlc"
 	"github.com/tonypk/aistarlight-go/internal/service"
@@ -56,14 +57,20 @@ func main() {
 	q := sqlc.New(pool)
 
 	// Services.
+	aiClient := oai.New(cfg.OpenAI)
 	ocrClient := ocrclient.NewClient(cfg.OCR.ServiceURL)
 	supplierSvc := service.NewSupplierService(q)
 	receiptSvc := service.NewReceiptService(q, ocrClient, supplierSvc)
-	classifier := service.NewClassifierService(nil, q)
+	classifier := service.NewClassifierService(aiClient, q)
 	bridgeSvc := service.NewReceiptBridge(q, classifier)
 
+	journalSvc := service.NewJournalService(q, pool)
+	journalGen := service.NewJournalGenerator(q, journalSvc)
+	knowledgeSvc := service.NewKnowledgeService(aiClient, q)
+	chatSvc := service.NewChatService(aiClient, q, knowledgeSvc)
+
 	// Bot.
-	b, err := bot.New(cfg.Telegram.BotToken, q, receiptSvc, bridgeSvc, cfg.UploadDir)
+	b, err := bot.New(cfg.Telegram.BotToken, q, receiptSvc, bridgeSvc, journalGen, classifier, chatSvc, cfg.UploadDir)
 	if err != nil {
 		slog.Error("failed to create bot", "error", err)
 		os.Exit(1)

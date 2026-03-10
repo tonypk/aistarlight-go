@@ -12,15 +12,18 @@ import (
 
 // Bot wraps the Telegram bot and its dependencies.
 type Bot struct {
-	B         *tele.Bot
-	q         *sqlc.Queries
-	receipt   *service.ReceiptService
-	bridge    *service.ReceiptBridge
-	uploadDir string
+	B          *tele.Bot
+	q          *sqlc.Queries
+	receipt    *service.ReceiptService
+	bridge     *service.ReceiptBridge
+	journalGen *service.JournalGenerator
+	classifier *service.ClassifierService
+	chat       *service.ChatService
+	uploadDir  string
 }
 
 // New creates and configures a new Telegram Bot.
-func New(token string, q *sqlc.Queries, receipt *service.ReceiptService, bridge *service.ReceiptBridge, uploadDir string) (*Bot, error) {
+func New(token string, q *sqlc.Queries, receipt *service.ReceiptService, bridge *service.ReceiptBridge, journalGen *service.JournalGenerator, classifier *service.ClassifierService, chat *service.ChatService, uploadDir string) (*Bot, error) {
 	pref := tele.Settings{
 		Token:  token,
 		Poller: &tele.LongPoller{Timeout: 10 * time.Second},
@@ -32,11 +35,14 @@ func New(token string, q *sqlc.Queries, receipt *service.ReceiptService, bridge 
 	}
 
 	bot := &Bot{
-		B:         b,
-		q:         q,
-		receipt:   receipt,
-		bridge:    bridge,
-		uploadDir: uploadDir,
+		B:          b,
+		q:          q,
+		receipt:    receipt,
+		bridge:     bridge,
+		journalGen: journalGen,
+		classifier: classifier,
+		chat:       chat,
+		uploadDir:  uploadDir,
 	}
 
 	bot.registerHandlers()
@@ -49,6 +55,7 @@ func (b *Bot) registerHandlers() {
 	b.B.Handle("/status", b.handleStatus)
 	b.B.Handle(tele.OnPhoto, b.handlePhoto)
 	b.B.Handle(tele.OnDocument, b.handleDocument)
+	b.B.Handle(tele.OnText, b.handleText)
 }
 
 // Start begins polling for updates (blocks until Stop is called).

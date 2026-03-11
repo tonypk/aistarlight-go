@@ -20,11 +20,12 @@ MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
 def get_ocr() -> PaddleOCR:
     global _ocr_engine
     if _ocr_engine is None:
-        logger.info("Initializing PaddleOCR engine (PP-OCRv5, CPU, en)...")
+        logger.info("Initializing PaddleOCR engine (PP-OCRv4, CPU, en)...")
         _ocr_engine = PaddleOCR(
-            ocr_version="PP-OCRv5",
+            ocr_version="PP-OCRv4",
             lang="en",
-            device="cpu",
+            use_angle_cls=True,
+            use_gpu=False,
         )
         logger.info("PaddleOCR engine ready.")
     return _ocr_engine
@@ -41,7 +42,7 @@ app = FastAPI(title="OCR Service", version="1.0.0", lifespan=lifespan)
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "engine": "PP-OCRv5"}
+    return {"status": "ok", "engine": "PP-OCRv4"}
 
 
 @app.post("/ocr")
@@ -64,7 +65,7 @@ async def ocr_image(file: UploadFile = File(...)):
         tmp.close()
 
         engine = get_ocr()
-        result = engine.ocr(str(tmp_path), cls=True)
+        result = engine.ocr(str(tmp_path))
 
         lines = []
         text_parts = []

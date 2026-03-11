@@ -353,11 +353,48 @@ func extractDate(text string, jurisdictionCode string) ParsedField {
 	return ParsedField{}
 }
 
+// nonTotalPrefixes are line fragments that indicate the line is NOT the real total,
+// even if the word "TOTAL" appears in it.
+var nonTotalPrefixes = []string{
+	"SERVICE CHARGE", "DELIVERY FEE", "DELIVERY CHARGE",
+	"SUBTOTAL", "SUB TOTAL", "SUB-TOTAL",
+	"DISCOUNT", "CASH", "CHANGE", "TENDERED",
+	"NO. OF ITEMS", "NUMBER OF ITEMS", "QTY",
+}
+
+// isNonTotalLine returns true when the line contains a label like "TOTAL" but is
+// actually a non-total line (e.g. "SERVICE CHARGE TOTAL").
+func isNonTotalLine(upper, matchedLabel string) bool {
+	// Only apply the exclusion when the matched label is generic (e.g. "TOTAL").
+	// Specific labels like "GRAND TOTAL" or "TOTAL AMOUNT" are safe.
+	if matchedLabel != "TOTAL" && matchedLabel != "NET AMOUNT" {
+		return false
+	}
+	for _, prefix := range nonTotalPrefixes {
+		if strings.Contains(upper, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 func extractLabeledAmount(lines []string, labels []string, confidence float64, amountRe *regexp.Regexp) ParsedField {
-	for i, line := range lines {
-		upper := strings.ToUpper(line)
-		for _, label := range labels {
-			if strings.Contains(upper, label) {
+	// Two passes: first try specific labels (len>5), then generic ones.
+	// This ensures "GRAND TOTAL" or "TOTAL AMOUNT" is found before bare "TOTAL".
+	for pass := 0; pass < 2; pass++ {
+		for i, line := range lines {
+			upper := strings.ToUpper(line)
+			for _, label := range labels {
+				isSpecific := len(label) > 5
+				if (pass == 0) != isSpecific {
+					continue // pass 0 = specific only, pass 1 = generic only
+				}
+				if !containsLabelWord(upper, label) {
+					continue
+				}
+				if isNonTotalLine(upper, label) {
+					continue
+				}
 				if amt := extractAmountFromLine(line, amountRe); amt > 0 {
 					return ParsedField{Value: amt, Confidence: confidence}
 				}

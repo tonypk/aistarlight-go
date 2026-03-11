@@ -25,16 +25,7 @@ RUN wget -q "https://github.com/microsoft/onnxruntime/releases/download/v${ONNXR
 # Download ONNX models: extract from rapidocr wheel + download keys from PaddleOCR
 RUN mkdir -p /models && \
     pip3 download --no-deps -d /tmp/pkgs rapidocr_onnxruntime==1.4.4 && \
-    python3 -c "
-import zipfile, shutil, os
-whl = '/tmp/pkgs/rapidocr_onnxruntime-1.4.4-py3-none-any.whl'
-with zipfile.ZipFile(whl) as z:
-    for name in z.namelist():
-        if name.endswith('.onnx'):
-            base = os.path.basename(name)
-            with z.open(name) as src, open(f'/models/{base}', 'wb') as dst:
-                shutil.copyfileobj(src, dst)
-" && \
+    python3 -c "import zipfile,shutil,os; whl='/tmp/pkgs/rapidocr_onnxruntime-1.4.4-py3-none-any.whl'; z=zipfile.ZipFile(whl); [shutil.copyfileobj(z.open(n), open('/models/'+os.path.basename(n),'wb')) for n in z.namelist() if n.endswith('.onnx')]" && \
     mv /models/ch_PP-OCRv4_det_infer.onnx /models/det.onnx && \
     mv /models/ch_ppocr_mobile_v2.0_cls_infer.onnx /models/cls.onnx && \
     mv /models/ch_PP-OCRv4_rec_infer.onnx /models/rec.onnx && \

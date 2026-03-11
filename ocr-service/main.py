@@ -7,6 +7,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from paddleocr import PaddleOCR
+from PIL import Image
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -15,6 +16,7 @@ _ocr_engine: PaddleOCR | None = None
 
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp"}
 MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
+MAX_IMAGE_DIM = 1600  # Resize images larger than this to prevent OOM
 
 
 def get_ocr() -> PaddleOCR:
@@ -26,9 +28,27 @@ def get_ocr() -> PaddleOCR:
             lang="en",
             use_angle_cls=True,
             use_gpu=False,
+            rec_batch_num=2,  # Lower batch size to reduce memory usage
         )
         logger.info("PaddleOCR engine ready.")
     return _ocr_engine
+
+
+def resize_image(img_path: Path) -> Path:
+    """Resize image if too large, to prevent OOM during OCR."""
+    with Image.open(img_path) as img:
+        w, h = img.size
+        if max(w, h) <= MAX_IMAGE_DIM:
+            return img_path
+
+        ratio = MAX_IMAGE_DIM / max(w, h)
+        new_w, new_h = int(w * ratio), int(h * ratio)
+        logger.info("Resizing image from %dx%d to %dx%d", w, h, new_w, new_h)
+        resized = img.resize((new_w, new_h), Image.LANCZOS)
+
+        resized_path = img_path.with_suffix(".resized.jpg")
+        resized.save(resized_path, "JPEG", quality=90)
+        return resized_path
 
 
 @asynccontextmanager
@@ -60,12 +80,18 @@ async def ocr_image(file: UploadFile = File(...)):
 
     tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
     tmp_path = Path(tmp.name)
+    resized_path = None
     try:
         tmp.write(content)
         tmp.close()
 
+        # Resize large images to prevent OOM.
+        ocr_path = resize_image(tmp_path)
+        if ocr_path != tmp_path:
+            resized_path = ocr_path
+
         engine = get_ocr()
-        result = engine.ocr(str(tmp_path))
+        result = engine.ocr(str(ocr_path))
 
         lines = []
         text_parts = []
@@ -95,3 +121,5 @@ async def ocr_image(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"OCR processing failed: {e}")
     finally:
         tmp_path.unlink(missing_ok=True)
+        if resized_path:
+            resized_path.unlink(missing_ok=True)

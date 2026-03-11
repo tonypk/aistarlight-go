@@ -7,12 +7,11 @@ import (
 func TestDetectBankFormat_BDO(t *testing.T) {
 	columns := []string{"Date", "Description", "Debit", "Credit", "Balance"}
 	format := DetectBankFormat(columns)
-	if format.Name != "BDO" && format.Name != "Metrobank" {
-		// BDO and Metrobank share similar column names
-		t.Logf("Detected: %s (acceptable for BDO-like columns)", format.Name)
-	}
 	if format == nil {
 		t.Fatal("Expected non-nil format")
+	} else if format.Name != "BDO" && format.Name != "Metrobank" {
+		// BDO and Metrobank share similar column names
+		t.Logf("Detected: %s (acceptable for BDO-like columns)", format.Name)
 	}
 }
 
@@ -21,8 +20,7 @@ func TestDetectBankFormat_BPI(t *testing.T) {
 	format := DetectBankFormat(columns)
 	if format == nil {
 		t.Fatal("Expected non-nil format")
-	}
-	if format.Name != "BPI" {
+	} else if format.Name != "BPI" {
 		t.Errorf("Expected BPI, got %s", format.Name)
 	}
 }
@@ -32,8 +30,7 @@ func TestDetectBankFormat_PayPal(t *testing.T) {
 	format := DetectBankFormat(columns)
 	if format == nil {
 		t.Fatal("Expected non-nil format")
-	}
-	if format.Name != "PayPal" {
+	} else if format.Name != "PayPal" {
 		t.Errorf("Expected PayPal, got %s", format.Name)
 	}
 }
@@ -43,8 +40,7 @@ func TestDetectBankFormat_Stripe(t *testing.T) {
 	format := DetectBankFormat(columns)
 	if format == nil {
 		t.Fatal("Expected non-nil format")
-	}
-	if format.Name != "Stripe" {
+	} else if format.Name != "Stripe" {
 		t.Errorf("Expected Stripe, got %s", format.Name)
 	}
 }
@@ -54,8 +50,7 @@ func TestDetectBankFormat_GCash(t *testing.T) {
 	format := DetectBankFormat(columns)
 	if format == nil {
 		t.Fatal("Expected non-nil format")
-	}
-	if format.Name != "GCash" {
+	} else if format.Name != "GCash" {
 		t.Errorf("Expected GCash, got %s", format.Name)
 	}
 }
@@ -65,20 +60,19 @@ func TestDetectBankFormat_UnknownFallsToGeneric(t *testing.T) {
 	format := DetectBankFormat(columns)
 	if format == nil {
 		t.Fatal("Expected non-nil format")
-	}
-	if format.Name != "Generic" {
+	} else if format.Name != "Generic" {
 		t.Errorf("Expected Generic for unknown columns, got %s", format.Name)
 	}
 }
 
 func TestParseBankStatement_DebitCredit(t *testing.T) {
 	format := &BankFormatConfig{
-		Name:              "TestBank",
-		DateColumns:       []string{"date"},
+		Name:               "TestBank",
+		DateColumns:        []string{"date"},
 		DescriptionColumns: []string{"description"},
-		DebitColumn:       "debit",
-		CreditColumn:      "credit",
-		DateFormat:        "01/02/2006",
+		DebitColumn:        "debit",
+		CreditColumn:       "credit",
+		DateFormat:         "01/02/2006",
 	}
 
 	rows := []map[string]interface{}{
@@ -111,12 +105,12 @@ func TestParseBankStatement_DebitCredit(t *testing.T) {
 
 func TestParseBankStatement_AmountColumn(t *testing.T) {
 	format := &BankFormatConfig{
-		Name:              "PayPal",
-		DateColumns:       []string{"date"},
+		Name:               "PayPal",
+		DateColumns:        []string{"date"},
 		DescriptionColumns: []string{"name"},
-		AmountColumn:      "amount",
-		ReferenceColumn:   "transaction id",
-		DateFormat:        "01/02/2006",
+		AmountColumn:       "amount",
+		ReferenceColumn:    "transaction id",
+		DateFormat:         "01/02/2006",
 	}
 
 	rows := []map[string]interface{}{
@@ -149,11 +143,11 @@ func TestParseBankStatement_AmountColumn(t *testing.T) {
 
 func TestParseBankStatement_SkipsEmptyRows(t *testing.T) {
 	format := &BankFormatConfig{
-		Name:              "Test",
-		DateColumns:       []string{"date"},
+		Name:               "Test",
+		DateColumns:        []string{"date"},
 		DescriptionColumns: []string{"description"},
-		AmountColumn:      "amount",
-		DateFormat:        "01/02/2006",
+		AmountColumn:       "amount",
+		DateFormat:         "01/02/2006",
 	}
 
 	rows := []map[string]interface{}{

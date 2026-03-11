@@ -178,7 +178,7 @@ func (b *Bot) handleStatus(c tele.Context) error {
 
 	total := formatInterface(stats.TotalAmount)
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("%s: %d transactions, %s total\n", month, stats.Count, total))
+	fmt.Fprintf(&sb, "%s: %d transactions, %s total\n", month, stats.Count, total)
 
 	// Category breakdown.
 	catRows, err := b.q.GetSpendingSummaryByCategory(ctx, sqlc.GetSpendingSummaryByCategoryParams{
@@ -189,7 +189,7 @@ func (b *Bot) handleStatus(c tele.Context) error {
 	if err == nil && len(catRows) > 0 {
 		sb.WriteString("\nBy category:\n")
 		for _, r := range catRows {
-			sb.WriteString(fmt.Sprintf("  %s: %s (%d)\n", capitalize(r.Category), r.Total, r.Count))
+			fmt.Fprintf(&sb, "  %s: %s (%d)\n", capitalize(r.Category), r.Total, r.Count)
 		}
 	}
 
@@ -216,7 +216,7 @@ func (b *Bot) handleStatus(c tele.Context) error {
 			if t.Date.Valid {
 				dateStr = t.Date.Time.Format("01/02")
 			}
-			sb.WriteString(fmt.Sprintf("  %s %s — %s\n", dateStr, desc, amt))
+			fmt.Fprintf(&sb, "  %s %s — %s\n", dateStr, desc, amt)
 		}
 	}
 

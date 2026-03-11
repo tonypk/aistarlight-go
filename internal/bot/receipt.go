@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/jpeg"
+	_ "image/png"
 	"io"
 	"log/slog"
 	"os"
@@ -15,9 +18,16 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	tele "gopkg.in/telebot.v3"
+	"golang.org/x/image/draw"
+	_ "golang.org/x/image/webp"
 
 	"github.com/tonypk/aistarlight-go/internal/repository/sqlc"
 	"github.com/tonypk/aistarlight-go/pkg/jurisdiction"
+)
+
+const (
+	maxImageLongSide = 1920 // max pixels on longest side
+	jpegQuality      = 80   // JPEG output quality (0-100)
 )
 
 const maxFileSizeBytes = 10 * 1024 * 1024 // 10 MB
@@ -137,19 +147,15 @@ func (b *Bot) processReceipt(c tele.Context, fileID string) error {
 	return nil
 }
 
-// saveReceiptImage copies the temp image to a persistent path: {uploadDir}/{companyID}/{batchID}.jpg
+// saveReceiptImage decodes, resizes (max 1920px long side), and saves as compressed JPEG.
 func (b *Bot) saveReceiptImage(localPath string, companyID, batchID uuid.UUID) (string, error) {
-	ext := strings.ToLower(filepath.Ext(localPath))
-	if ext == "" {
-		ext = ".jpg"
-	}
-
 	companyDir := filepath.Join(b.uploadDir, companyID.String())
 	if err := os.MkdirAll(companyDir, 0o755); err != nil {
 		return "", fmt.Errorf("create company dir: %w", err)
 	}
 
-	destPath := filepath.Join(companyDir, batchID.String()+ext)
+	// Always output as .jpg regardless of input format.
+	destPath := filepath.Join(companyDir, batchID.String()+".jpg")
 
 	src, err := os.Open(localPath)
 	if err != nil {
@@ -157,18 +163,48 @@ func (b *Bot) saveReceiptImage(localPath string, companyID, batchID uuid.UUID) (
 	}
 	defer func() { _ = src.Close() }()
 
+	img, _, err := image.Decode(src)
+	if err != nil {
+		return "", fmt.Errorf("decode image: %w", err)
+	}
+
+	// Resize if either dimension exceeds maxImageLongSide.
+	img = resizeIfNeeded(img, maxImageLongSide)
+
 	dst, err := os.Create(destPath)
 	if err != nil {
 		return "", fmt.Errorf("create dest: %w", err)
 	}
 	defer func() { _ = dst.Close() }()
 
-	if _, err := io.Copy(dst, src); err != nil {
+	if err := jpeg.Encode(dst, img, &jpeg.Options{Quality: jpegQuality}); err != nil {
 		_ = os.Remove(destPath)
-		return "", fmt.Errorf("copy file: %w", err)
+		return "", fmt.Errorf("encode jpeg: %w", err)
 	}
 
 	return destPath, nil
+}
+
+// resizeIfNeeded scales the image so the longest side is at most maxPx.
+func resizeIfNeeded(img image.Image, maxPx int) image.Image {
+	bounds := img.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
+
+	longest := w
+	if h > longest {
+		longest = h
+	}
+	if longest <= maxPx {
+		return img
+	}
+
+	ratio := float64(maxPx) / float64(longest)
+	newW := int(float64(w) * ratio)
+	newH := int(float64(h) * ratio)
+
+	dst := image.NewRGBA(image.Rect(0, 0, newW, newH))
+	draw.CatmullRom.Scale(dst, dst.Bounds(), img, bounds, draw.Over, nil)
+	return dst
 }
 
 func ptrStr(s string) *string {

@@ -1,5 +1,6 @@
 """PaddleOCR microservice — extracts text from receipt images."""
 
+import gc
 import logging
 import tempfile
 from contextlib import asynccontextmanager
@@ -16,7 +17,7 @@ _ocr_engine: PaddleOCR | None = None
 
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp"}
 MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
-MAX_IMAGE_DIM = 1600  # Resize images larger than this to prevent OOM
+MAX_IMAGE_DIM = 1200  # Resize images larger than this to prevent OOM
 
 
 def get_ocr() -> PaddleOCR:
@@ -28,7 +29,7 @@ def get_ocr() -> PaddleOCR:
             lang="en",
             use_angle_cls=True,
             use_gpu=False,
-            rec_batch_num=2,  # Lower batch size to reduce memory usage
+            rec_batch_num=1,  # Minimize batch size to reduce memory usage
         )
         logger.info("PaddleOCR engine ready.")
     return _ocr_engine
@@ -109,6 +110,7 @@ async def ocr_image(file: UploadFile = File(...)):
                 text_parts.append(text)
 
         full_text = "\n".join(text_parts)
+        gc.collect()  # Free memory after OCR processing
         logger.info("OCR processed %s: %d lines extracted", file.filename, len(lines))
 
         return {

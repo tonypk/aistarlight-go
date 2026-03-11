@@ -119,7 +119,7 @@ jobs:
           host: ${{ secrets.GCE_HOST }}
           username: ${{ secrets.GCE_USER }}
           key: ${{ secrets.GCE_SSH_KEY }}
-          source: "aistarlight-api,aistarlight-worker,aistarlight-bot,aistarlight-migrate,migrations,docker,deploy,docker-compose.prod.yml"
+          source: "aistarlight-api,aistarlight-worker,aistarlight-bot,aistarlight-migrate,migrations,docker,deploy,docker-compose.prod.yml,ocr-service"
           target: "/tmp/aistarlight-deploy"
 
       - name: Deploy on server
@@ -140,11 +140,12 @@ jobs:
             sudo cp -r $DEPLOY_DIR/migrations "$PROJECT_DIR/"
             sudo cp -r $DEPLOY_DIR/docker "$PROJECT_DIR/"
             sudo cp -r $DEPLOY_DIR/deploy "$PROJECT_DIR/"
+            sudo cp -r $DEPLOY_DIR/ocr-service "$PROJECT_DIR/"
             sudo cp $DEPLOY_DIR/docker-compose.prod.yml "$PROJECT_DIR/"
             sudo chown -R anna:anna "$PROJECT_DIR"
 
             # Build images first (no restart yet)
-            $COMPOSE build api worker bot
+            $COMPOSE build api worker bot ocr
 
             # Stop and restart everything in one shot to avoid port conflicts
             $COMPOSE down --remove-orphans 2>/dev/null || true

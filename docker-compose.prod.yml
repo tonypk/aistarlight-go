@@ -162,15 +162,15 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8001/health"]
       interval: 30s
-      timeout: 10s
+      timeout: 5s
       retries: 3
-      start_period: 60s
+      start_period: 10s
     deploy:
       resources:
         limits:
-          memory: 2G
+          memory: 512M
     logging:
       driver: json-file
       options:

@@ -517,6 +517,10 @@ type Transaction struct {
 	UpdatedAt            time.Time      `json:"updated_at"`
 	JournalEntryID       pgtype.UUID    `json:"journal_entry_id"`
 	ProjectTag           *string        `json:"project_tag"`
+	FromCurrency         *string        `json:"from_currency"`
+	ToCurrency           *string        `json:"to_currency"`
+	ExchangeRate         pgtype.Numeric `json:"exchange_rate"`
+	FromAmount           pgtype.Numeric `json:"from_amount"`
 }
 
 type User struct {

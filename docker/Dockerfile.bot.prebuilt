@@ -1,7 +1,8 @@
 FROM alpine:3.20
 
 RUN apk add --no-cache ca-certificates tzdata \
-    && addgroup -S app && adduser -S app -G app
+    && addgroup -S app && adduser -S app -G app \
+    && mkdir -p /data/receipts && chown -R app:app /data
 
 COPY aistarlight-bot /bot
 

@@ -23,6 +23,8 @@ To get started:
 
 Commands:
 /link <api_key> - Link your account
+/exchange - Record a P2P forex exchange
+/export [YYYY-MM] - Export bookkeeping data
 /status - View monthly stats`
 
 func (b *Bot) handleStart(c tele.Context) error {

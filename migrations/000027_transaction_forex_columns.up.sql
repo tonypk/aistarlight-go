@@ -1,0 +1,4 @@
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS from_currency VARCHAR(10);
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS to_currency VARCHAR(10);
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS exchange_rate NUMERIC(15,6);
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS from_amount NUMERIC(15,2);

@@ -127,10 +127,12 @@ func (b *Bot) processReceipt(c tele.Context, fileID string) error {
 	}
 
 	// Update batch: set status to pending_confirmation and store image_path.
+	// Use the actual results (not batch.Results which is the stale initial empty value).
+	resultsJSON, _ := json.Marshal(results)
 	_ = b.q.UpdateReceiptBatch(ctx, sqlc.UpdateReceiptBatchParams{
 		ID:        batch.ID,
 		Status:    "pending_confirmation",
-		Results:   batch.Results,
+		Results:   resultsJSON,
 		ImagePath: ptrStr(imagePath),
 	})
 

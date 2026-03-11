@@ -178,6 +178,8 @@ func (b *ReceiptBridge) createTransactionFromReceipt(ctx context.Context, compan
 		RawData:              rawData,
 		MatchStatus:          "unmatched",
 		ProjectTag:           projectTag,
+		FromCurrency:         nil,
+		ToCurrency:           nil,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create transaction: %w", err)

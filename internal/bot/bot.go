@@ -24,6 +24,7 @@ type Bot struct {
 	uploadDir    string
 	projects     []string // configurable project tags (from BOT_PROJECTS env)
 	pendingEdits sync.Map // map[int64]uuid.UUID — telegram user ID → batch ID awaiting edit
+	pendingForex sync.Map // map[int64]*ForexPending — telegram user ID → forex exchange state
 }
 
 // New creates and configures a new Telegram Bot.
@@ -60,6 +61,7 @@ func (b *Bot) registerHandlers() {
 	b.B.Handle("/link", b.handleLink)
 	b.B.Handle("/status", b.handleStatus)
 	b.B.Handle("/export", b.handleExport)
+	b.B.Handle("/exchange", b.handleExchange)
 	b.B.Handle(tele.OnPhoto, b.handlePhoto)
 	b.B.Handle(tele.OnDocument, b.handleDocument)
 	b.B.Handle(tele.OnText, b.handleText)
@@ -69,6 +71,12 @@ func (b *Bot) registerHandlers() {
 	b.B.Handle(&btnEdit, b.handleReceiptEdit)
 	b.B.Handle(&btnCancel, b.handleReceiptCancel)
 	b.B.Handle(&btnProject, b.handleProjectSelect)
+
+	// Forex exchange callback handlers.
+	b.B.Handle(&btnFxConfirm, b.handleForexConfirm)
+	b.B.Handle(&btnFxEdit, b.handleForexEdit)
+	b.B.Handle(&btnFxCancel, b.handleForexCancel)
+	b.B.Handle(&btnFxProject, b.handleForexProjectSelect)
 }
 
 // Start begins polling for updates (blocks until Stop is called).

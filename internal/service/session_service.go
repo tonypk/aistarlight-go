@@ -501,6 +501,8 @@ func (s *SessionService) AddFile(ctx context.Context, sessionID, companyID uuid.
 			EwtAmount:            ewtAmountNum,
 			AtcCode:              atcCode,
 			ProjectTag:           nil,
+			FromCurrency:         nil,
+			ToCurrency:           nil,
 		})
 		if err != nil {
 			slog.Warn("failed to create transaction", "error", err, "row", i)

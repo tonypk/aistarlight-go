@@ -3,10 +3,14 @@ INSERT INTO transactions (
     id, company_id, session_id, source_type, source_file_id, row_index,
     date, description, amount, vat_amount, vat_type, category, tin,
     confidence, classification_source, raw_data, match_group_id, match_status,
-    ewt_rate, ewt_amount, atc_code, supplier_id, project_tag, created_at, updated_at
+    ewt_rate, ewt_amount, atc_code, supplier_id, project_tag,
+    from_currency, to_currency, exchange_rate, from_amount,
+    created_at, updated_at
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-    $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, NOW(), NOW()
+    $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
+    $24, $25, $26, $27,
+    NOW(), NOW()
 ) RETURNING *;
 
 -- name: GetTransactionByID :one

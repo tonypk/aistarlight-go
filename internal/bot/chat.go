@@ -30,6 +30,11 @@ func (b *Bot) handleText(c tele.Context) error {
 		}
 	}
 
+	// Check for pending forex exchange input.
+	if b.handleForexInput(c, text) {
+		return nil
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 

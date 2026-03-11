@@ -12,11 +12,19 @@ import (
 
 const telegramMaxMessageLen = 4096
 
+// stripBotMention removes the @botusername from the message text.
+func (b *Bot) stripBotMention(text string) string {
+	return strings.TrimSpace(strings.ReplaceAll(text, "@"+b.B.Me.Username, ""))
+}
+
 func (b *Bot) handleText(c tele.Context) error {
 	text := strings.TrimSpace(c.Text())
 	if text == "" {
 		return nil
 	}
+
+	// Strip @botusername from the text in group chats.
+	text = b.stripBotMention(text)
 
 	// Ignore commands (handled by other handlers).
 	if strings.HasPrefix(text, "/") {

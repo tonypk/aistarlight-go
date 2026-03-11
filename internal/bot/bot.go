@@ -3,6 +3,7 @@ package bot
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -66,7 +67,37 @@ func New(token string, q *sqlc.Queries, receipt *service.ReceiptService, bridge 
 	}
 
 	bot.registerHandlers()
+	bot.registerMiddleware()
 	return bot, nil
+}
+
+// registerMiddleware installs global middleware.
+// In group chats, the bot only responds to messages that @ mention it.
+func (b *Bot) registerMiddleware() {
+	b.B.Use(func(next tele.HandlerFunc) tele.HandlerFunc {
+		return func(c tele.Context) error {
+			// Always process callback queries (inline button presses).
+			if c.Callback() != nil {
+				return next(c)
+			}
+			// Always process private chats.
+			if c.Chat() != nil {
+				chatType := c.Chat().Type
+				if chatType == tele.ChatGroup || chatType == tele.ChatSuperGroup {
+					// Group chat: require @mention.
+					mention := "@" + b.B.Me.Username
+					text := c.Text()
+					if text == "" && c.Message() != nil {
+						text = c.Message().Caption
+					}
+					if !strings.Contains(text, mention) {
+						return nil // silently ignore
+					}
+				}
+			}
+			return next(c)
+		}
+	})
 }
 
 func (b *Bot) registerHandlers() {

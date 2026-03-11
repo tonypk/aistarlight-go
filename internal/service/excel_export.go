@@ -200,11 +200,11 @@ func GenerateBookkeepingExcel(w io.Writer, txns []TransactionResponse, period st
 	// Title
 	_ = f.SetCellValue(sheet, "A1", fmt.Sprintf("%s — Bookkeeping Export (%s)", company.CompanyName, period))
 	_ = f.SetCellStyle(sheet, "A1", "A1", titleStyle)
-	_ = f.MergeCell(sheet, "A1", "I1")
+	_ = f.MergeCell(sheet, "A1", "J1")
 	_ = f.SetCellValue(sheet, "A2", fmt.Sprintf("Currency: %s", currencySymbol))
 
 	// Headers
-	headers := []string{"Date", "Description", "Amount", "VAT Amount", "VAT Type", "Category", "Confidence", "Source Type", "Submitted By"}
+	headers := []string{"Date", "Description", "Amount", "VAT Amount", "VAT Type", "Category", "Confidence", "Source Type", "Submitted By", "Receipt"}
 	for i, h := range headers {
 		col := colName(i + 1)
 		_ = f.SetCellValue(sheet, fmt.Sprintf("%s4", col), h)
@@ -236,6 +236,15 @@ func GenerateBookkeepingExcel(w io.Writer, txns []TransactionResponse, period st
 		_ = f.SetCellValue(sheet, fmt.Sprintf("G%d", row), txn.Confidence)
 		_ = f.SetCellValue(sheet, fmt.Sprintf("H%d", row), txn.SourceType)
 		_ = f.SetCellValue(sheet, fmt.Sprintf("I%d", row), submittedBy)
+		if txn.ReceiptImageURL != nil {
+			cell := fmt.Sprintf("J%d", row)
+			_ = f.SetCellValue(sheet, cell, "View Receipt")
+			_ = f.SetCellHyperLink(sheet, cell, *txn.ReceiptImageURL, "External")
+			linkStyle, _ := f.NewStyle(&excelize.Style{
+				Font: &excelize.Font{Color: "0563C1", Underline: "single"},
+			})
+			_ = f.SetCellStyle(sheet, cell, cell, linkStyle)
+		}
 		totalAmount += txn.Amount
 		totalVAT += txn.VATAmount
 	}
@@ -254,7 +263,7 @@ func GenerateBookkeepingExcel(w io.Writer, txns []TransactionResponse, period st
 	}
 
 	widths := map[string]float64{
-		"A": 12, "B": 35, "C": 15, "D": 15, "E": 12, "F": 12, "G": 12, "H": 16, "I": 18,
+		"A": 12, "B": 35, "C": 15, "D": 15, "E": 12, "F": 12, "G": 12, "H": 16, "I": 18, "J": 14,
 	}
 	for col, width := range widths {
 		_ = f.SetColWidth(sheet, col, col, width)

@@ -67,6 +67,7 @@ type TransactionResponse struct {
 	SupplierID           *string  `json:"supplier_id"`
 	SubmittedBy          *string  `json:"submitted_by,omitempty"`
 	SubmittedByName      *string  `json:"submitted_by_name,omitempty"`
+	ReceiptImageURL      *string  `json:"receipt_image_url,omitempty"`
 }
 
 // AnomalyResponse is the API response for an anomaly.

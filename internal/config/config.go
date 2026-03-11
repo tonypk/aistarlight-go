@@ -129,6 +129,7 @@ type TelegramConfig struct {
 	BotToken    string
 	BotUsername string
 	Projects    []string // configurable project tags (comma-separated BOT_PROJECTS env)
+	BaseURL     string   // public base URL for receipt image links (e.g. https://tax.clawpapa.win)
 }
 
 func Load() (*Config, error) {
@@ -228,6 +229,7 @@ func Load() (*Config, error) {
 			BotToken:    v.GetString("TELEGRAM_BOT_TOKEN"),
 			BotUsername: v.GetString("TELEGRAM_BOT_USERNAME"),
 			Projects:    parseProjects(v.GetString("BOT_PROJECTS")),
+			BaseURL:     strings.TrimRight(v.GetString("BASE_URL"), "/"),
 		},
 		UploadDir: v.GetString("UPLOAD_DIR"),
 	}

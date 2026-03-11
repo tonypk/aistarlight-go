@@ -23,6 +23,7 @@ type Bot struct {
 	chat         *service.ChatService
 	corrections  *service.CorrectionService
 	uploadDir    string
+	baseURL      string   // public base URL for receipt image links
 	projects     []string // configurable project tags (from BOT_PROJECTS env)
 	pendingEdits sync.Map // map[int64]uuid.UUID — telegram user ID → batch ID awaiting edit
 	pendingForex sync.Map // map[int64]*ForexPending — telegram user ID → forex exchange state
@@ -38,7 +39,8 @@ type Bot struct {
 
 // New creates and configures a new Telegram Bot.
 // projects is an optional list of project tags for receipt classification.
-func New(token string, q *sqlc.Queries, receipt *service.ReceiptService, bridge *service.ReceiptBridge, journalGen *service.JournalGenerator, classifier *service.ClassifierService, chat *service.ChatService, corrections *service.CorrectionService, uploadDir string, projects []string) (*Bot, error) {
+// baseURL is the public URL prefix for receipt image links (e.g. https://tax.clawpapa.win).
+func New(token string, q *sqlc.Queries, receipt *service.ReceiptService, bridge *service.ReceiptBridge, journalGen *service.JournalGenerator, classifier *service.ClassifierService, chat *service.ChatService, corrections *service.CorrectionService, uploadDir string, projects []string, baseURL string) (*Bot, error) {
 	pref := tele.Settings{
 		Token:  token,
 		Poller: &tele.LongPoller{Timeout: 10 * time.Second},
@@ -59,6 +61,7 @@ func New(token string, q *sqlc.Queries, receipt *service.ReceiptService, bridge 
 		chat:        chat,
 		corrections: corrections,
 		uploadDir:   uploadDir,
+		baseURL:     baseURL,
 		projects:    projects,
 	}
 
@@ -82,6 +85,7 @@ func (b *Bot) registerHandlers() {
 	b.B.Handle(&btnCancel, b.handleReceiptCancel)
 	b.B.Handle(&btnProject, b.handleProjectSelect)
 	b.B.Handle(&btnAmountSelect, b.handleAmountSelect)
+	b.B.Handle(&btnCategory, b.handleCategorySelect)
 
 	// Forex exchange callback handlers.
 	b.B.Handle(&btnFxConfirm, b.handleForexConfirm)

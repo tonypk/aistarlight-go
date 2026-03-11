@@ -26,7 +26,11 @@ var (
 	btnCancel       = tele.Btn{Unique: "rcpt_no", Text: "Cancel"}
 	btnProject      = tele.Btn{Unique: "rcpt_pj", Text: "Project"}
 	btnAmountSelect = tele.Btn{Unique: "rcpt_am", Text: "Amount"}
+	btnCategory     = tele.Btn{Unique: "rcpt_ct", Text: "Category"}
 )
+
+// Default expense categories for receipt classification.
+var receiptCategories = []string{"goods", "services", "capital", "imports"}
 
 const confirmationTimeout = 5 * time.Minute
 
@@ -47,16 +51,35 @@ func encodeCallbackData(batchID uuid.UUID, projectTag string) string {
 
 // parseCallbackData extracts batchID and optional projectTag from callback data.
 func parseCallbackData(data string) (uuid.UUID, string, error) {
-	parts := strings.SplitN(data, "|", 2)
+	parts := strings.SplitN(data, "|", 3)
 	batchID, err := uuid.Parse(parts[0])
 	if err != nil {
 		return uuid.Nil, "", err
 	}
 	projectTag := ""
-	if len(parts) == 2 {
+	if len(parts) >= 2 {
 		projectTag = parts[1]
 	}
 	return batchID, projectTag, nil
+}
+
+// parseCategoryCallbackData extracts batchID, projectTag, and category from callback data.
+// Format: "batchID|projectTag|category"
+func parseCategoryCallbackData(data string) (uuid.UUID, string, string, error) {
+	parts := strings.SplitN(data, "|", 3)
+	batchID, err := uuid.Parse(parts[0])
+	if err != nil {
+		return uuid.Nil, "", "", err
+	}
+	projectTag := ""
+	if len(parts) >= 2 {
+		projectTag = parts[1]
+	}
+	category := ""
+	if len(parts) >= 3 {
+		category = parts[2]
+	}
+	return batchID, projectTag, category, nil
 }
 
 // projectSelectionMarkup builds inline keyboard with project buttons for selection.
@@ -90,6 +113,30 @@ func confirmationMarkup(batchID uuid.UUID, projectTag string) *tele.ReplyMarkup 
 			tele.Btn{Unique: btnCancel.Unique, Text: "Cancel", Data: batchID.String()},
 		),
 	)
+	return markup
+}
+
+// categorySelectionMarkup builds inline keyboard with category buttons for receipt classification.
+// Clicking a category confirms the receipt with that category.
+func categorySelectionMarkup(batchID uuid.UUID, projectTag string, categories []string) *tele.ReplyMarkup {
+	markup := &tele.ReplyMarkup{}
+	var catBtns []tele.Btn
+	for _, cat := range categories {
+		// Format: batchID|projectTag|category
+		data := batchID.String() + "|" + projectTag + "|" + cat
+		label := strings.ToUpper(cat[:1]) + cat[1:]
+		catBtns = append(catBtns, tele.Btn{
+			Unique: btnCategory.Unique,
+			Text:   label,
+			Data:   data,
+		})
+	}
+	rows := []tele.Row{markup.Row(catBtns...)}
+	rows = append(rows, markup.Row(
+		tele.Btn{Unique: btnEdit.Unique, Text: "Edit", Data: batchID.String()},
+		tele.Btn{Unique: btnCancel.Unique, Text: "Cancel", Data: batchID.String()},
+	))
+	markup.Inline(rows...)
 	return markup
 }
 
@@ -174,7 +221,62 @@ func (b *Bot) handleReceiptConfirm(c tele.Context) error {
 		note, _ = rawNote.(string)
 	}
 
-	reply, err := b.confirmAndProcess(ctx, batch, tgUser, jCfg, projPtr, note)
+	reply, err := b.confirmAndProcess(ctx, batch, tgUser, jCfg, projPtr, note, "")
+	if err != nil {
+		slog.Error("confirm processing failed", "batch_id", batchID, "error", err)
+		_, _ = b.B.Edit(c.Message(), "Failed to record transaction.")
+		return nil
+	}
+
+	_, _ = b.B.Edit(c.Message(), reply)
+	return nil
+}
+
+// handleCategorySelect handles a category button click — confirms with the selected category.
+func (b *Bot) handleCategorySelect(c tele.Context) error {
+	batchID, projectTag, category, err := parseCategoryCallbackData(c.Data())
+	if err != nil || category == "" {
+		return c.Respond(&tele.CallbackResponse{Text: "Invalid data."})
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	batch, err := b.q.GetReceiptBatchByID(ctx, batchID)
+	if err != nil {
+		return c.Respond(&tele.CallbackResponse{Text: "Batch not found."})
+	}
+
+	tgUser, err := b.q.GetTelegramUser(ctx, c.Sender().ID)
+	if err != nil || tgUser.CompanyID != batch.CompanyID {
+		return c.Respond(&tele.CallbackResponse{Text: "Unauthorized."})
+	}
+
+	if batch.Status != "pending_confirmation" {
+		return c.Respond(&tele.CallbackResponse{Text: "This receipt has already been processed."})
+	}
+
+	_ = c.Respond(&tele.CallbackResponse{Text: "Category: " + category})
+	_, _ = b.B.Edit(c.Message(), "Recording transaction...")
+
+	company, compErr := b.q.GetCompanyByID(ctx, tgUser.CompanyID)
+	jurisdictionCode := "PH"
+	if compErr == nil {
+		jurisdictionCode = company.Jurisdiction
+	}
+	jCfg := jurisdiction.Get(jurisdictionCode)
+
+	var projPtr *string
+	if projectTag != "" {
+		projPtr = &projectTag
+	}
+
+	var note string
+	if rawNote, ok := b.receiptNotes.LoadAndDelete(batchID); ok {
+		note, _ = rawNote.(string)
+	}
+
+	reply, err := b.confirmAndProcess(ctx, batch, tgUser, jCfg, projPtr, note, category)
 	if err != nil {
 		slog.Error("confirm processing failed", "batch_id", batchID, "error", err)
 		_, _ = b.B.Edit(c.Message(), "Failed to record transaction.")
@@ -356,7 +458,8 @@ func (b *Bot) handleReceiptEditReply(c tele.Context, batchID uuid.UUID, text str
 }
 
 // confirmAndProcess executes Phase 2: create transactions, classify, generate journal.
-func (b *Bot) confirmAndProcess(ctx context.Context, batch sqlc.ReceiptBatch, tgUser sqlc.TelegramUser, jCfg jurisdiction.Config, projectTag *string, note string) (string, error) {
+// userCategory overrides AI classification when non-empty (user selected a category button).
+func (b *Bot) confirmAndProcess(ctx context.Context, batch sqlc.ReceiptBatch, tgUser sqlc.TelegramUser, jCfg jurisdiction.Config, projectTag *string, note string, userCategory string) (string, error) {
 	jurisdictionCode := jCfg.Code
 	if jurisdictionCode == "" {
 		jurisdictionCode = "PH"
@@ -427,6 +530,29 @@ func (b *Bot) confirmAndProcess(ctx context.Context, batch sqlc.ReceiptBatch, tg
 					Confidence:           conf,
 					ClassificationSource: cr.ClassificationSource,
 				})
+			}
+		}
+
+		// Override category if user explicitly selected one via category buttons.
+		if userCategory != "" {
+			var userConf pgtype.Numeric
+			_ = userConf.Scan("1.00")
+			for i, txn := range txns {
+				vatType := ""
+				if i < len(classResults) {
+					vatType = classResults[i].VATType
+				}
+				_ = b.q.BulkUpdateTransactionClassification(ctx, sqlc.BulkUpdateTransactionClassificationParams{
+					ID:                   txn.ID,
+					VatType:              vatType,
+					Category:             userCategory,
+					Confidence:           userConf,
+					ClassificationSource: "user_category",
+				})
+				if i < len(classResults) {
+					classResults[i].Category = userCategory
+					classResults[i].Confidence = 1.0
+				}
 			}
 		}
 	}
@@ -645,9 +771,9 @@ func (b *Bot) handleReceiptNoteInput(c tele.Context, text string) bool {
 	if note != "" {
 		preview += fmt.Sprintf("\nNote: %s", note)
 	}
-	preview += "\n\nPlease review and confirm:"
+	preview += "\n\nSelect a category to confirm:"
 
-	markup := confirmationMarkup(pending.BatchID, pending.ProjectTag)
+	markup := categorySelectionMarkup(pending.BatchID, pending.ProjectTag, receiptCategories)
 	_ = c.Send(preview, markup)
 	return true
 }

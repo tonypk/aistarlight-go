@@ -78,7 +78,7 @@ func (b *Bot) handleExport(c tele.Context) error {
 	// Convert to TransactionResponse
 	txnResponses := make([]service.TransactionResponse, len(txns))
 	for i, t := range txns {
-		txnResponses[i] = sqlcTxnWithSubmitterToResponse(t)
+		txnResponses[i] = sqlcTxnWithSubmitterToResponse(t, b.baseURL)
 	}
 
 	tinNumber := ""
@@ -111,7 +111,8 @@ func (b *Bot) handleExport(c tele.Context) error {
 }
 
 // sqlcTxnWithSubmitterToResponse converts a ListTransactionsWithSubmitterRow to service.TransactionResponse.
-func sqlcTxnWithSubmitterToResponse(t sqlc.ListTransactionsWithSubmitterRow) service.TransactionResponse {
+// baseURL is used to construct receipt image URLs for receipt-sourced transactions.
+func sqlcTxnWithSubmitterToResponse(t sqlc.ListTransactionsWithSubmitterRow, baseURL string) service.TransactionResponse {
 	resp := service.TransactionResponse{
 		ID:                   t.ID.String(),
 		SourceType:           t.SourceType,
@@ -138,6 +139,11 @@ func sqlcTxnWithSubmitterToResponse(t sqlc.ListTransactionsWithSubmitterRow) ser
 	}
 	if f, err := t.Confidence.Float64Value(); err == nil {
 		resp.Confidence = f.Float64
+	}
+	// Construct receipt image URL for receipt-sourced transactions.
+	if baseURL != "" && t.SourceType == "receipt" && t.SourceFileID != "" {
+		url := fmt.Sprintf("%s/receipts/%s/%s.jpg", baseURL, t.CompanyID.String(), t.SourceFileID)
+		resp.ReceiptImageURL = &url
 	}
 	return resp
 }

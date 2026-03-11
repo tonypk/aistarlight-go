@@ -354,12 +354,18 @@ func extractDate(text string, jurisdictionCode string) ParsedField {
 }
 
 func extractLabeledAmount(lines []string, labels []string, confidence float64, amountRe *regexp.Regexp) ParsedField {
-	for _, line := range lines {
+	for i, line := range lines {
 		upper := strings.ToUpper(line)
 		for _, label := range labels {
 			if strings.Contains(upper, label) {
 				if amt := extractAmountFromLine(line, amountRe); amt > 0 {
 					return ParsedField{Value: amt, Confidence: confidence}
+				}
+				// Look-ahead: PaddleOCR may put the amount on the next line.
+				if i+1 < len(lines) {
+					if amt := extractAmountFromLine(lines[i+1], amountRe); amt > 0 {
+						return ParsedField{Value: amt, Confidence: confidence * 0.95}
+					}
 				}
 			}
 		}
@@ -437,12 +443,16 @@ func extractAllLabeledAmounts(lines []string, amountRe *regexp.Regexp) []Detecte
 	seen := make(map[float64]bool)
 
 	for _, def := range allAmountLabels {
-		for _, line := range lines {
+		for i, line := range lines {
 			upper := strings.ToUpper(line)
 			if !containsLabelWord(upper, def.Label) {
 				continue
 			}
 			amt := extractAmountFromLine(line, amountRe)
+			// Look-ahead: PaddleOCR may put the amount on the next line.
+			if amt <= 0 && i+1 < len(lines) {
+				amt = extractAmountFromLine(lines[i+1], amountRe)
+			}
 			if amt <= 0 {
 				continue
 			}

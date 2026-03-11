@@ -181,3 +181,60 @@ func TestExtractAllLabeledAmounts(t *testing.T) {
 		}
 	}
 }
+
+func TestExtractAllLabeledAmounts_SplitLines(t *testing.T) {
+	// PaddleOCR often splits label and amount into separate lines.
+	lines := []string{
+		"CARGILLS FOOD CITY",
+		"Slave Island",
+		"0112331995",
+		"Sub Total",
+		"6,265.40",
+		"Rounding Off",
+		"-0.40",
+		"Net Total",
+		"6,265.00",
+		"CASH",
+		"10,000.00",
+		"Balance",
+		"3,735.00",
+	}
+
+	amounts := extractAllLabeledAmounts(lines, nil)
+
+	// Should detect amounts via look-ahead.
+	if len(amounts) < 3 {
+		t.Fatalf("expected at least 3 detected amounts, got %d: %+v", len(amounts), amounts)
+	}
+
+	// Check specific amounts are present (labels may vary due to priority matching).
+	amountSet := make(map[float64]bool)
+	for _, da := range amounts {
+		amountSet[da.Amount] = true
+		t.Logf("  detected: %s = %.2f (total=%v)", da.Label, da.Amount, da.IsLikelyTotal)
+	}
+
+	for _, want := range []float64{6265.00, 6265.40, 10000.00} {
+		if !amountSet[want] {
+			t.Errorf("expected amount %.2f to be detected", want)
+		}
+	}
+}
+
+func TestExtractLabeledAmount_LookAhead(t *testing.T) {
+	lines := []string{
+		"Net Total",
+		"6,265.00",
+		"CASH",
+		"10,000.00",
+	}
+	labels := []string{"TOTAL", "NET TOTAL", "NET AMOUNT"}
+
+	result := extractLabeledAmount(lines, labels, 0.85, nil)
+	if result.Value == nil {
+		t.Fatal("expected a value from look-ahead")
+	}
+	if amt, ok := result.Value.(float64); !ok || amt != 6265.00 {
+		t.Errorf("amount = %v, want 6265.00", result.Value)
+	}
+}

@@ -144,7 +144,7 @@ func lkConfig() Config {
 		VATTypes:       []string{"standard", "reduced", "exempt", "svat"},
 		Categories:     []string{"goods", "services", "capital", "imports", "sale"},
 		AmountPatterns: []string{`(?i)(?:Rs\.?|LKR|රු)\s*([\d,]+\.\d{2})`},
-		TotalLabels:    []string{"TOTAL", "TOTAL AMOUNT", "GRAND TOTAL", "AMOUNT DUE", "NET AMOUNT", "TOTAL (LKR)", "TOTAL PAYABLE", "BALANCE DUE", "BILL TOTAL"},
+		TotalLabels:    []string{"TOTAL", "TOTAL AMOUNT", "GRAND TOTAL", "AMOUNT DUE", "NET AMOUNT", "NET TOTAL", "TOTAL (LKR)", "TOTAL PAYABLE", "BALANCE DUE", "BILL TOTAL"},
 		VATLabels:      []string{"VAT AMOUNT", "VAT", "18% VAT", "VAT 18%", "OUTPUT VAT", "VAT @18%", "VAT@18"},
 		VatableLabels:  []string{"TAXABLE AMOUNT", "AMOUNT BEFORE VAT", "SUBTOTAL", "NET", "NET TOTAL", "TAXABLE VALUE"},
 		ExemptLabels:   []string{"VAT EXEMPT", "EXEMPT", "NON TAXABLE"},

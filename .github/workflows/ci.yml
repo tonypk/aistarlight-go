@@ -143,12 +143,17 @@ jobs:
             sudo cp $DEPLOY_DIR/docker-compose.prod.yml "$PROJECT_DIR/"
             sudo chown -R anna:anna "$PROJECT_DIR"
 
-            # Run migrations before starting new containers
+            # Clean up orphan containers from previous deployments
+            $COMPOSE down --remove-orphans 2>/dev/null || true
+
+            # Start database first, then run migrations
+            $COMPOSE up -d postgres redis
+            sleep 5
             $COMPOSE run --rm migrate
 
-            # Build and restart
+            # Build and restart application services
             $COMPOSE build api worker bot
-            $COMPOSE up -d api worker bot
+            $COMPOSE up -d api worker bot nginx
 
             # Reload nginx to pick up new container IPs
             $COMPOSE exec -T nginx nginx -s reload 2>/dev/null || true

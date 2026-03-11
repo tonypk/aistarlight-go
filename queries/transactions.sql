@@ -167,9 +167,10 @@ RETURNING *;
 DELETE FROM transactions WHERE id = $1 AND company_id = $2;
 
 -- name: ListTransactionsWithSubmitter :many
-SELECT t.*, u.full_name AS submitted_by_name
+SELECT t.*, COALESCE(NULLIF(u.full_name, ''), tu.full_name, tu.username, u.email) AS submitted_by_name
 FROM transactions t
 LEFT JOIN users u ON t.submitted_by = u.id
+LEFT JOIN telegram_users tu ON tu.user_id = t.submitted_by
 WHERE t.company_id = $1
   AND t.date >= $2
   AND t.date <= $3

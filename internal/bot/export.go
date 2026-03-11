@@ -124,7 +124,7 @@ func sqlcTxnWithSubmitterToResponse(t sqlc.ListTransactionsWithSubmitterRow) ser
 		ClassificationSource: t.ClassificationSource,
 		MatchStatus:          t.MatchStatus,
 		ATCCode:              t.AtcCode,
-		SubmittedByName:      t.SubmittedByName,
+		SubmittedByName:      &t.SubmittedByName,
 	}
 	if t.Date.Valid {
 		d := t.Date.Time.Format("2006-01-02")

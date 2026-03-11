@@ -948,9 +948,10 @@ func (q *Queries) ListTransactionsBySessionFiltered(ctx context.Context, arg Lis
 }
 
 const listTransactionsWithSubmitter = `-- name: ListTransactionsWithSubmitter :many
-SELECT t.id, t.company_id, t.session_id, t.source_type, t.source_file_id, t.row_index, t.date, t.description, t.amount, t.vat_amount, t.vat_type, t.category, t.tin, t.confidence, t.classification_source, t.raw_data, t.match_group_id, t.match_status, t.ewt_rate, t.ewt_amount, t.atc_code, t.supplier_id, t.created_at, t.updated_at, t.journal_entry_id, t.project_tag, t.from_currency, t.to_currency, t.exchange_rate, t.from_amount, t.submitted_by, u.full_name AS submitted_by_name
+SELECT t.id, t.company_id, t.session_id, t.source_type, t.source_file_id, t.row_index, t.date, t.description, t.amount, t.vat_amount, t.vat_type, t.category, t.tin, t.confidence, t.classification_source, t.raw_data, t.match_group_id, t.match_status, t.ewt_rate, t.ewt_amount, t.atc_code, t.supplier_id, t.created_at, t.updated_at, t.journal_entry_id, t.project_tag, t.from_currency, t.to_currency, t.exchange_rate, t.from_amount, t.submitted_by, COALESCE(NULLIF(u.full_name, ''), tu.full_name, tu.username, u.email) AS submitted_by_name
 FROM transactions t
 LEFT JOIN users u ON t.submitted_by = u.id
+LEFT JOIN telegram_users tu ON tu.user_id = t.submitted_by
 WHERE t.company_id = $1
   AND t.date >= $2
   AND t.date <= $3
@@ -996,7 +997,7 @@ type ListTransactionsWithSubmitterRow struct {
 	ExchangeRate         pgtype.Numeric `json:"exchange_rate"`
 	FromAmount           pgtype.Numeric `json:"from_amount"`
 	SubmittedBy          pgtype.UUID    `json:"submitted_by"`
-	SubmittedByName      *string        `json:"submitted_by_name"`
+	SubmittedByName      string         `json:"submitted_by_name"`
 }
 
 func (q *Queries) ListTransactionsWithSubmitter(ctx context.Context, arg ListTransactionsWithSubmitterParams) ([]ListTransactionsWithSubmitterRow, error) {

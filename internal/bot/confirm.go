@@ -365,7 +365,7 @@ func (b *Bot) confirmAndProcess(ctx context.Context, batch sqlc.ReceiptBatch, tg
 		return "", fmt.Errorf("create session: %w", err)
 	}
 
-	txns, err := b.bridge.ConvertReceiptToTransactions(ctx, tgUser.CompanyID, batch.ID, sessionID, projectTag)
+	txns, err := b.bridge.ConvertReceiptToTransactions(ctx, tgUser.CompanyID, batch.ID, sessionID, projectTag, tgUser.UserID)
 	if err != nil {
 		return "", fmt.Errorf("convert receipt: %w", err)
 	}

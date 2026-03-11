@@ -59,7 +59,7 @@ func (b *Bot) handleExport(c tele.Context) error {
 	pgEnd.Time = endDate
 	pgEnd.Valid = true
 
-	txns, err := b.q.ListTransactionsByCompanyAndDateRange(ctx, sqlc.ListTransactionsByCompanyAndDateRangeParams{
+	txns, err := b.q.ListTransactionsWithSubmitter(ctx, sqlc.ListTransactionsWithSubmitterParams{
 		CompanyID: tgUser.CompanyID,
 		Date:      pgStart,
 		Date_2:    pgEnd,
@@ -78,7 +78,7 @@ func (b *Bot) handleExport(c tele.Context) error {
 	// Convert to TransactionResponse
 	txnResponses := make([]service.TransactionResponse, len(txns))
 	for i, t := range txns {
-		txnResponses[i] = sqlcTxnToResponse(t)
+		txnResponses[i] = sqlcTxnWithSubmitterToResponse(t)
 	}
 
 	tinNumber := ""
@@ -110,8 +110,8 @@ func (b *Bot) handleExport(c tele.Context) error {
 	return c.Send(doc)
 }
 
-// sqlcTxnToResponse converts a sqlc.Transaction to service.TransactionResponse.
-func sqlcTxnToResponse(t sqlc.Transaction) service.TransactionResponse {
+// sqlcTxnWithSubmitterToResponse converts a ListTransactionsWithSubmitterRow to service.TransactionResponse.
+func sqlcTxnWithSubmitterToResponse(t sqlc.ListTransactionsWithSubmitterRow) service.TransactionResponse {
 	resp := service.TransactionResponse{
 		ID:                   t.ID.String(),
 		SourceType:           t.SourceType,
@@ -124,6 +124,7 @@ func sqlcTxnToResponse(t sqlc.Transaction) service.TransactionResponse {
 		ClassificationSource: t.ClassificationSource,
 		MatchStatus:          t.MatchStatus,
 		ATCCode:              t.AtcCode,
+		SubmittedByName:      t.SubmittedByName,
 	}
 	if t.Date.Valid {
 		d := t.Date.Time.Format("2006-01-02")

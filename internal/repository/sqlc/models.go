@@ -521,6 +521,7 @@ type Transaction struct {
 	ToCurrency           *string        `json:"to_currency"`
 	ExchangeRate         pgtype.Numeric `json:"exchange_rate"`
 	FromAmount           pgtype.Numeric `json:"from_amount"`
+	SubmittedBy          pgtype.UUID    `json:"submitted_by"`
 }
 
 type User struct {

@@ -5,11 +5,13 @@ INSERT INTO transactions (
     confidence, classification_source, raw_data, match_group_id, match_status,
     ewt_rate, ewt_amount, atc_code, supplier_id, project_tag,
     from_currency, to_currency, exchange_rate, from_amount,
+    submitted_by,
     created_at, updated_at
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
     $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
     $24, $25, $26, $27,
+    $28,
     NOW(), NOW()
 ) RETURNING *;
 
@@ -149,3 +151,27 @@ SELECT
 FROM transactions
 WHERE company_id = $1 AND date >= $2 AND date <= $3
 GROUP BY CASE WHEN source_type IN ('sales_record', 'sales') THEN 'income' ELSE 'expense' END;
+
+-- name: UpdateTransactionFields :one
+UPDATE transactions SET
+    amount = CASE WHEN @set_amount::boolean THEN @new_amount::numeric ELSE amount END,
+    description = CASE WHEN @set_description::boolean THEN @new_description::text ELSE description END,
+    date = CASE WHEN @set_date::boolean THEN @new_date::date ELSE date END,
+    category = CASE WHEN @set_category::boolean THEN @new_category::varchar ELSE category END,
+    vat_amount = CASE WHEN @set_vat_amount::boolean THEN @new_vat_amount::numeric ELSE vat_amount END,
+    updated_at = NOW()
+WHERE id = @id AND company_id = @company_id
+RETURNING *;
+
+-- name: DeleteTransactionByIDAndCompany :exec
+DELETE FROM transactions WHERE id = $1 AND company_id = $2;
+
+-- name: ListTransactionsWithSubmitter :many
+SELECT t.*, u.full_name AS submitted_by_name
+FROM transactions t
+LEFT JOIN users u ON t.submitted_by = u.id
+WHERE t.company_id = $1
+  AND t.date >= $2
+  AND t.date <= $3
+ORDER BY t.date DESC, t.created_at DESC
+LIMIT 10000;

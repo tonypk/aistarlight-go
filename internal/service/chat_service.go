@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"math"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -36,9 +37,13 @@ Tool routing:
 - User asks about spending or totals → use get_spending_summary tool
 - User searches for specific transactions → use search_transactions tool
 - User wants to see recent activity → use list_recent_transactions tool
+- User says amount/description/date is wrong → first search for the transaction, then use update_transaction tool
+- User wants to delete a wrong transaction → first search/list to find it, then use delete_transaction tool
 - User asks to generate report → use generate_report tool
 - User asks about tax rules → use lookup_tax_rule tool
 - User asks about settings/preferences → use get_user_preferences tool
+
+When correcting transactions: ALWAYS search or list recent transactions first to find the ID, then update or delete.
 
 Respond concisely. Use the user's language (English/Chinese/Filipino).
 Format currency amounts with ₱ symbol for PHP.`
@@ -62,9 +67,13 @@ Tool routing:
 - User asks about spending or totals → use get_spending_summary tool
 - User searches for specific transactions → use search_transactions tool
 - User wants to see recent activity → use list_recent_transactions tool
+- User says amount/description/date is wrong → first search for the transaction, then use update_transaction tool
+- User wants to delete a wrong transaction → first search/list to find it, then use delete_transaction tool
 - User asks to generate report → use generate_report tool
 - User asks about tax rules → use lookup_tax_rule tool
 - User asks about settings/preferences → use get_user_preferences tool
+
+When correcting transactions: ALWAYS search or list recent transactions first to find the ID, then update or delete.
 
 Respond concisely. Use the user's language (English/Chinese/Mandarin).
 Format currency amounts with S$ symbol for SGD.`
@@ -88,9 +97,13 @@ Tool routing:
 - User asks about spending or totals → use get_spending_summary tool
 - User searches for specific transactions → use search_transactions tool
 - User wants to see recent activity → use list_recent_transactions tool
+- User says amount/description/date is wrong → first search for the transaction, then use update_transaction tool
+- User wants to delete a wrong transaction → first search/list to find it, then use delete_transaction tool
 - User asks to generate report → use generate_report tool
 - User asks about tax rules → use lookup_tax_rule tool
 - User asks about settings/preferences → use get_user_preferences tool
+
+When correcting transactions: ALWAYS search or list recent transactions first to find the ID, then update or delete.
 
 Respond concisely. Use the user's language (English/Chinese/Sinhala/Tamil).
 Format currency amounts with Rs. symbol for LKR.`
@@ -299,6 +312,39 @@ var bookkeepingTools = []oai.Tool{
 				"properties": {
 					"limit": {"type": "integer", "description": "Number of transactions to show (default 5, max 20)"}
 				}
+			}`),
+		},
+	},
+	{
+		Type: oai.ToolTypeFunction,
+		Function: &oai.FunctionDefinition{
+			Name:        "update_transaction",
+			Description: "Update/correct an existing transaction. Use when the user says an amount is wrong, wants to change the description, date, or category of a recent transaction. Search for the transaction first if you don't have the ID.",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"transaction_id": {"type": "string", "description": "UUID of the transaction to update"},
+					"amount": {"type": "number", "description": "New corrected amount (only if user wants to change amount)"},
+					"description": {"type": "string", "description": "New description (only if user wants to change description)"},
+					"date": {"type": "string", "description": "New date in YYYY-MM-DD format (only if user wants to change date)"},
+					"category": {"type": "string", "description": "New category (only if user wants to change category)"},
+					"vat_amount": {"type": "number", "description": "New VAT amount (only if user wants to change VAT)"}
+				},
+				"required": ["transaction_id"]
+			}`),
+		},
+	},
+	{
+		Type: oai.ToolTypeFunction,
+		Function: &oai.FunctionDefinition{
+			Name:        "delete_transaction",
+			Description: "Delete a transaction that was recorded incorrectly. Use when the user says a transaction should be removed entirely.",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"transaction_id": {"type": "string", "description": "UUID of the transaction to delete"}
+				},
+				"required": ["transaction_id"]
 			}`),
 		},
 	},
@@ -606,6 +652,10 @@ func (s *ChatService) executeTool(ctx context.Context, name, argsJSON string, co
 		return s.executeGetSpendingSummary(ctx, args, companyID)
 	case "list_recent_transactions":
 		return s.executeListRecentTransactions(ctx, args, companyID)
+	case "update_transaction":
+		return s.executeUpdateTransaction(ctx, args, companyID)
+	case "delete_transaction":
+		return s.executeDeleteTransaction(ctx, args, companyID)
 	default:
 		return jsonError(fmt.Sprintf("unknown tool: %s", name))
 	}
@@ -829,6 +879,11 @@ func (s *ChatService) executeRecordExpense(ctx context.Context, args map[string]
 		projPtr = &projectTag
 	}
 
+	submittedByPg := pgtype.UUID{}
+	if userID != uuid.Nil {
+		submittedByPg = pgtype.UUID{Bytes: userID, Valid: true}
+	}
+
 	tx, err := s.q.CreateTransaction(ctx, sqlc.CreateTransactionParams{
 		ID:                   uuid.New(),
 		CompanyID:            companyID,
@@ -846,6 +901,7 @@ func (s *ChatService) executeRecordExpense(ctx context.Context, args map[string]
 		RawData:              []byte("{}"),
 		MatchStatus:          "unmatched",
 		ProjectTag:           projPtr,
+		SubmittedBy:          submittedByPg,
 	})
 	if err != nil {
 		slog.Error("failed to create manual transaction", "error", err)
@@ -997,6 +1053,131 @@ func (s *ChatService) executeListRecentTransactions(ctx context.Context, args ma
 	result, _ := json.Marshal(map[string]interface{}{
 		"count":        len(items),
 		"transactions": items,
+	})
+	return string(result)
+}
+
+func (s *ChatService) executeUpdateTransaction(ctx context.Context, args map[string]interface{}, companyID uuid.UUID) string {
+	txnIDStr := toString(args["transaction_id"])
+	txnID, err := uuid.Parse(txnIDStr)
+	if err != nil {
+		return jsonError("invalid transaction_id format")
+	}
+
+	// Verify ownership.
+	txn, err := s.q.GetTransactionByID(ctx, txnID)
+	if err != nil {
+		return jsonError("transaction not found")
+	}
+	if txn.CompanyID != companyID {
+		return jsonError("transaction not found")
+	}
+
+	params := sqlc.UpdateTransactionFieldsParams{
+		ID:        txnID,
+		CompanyID: companyID,
+	}
+
+	changes := make([]string, 0)
+
+	if amountF, ok := args["amount"].(float64); ok {
+		params.SetAmount = true
+		params.NewAmount = floatToNumeric(amountF)
+		changes = append(changes, fmt.Sprintf("amount → %.2f", amountF))
+	}
+	if desc := toString(args["description"]); desc != "" {
+		params.SetDescription = true
+		params.NewDescription = desc
+		changes = append(changes, fmt.Sprintf("description → %s", desc))
+	}
+	if dateStr := toString(args["date"]); dateStr != "" {
+		if parsed, parseErr := time.Parse("2006-01-02", dateStr); parseErr == nil {
+			params.SetDate = true
+			params.NewDate = pgtype.Date{Time: parsed, Valid: true}
+			changes = append(changes, fmt.Sprintf("date → %s", dateStr))
+		}
+	}
+	if cat := toString(args["category"]); cat != "" {
+		params.SetCategory = true
+		params.NewCategory = cat
+		changes = append(changes, fmt.Sprintf("category → %s", cat))
+	}
+	if vatF, ok := args["vat_amount"].(float64); ok {
+		params.SetVatAmount = true
+		params.NewVatAmount = floatToNumeric(vatF)
+		changes = append(changes, fmt.Sprintf("vat_amount → %.2f", vatF))
+	}
+
+	if len(changes) == 0 {
+		return jsonError("no fields to update — specify amount, description, date, category, or vat_amount")
+	}
+
+	updated, err := s.q.UpdateTransactionFields(ctx, params)
+	if err != nil {
+		slog.Error("failed to update transaction", "error", err, "id", txnID)
+		return jsonError("failed to update transaction")
+	}
+
+	desc := ""
+	if updated.Description != nil {
+		desc = *updated.Description
+	}
+	var amt float64
+	if f, fErr := updated.Amount.Float64Value(); fErr == nil {
+		amt = f.Float64
+	}
+
+	result, _ := json.Marshal(map[string]interface{}{
+		"success":        true,
+		"transaction_id": updated.ID.String(),
+		"description":    desc,
+		"amount":         amt,
+		"changes":        changes,
+		"message":        fmt.Sprintf("Updated transaction: %s", strings.Join(changes, ", ")),
+	})
+	return string(result)
+}
+
+func (s *ChatService) executeDeleteTransaction(ctx context.Context, args map[string]interface{}, companyID uuid.UUID) string {
+	txnIDStr := toString(args["transaction_id"])
+	txnID, err := uuid.Parse(txnIDStr)
+	if err != nil {
+		return jsonError("invalid transaction_id format")
+	}
+
+	// Verify ownership.
+	txn, err := s.q.GetTransactionByID(ctx, txnID)
+	if err != nil {
+		return jsonError("transaction not found")
+	}
+	if txn.CompanyID != companyID {
+		return jsonError("transaction not found")
+	}
+
+	desc := ""
+	if txn.Description != nil {
+		desc = *txn.Description
+	}
+	var amt float64
+	if f, fErr := txn.Amount.Float64Value(); fErr == nil {
+		amt = f.Float64
+	}
+
+	err = s.q.DeleteTransactionByIDAndCompany(ctx, sqlc.DeleteTransactionByIDAndCompanyParams{
+		ID:        txnID,
+		CompanyID: companyID,
+	})
+	if err != nil {
+		slog.Error("failed to delete transaction", "error", err, "id", txnID)
+		return jsonError("failed to delete transaction")
+	}
+
+	result, _ := json.Marshal(map[string]interface{}{
+		"success":     true,
+		"deleted_id":  txnID.String(),
+		"description": desc,
+		"amount":      amt,
+		"message":     fmt.Sprintf("Deleted transaction: %s (%.2f)", desc, amt),
 	})
 	return string(result)
 }

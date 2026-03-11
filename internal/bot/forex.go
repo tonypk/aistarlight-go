@@ -266,6 +266,8 @@ func (b *Bot) handleForexConfirm(c tele.Context) error {
 
 	txnDate := pgtype.Date{Time: time.Now().UTC(), Valid: true}
 
+	submittedByPg := pgtype.UUID{Bytes: tgUser.UserID, Valid: true}
+
 	_, err = b.q.CreateTransaction(ctx, sqlc.CreateTransactionParams{
 		ID:                   uuid.New(),
 		CompanyID:            tgUser.CompanyID,
@@ -287,6 +289,7 @@ func (b *Bot) handleForexConfirm(c tele.Context) error {
 		ToCurrency:           &toCurrency,
 		ExchangeRate:         rateNum,
 		FromAmount:           fromAmountNum,
+		SubmittedBy:          submittedByPg,
 	})
 	if err != nil {
 		slog.Error("forex: failed to create transaction", "error", err)

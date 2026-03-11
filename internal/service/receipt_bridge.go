@@ -26,7 +26,8 @@ func NewReceiptBridge(q *sqlc.Queries, classifier *ClassifierService) *ReceiptBr
 
 // ConvertReceiptToTransactions converts a completed receipt batch into transaction records.
 // projectTag is optional and will be stored on each created transaction.
-func (b *ReceiptBridge) ConvertReceiptToTransactions(ctx context.Context, companyID uuid.UUID, receiptID uuid.UUID, sessionID uuid.UUID, projectTag *string) ([]domain.Transaction, error) {
+// userID identifies who submitted the receipt.
+func (b *ReceiptBridge) ConvertReceiptToTransactions(ctx context.Context, companyID uuid.UUID, receiptID uuid.UUID, sessionID uuid.UUID, projectTag *string, userID ...uuid.UUID) ([]domain.Transaction, error) {
 	batch, err := b.q.GetReceiptBatchByID(ctx, receiptID)
 	if err != nil {
 		return nil, fmt.Errorf("receipt batch not found: %w", err)
@@ -45,6 +46,11 @@ func (b *ReceiptBridge) ConvertReceiptToTransactions(ctx context.Context, compan
 		return nil, fmt.Errorf("parse receipt results: %w", err)
 	}
 
+	var submittedBy *uuid.UUID
+	if len(userID) > 0 && userID[0] != uuid.Nil {
+		submittedBy = &userID[0]
+	}
+
 	var transactions []domain.Transaction
 	var txnIDs []uuid.UUID
 
@@ -53,7 +59,7 @@ func (b *ReceiptBridge) ConvertReceiptToTransactions(ctx context.Context, compan
 			continue // skip failed OCR results
 		}
 
-		txn, err := b.createTransactionFromReceipt(ctx, companyID, sessionID, batch.ID, i, result, projectTag)
+		txn, err := b.createTransactionFromReceipt(ctx, companyID, sessionID, batch.ID, i, result, projectTag, submittedBy)
 		if err != nil {
 			return nil, fmt.Errorf("create transaction from receipt %d: %w", i, err)
 		}
@@ -75,7 +81,7 @@ func (b *ReceiptBridge) ConvertReceiptToTransactions(ctx context.Context, compan
 	return transactions, nil
 }
 
-func (b *ReceiptBridge) createTransactionFromReceipt(ctx context.Context, companyID, sessionID, batchID uuid.UUID, rowIndex int, result ReceiptResult, projectTag *string) (*domain.Transaction, error) {
+func (b *ReceiptBridge) createTransactionFromReceipt(ctx context.Context, companyID, sessionID, batchID uuid.UUID, rowIndex int, result ReceiptResult, projectTag *string, submittedBy *uuid.UUID) (*domain.Transaction, error) {
 	parsed := result.Parsed
 
 	// Extract amount
@@ -166,6 +172,12 @@ func (b *ReceiptBridge) createTransactionFromReceipt(ctx context.Context, compan
 	_ = confidence.Scan(fmt.Sprintf("%.2f", result.OverallConfidence))
 
 	txnID := uuid.New()
+
+	submittedByPg := pgtype.UUID{}
+	if submittedBy != nil {
+		submittedByPg = pgtype.UUID{Bytes: *submittedBy, Valid: true}
+	}
+
 	dbTxn, err := b.q.CreateTransaction(ctx, sqlc.CreateTransactionParams{
 		ID:                   txnID,
 		CompanyID:            companyID,
@@ -187,6 +199,7 @@ func (b *ReceiptBridge) createTransactionFromReceipt(ctx context.Context, compan
 		ProjectTag:           projectTag,
 		FromCurrency:         nil,
 		ToCurrency:           nil,
+		SubmittedBy:          submittedByPg,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create transaction: %w", err)

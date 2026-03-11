@@ -65,6 +65,8 @@ type TransactionResponse struct {
 	EWTAmount            *float64 `json:"ewt_amount"`
 	ATCCode              *string  `json:"atc_code"`
 	SupplierID           *string  `json:"supplier_id"`
+	SubmittedBy          *string  `json:"submitted_by,omitempty"`
+	SubmittedByName      *string  `json:"submitted_by_name,omitempty"`
 }
 
 // AnomalyResponse is the API response for an anomaly.

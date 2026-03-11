@@ -7,6 +7,7 @@ package sqlc
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -102,13 +103,15 @@ INSERT INTO transactions (
     confidence, classification_source, raw_data, match_group_id, match_status,
     ewt_rate, ewt_amount, atc_code, supplier_id, project_tag,
     from_currency, to_currency, exchange_rate, from_amount,
+    submitted_by,
     created_at, updated_at
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
     $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
     $24, $25, $26, $27,
+    $28,
     NOW(), NOW()
-) RETURNING id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag, from_currency, to_currency, exchange_rate, from_amount
+) RETURNING id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag, from_currency, to_currency, exchange_rate, from_amount, submitted_by
 `
 
 type CreateTransactionParams struct {
@@ -139,6 +142,7 @@ type CreateTransactionParams struct {
 	ToCurrency           *string        `json:"to_currency"`
 	ExchangeRate         pgtype.Numeric `json:"exchange_rate"`
 	FromAmount           pgtype.Numeric `json:"from_amount"`
+	SubmittedBy          pgtype.UUID    `json:"submitted_by"`
 }
 
 func (q *Queries) CreateTransaction(ctx context.Context, arg CreateTransactionParams) (Transaction, error) {
@@ -170,6 +174,7 @@ func (q *Queries) CreateTransaction(ctx context.Context, arg CreateTransactionPa
 		arg.ToCurrency,
 		arg.ExchangeRate,
 		arg.FromAmount,
+		arg.SubmittedBy,
 	)
 	var i Transaction
 	err := row.Scan(
@@ -203,8 +208,23 @@ func (q *Queries) CreateTransaction(ctx context.Context, arg CreateTransactionPa
 		&i.ToCurrency,
 		&i.ExchangeRate,
 		&i.FromAmount,
+		&i.SubmittedBy,
 	)
 	return i, err
+}
+
+const deleteTransactionByIDAndCompany = `-- name: DeleteTransactionByIDAndCompany :exec
+DELETE FROM transactions WHERE id = $1 AND company_id = $2
+`
+
+type DeleteTransactionByIDAndCompanyParams struct {
+	ID        uuid.UUID `json:"id"`
+	CompanyID uuid.UUID `json:"company_id"`
+}
+
+func (q *Queries) DeleteTransactionByIDAndCompany(ctx context.Context, arg DeleteTransactionByIDAndCompanyParams) error {
+	_, err := q.db.Exec(ctx, deleteTransactionByIDAndCompany, arg.ID, arg.CompanyID)
+	return err
 }
 
 const deleteTransactionsBySession = `-- name: DeleteTransactionsBySession :exec
@@ -259,7 +279,7 @@ func (q *Queries) GetIncomeExpenseSummary(ctx context.Context, arg GetIncomeExpe
 }
 
 const getRecentTransactionsByCompany = `-- name: GetRecentTransactionsByCompany :many
-SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag, from_currency, to_currency, exchange_rate, from_amount FROM transactions
+SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag, from_currency, to_currency, exchange_rate, from_amount, submitted_by FROM transactions
 WHERE company_id = $1
 ORDER BY COALESCE(date, created_at) DESC
 LIMIT $2
@@ -310,6 +330,7 @@ func (q *Queries) GetRecentTransactionsByCompany(ctx context.Context, arg GetRec
 			&i.ToCurrency,
 			&i.ExchangeRate,
 			&i.FromAmount,
+			&i.SubmittedBy,
 		); err != nil {
 			return nil, err
 		}
@@ -400,7 +421,7 @@ func (q *Queries) GetSpendingSummaryByMonth(ctx context.Context, arg GetSpending
 }
 
 const getTransactionByID = `-- name: GetTransactionByID :one
-SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag, from_currency, to_currency, exchange_rate, from_amount FROM transactions WHERE id = $1
+SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag, from_currency, to_currency, exchange_rate, from_amount, submitted_by FROM transactions WHERE id = $1
 `
 
 func (q *Queries) GetTransactionByID(ctx context.Context, id uuid.UUID) (Transaction, error) {
@@ -437,12 +458,13 @@ func (q *Queries) GetTransactionByID(ctx context.Context, id uuid.UUID) (Transac
 		&i.ToCurrency,
 		&i.ExchangeRate,
 		&i.FromAmount,
+		&i.SubmittedBy,
 	)
 	return i, err
 }
 
 const getTransactionsByIDs = `-- name: GetTransactionsByIDs :many
-SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag, from_currency, to_currency, exchange_rate, from_amount FROM transactions
+SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag, from_currency, to_currency, exchange_rate, from_amount, submitted_by FROM transactions
 WHERE id = ANY($1::uuid[]) AND company_id = $2
 ORDER BY date ASC, row_index ASC
 `
@@ -492,6 +514,7 @@ func (q *Queries) GetTransactionsByIDs(ctx context.Context, arg GetTransactionsB
 			&i.ToCurrency,
 			&i.ExchangeRate,
 			&i.FromAmount,
+			&i.SubmittedBy,
 		); err != nil {
 			return nil, err
 		}
@@ -504,7 +527,7 @@ func (q *Queries) GetTransactionsByIDs(ctx context.Context, arg GetTransactionsB
 }
 
 const getUnlinkedTransactions = `-- name: GetUnlinkedTransactions :many
-SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag, from_currency, to_currency, exchange_rate, from_amount FROM transactions
+SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag, from_currency, to_currency, exchange_rate, from_amount, submitted_by FROM transactions
 WHERE company_id = $1 AND journal_entry_id IS NULL
 ORDER BY date ASC, row_index ASC
 LIMIT $2 OFFSET $3
@@ -556,6 +579,7 @@ func (q *Queries) GetUnlinkedTransactions(ctx context.Context, arg GetUnlinkedTr
 			&i.ToCurrency,
 			&i.ExchangeRate,
 			&i.FromAmount,
+			&i.SubmittedBy,
 		); err != nil {
 			return nil, err
 		}
@@ -584,7 +608,7 @@ func (q *Queries) LinkTransactionToJournalEntry(ctx context.Context, arg LinkTra
 }
 
 const listAllTransactionsBySession = `-- name: ListAllTransactionsBySession :many
-SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag, from_currency, to_currency, exchange_rate, from_amount FROM transactions WHERE session_id = $1 ORDER BY row_index
+SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag, from_currency, to_currency, exchange_rate, from_amount, submitted_by FROM transactions WHERE session_id = $1 ORDER BY row_index
 `
 
 func (q *Queries) ListAllTransactionsBySession(ctx context.Context, sessionID uuid.UUID) ([]Transaction, error) {
@@ -627,6 +651,7 @@ func (q *Queries) ListAllTransactionsBySession(ctx context.Context, sessionID uu
 			&i.ToCurrency,
 			&i.ExchangeRate,
 			&i.FromAmount,
+			&i.SubmittedBy,
 		); err != nil {
 			return nil, err
 		}
@@ -639,7 +664,7 @@ func (q *Queries) ListAllTransactionsBySession(ctx context.Context, sessionID uu
 }
 
 const listTransactionsByCompany = `-- name: ListTransactionsByCompany :many
-SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag, from_currency, to_currency, exchange_rate, from_amount FROM transactions
+SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag, from_currency, to_currency, exchange_rate, from_amount, submitted_by FROM transactions
 WHERE company_id = $1
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3
@@ -691,6 +716,7 @@ func (q *Queries) ListTransactionsByCompany(ctx context.Context, arg ListTransac
 			&i.ToCurrency,
 			&i.ExchangeRate,
 			&i.FromAmount,
+			&i.SubmittedBy,
 		); err != nil {
 			return nil, err
 		}
@@ -703,7 +729,7 @@ func (q *Queries) ListTransactionsByCompany(ctx context.Context, arg ListTransac
 }
 
 const listTransactionsByCompanyAndDateRange = `-- name: ListTransactionsByCompanyAndDateRange :many
-SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag, from_currency, to_currency, exchange_rate, from_amount FROM transactions
+SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag, from_currency, to_currency, exchange_rate, from_amount, submitted_by FROM transactions
 WHERE company_id = $1
   AND date >= $2
   AND date <= $3
@@ -757,6 +783,7 @@ func (q *Queries) ListTransactionsByCompanyAndDateRange(ctx context.Context, arg
 			&i.ToCurrency,
 			&i.ExchangeRate,
 			&i.FromAmount,
+			&i.SubmittedBy,
 		); err != nil {
 			return nil, err
 		}
@@ -769,7 +796,7 @@ func (q *Queries) ListTransactionsByCompanyAndDateRange(ctx context.Context, arg
 }
 
 const listTransactionsBySession = `-- name: ListTransactionsBySession :many
-SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag, from_currency, to_currency, exchange_rate, from_amount FROM transactions
+SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag, from_currency, to_currency, exchange_rate, from_amount, submitted_by FROM transactions
 WHERE session_id = $1
 ORDER BY row_index
 LIMIT $2 OFFSET $3
@@ -821,6 +848,7 @@ func (q *Queries) ListTransactionsBySession(ctx context.Context, arg ListTransac
 			&i.ToCurrency,
 			&i.ExchangeRate,
 			&i.FromAmount,
+			&i.SubmittedBy,
 		); err != nil {
 			return nil, err
 		}
@@ -833,7 +861,7 @@ func (q *Queries) ListTransactionsBySession(ctx context.Context, arg ListTransac
 }
 
 const listTransactionsBySessionFiltered = `-- name: ListTransactionsBySessionFiltered :many
-SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag, from_currency, to_currency, exchange_rate, from_amount FROM transactions
+SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag, from_currency, to_currency, exchange_rate, from_amount, submitted_by FROM transactions
 WHERE session_id = $1
   AND ($4::varchar = '' OR vat_type = $4)
   AND ($5::varchar = '' OR category = $5)
@@ -907,6 +935,112 @@ func (q *Queries) ListTransactionsBySessionFiltered(ctx context.Context, arg Lis
 			&i.ToCurrency,
 			&i.ExchangeRate,
 			&i.FromAmount,
+			&i.SubmittedBy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTransactionsWithSubmitter = `-- name: ListTransactionsWithSubmitter :many
+SELECT t.id, t.company_id, t.session_id, t.source_type, t.source_file_id, t.row_index, t.date, t.description, t.amount, t.vat_amount, t.vat_type, t.category, t.tin, t.confidence, t.classification_source, t.raw_data, t.match_group_id, t.match_status, t.ewt_rate, t.ewt_amount, t.atc_code, t.supplier_id, t.created_at, t.updated_at, t.journal_entry_id, t.project_tag, t.from_currency, t.to_currency, t.exchange_rate, t.from_amount, t.submitted_by, u.full_name AS submitted_by_name
+FROM transactions t
+LEFT JOIN users u ON t.submitted_by = u.id
+WHERE t.company_id = $1
+  AND t.date >= $2
+  AND t.date <= $3
+ORDER BY t.date DESC, t.created_at DESC
+LIMIT 10000
+`
+
+type ListTransactionsWithSubmitterParams struct {
+	CompanyID uuid.UUID   `json:"company_id"`
+	Date      pgtype.Date `json:"date"`
+	Date_2    pgtype.Date `json:"date_2"`
+}
+
+type ListTransactionsWithSubmitterRow struct {
+	ID                   uuid.UUID      `json:"id"`
+	CompanyID            uuid.UUID      `json:"company_id"`
+	SessionID            uuid.UUID      `json:"session_id"`
+	SourceType           string         `json:"source_type"`
+	SourceFileID         string         `json:"source_file_id"`
+	RowIndex             int32          `json:"row_index"`
+	Date                 pgtype.Date    `json:"date"`
+	Description          *string        `json:"description"`
+	Amount               pgtype.Numeric `json:"amount"`
+	VatAmount            pgtype.Numeric `json:"vat_amount"`
+	VatType              string         `json:"vat_type"`
+	Category             string         `json:"category"`
+	Tin                  *string        `json:"tin"`
+	Confidence           pgtype.Numeric `json:"confidence"`
+	ClassificationSource string         `json:"classification_source"`
+	RawData              []byte         `json:"raw_data"`
+	MatchGroupID         pgtype.UUID    `json:"match_group_id"`
+	MatchStatus          string         `json:"match_status"`
+	EwtRate              pgtype.Numeric `json:"ewt_rate"`
+	EwtAmount            pgtype.Numeric `json:"ewt_amount"`
+	AtcCode              *string        `json:"atc_code"`
+	SupplierID           pgtype.UUID    `json:"supplier_id"`
+	CreatedAt            time.Time      `json:"created_at"`
+	UpdatedAt            time.Time      `json:"updated_at"`
+	JournalEntryID       pgtype.UUID    `json:"journal_entry_id"`
+	ProjectTag           *string        `json:"project_tag"`
+	FromCurrency         *string        `json:"from_currency"`
+	ToCurrency           *string        `json:"to_currency"`
+	ExchangeRate         pgtype.Numeric `json:"exchange_rate"`
+	FromAmount           pgtype.Numeric `json:"from_amount"`
+	SubmittedBy          pgtype.UUID    `json:"submitted_by"`
+	SubmittedByName      *string        `json:"submitted_by_name"`
+}
+
+func (q *Queries) ListTransactionsWithSubmitter(ctx context.Context, arg ListTransactionsWithSubmitterParams) ([]ListTransactionsWithSubmitterRow, error) {
+	rows, err := q.db.Query(ctx, listTransactionsWithSubmitter, arg.CompanyID, arg.Date, arg.Date_2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListTransactionsWithSubmitterRow{}
+	for rows.Next() {
+		var i ListTransactionsWithSubmitterRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.CompanyID,
+			&i.SessionID,
+			&i.SourceType,
+			&i.SourceFileID,
+			&i.RowIndex,
+			&i.Date,
+			&i.Description,
+			&i.Amount,
+			&i.VatAmount,
+			&i.VatType,
+			&i.Category,
+			&i.Tin,
+			&i.Confidence,
+			&i.ClassificationSource,
+			&i.RawData,
+			&i.MatchGroupID,
+			&i.MatchStatus,
+			&i.EwtRate,
+			&i.EwtAmount,
+			&i.AtcCode,
+			&i.SupplierID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.JournalEntryID,
+			&i.ProjectTag,
+			&i.FromCurrency,
+			&i.ToCurrency,
+			&i.ExchangeRate,
+			&i.FromAmount,
+			&i.SubmittedBy,
+			&i.SubmittedByName,
 		); err != nil {
 			return nil, err
 		}
@@ -919,7 +1053,7 @@ func (q *Queries) ListTransactionsBySessionFiltered(ctx context.Context, arg Lis
 }
 
 const searchTransactionsByCompany = `-- name: SearchTransactionsByCompany :many
-SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag, from_currency, to_currency, exchange_rate, from_amount FROM transactions
+SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag, from_currency, to_currency, exchange_rate, from_amount, submitted_by FROM transactions
 WHERE company_id = $1
   AND ($2::text = '' OR description ILIKE '%' || $2 || '%')
   AND ($3::date IS NULL OR date >= $3)
@@ -984,6 +1118,7 @@ func (q *Queries) SearchTransactionsByCompany(ctx context.Context, arg SearchTra
 			&i.ToCurrency,
 			&i.ExchangeRate,
 			&i.FromAmount,
+			&i.SubmittedBy,
 		); err != nil {
 			return nil, err
 		}
@@ -1054,6 +1189,85 @@ type UpdateTransactionDescriptionParams struct {
 func (q *Queries) UpdateTransactionDescription(ctx context.Context, arg UpdateTransactionDescriptionParams) error {
 	_, err := q.db.Exec(ctx, updateTransactionDescription, arg.ID, arg.Description)
 	return err
+}
+
+const updateTransactionFields = `-- name: UpdateTransactionFields :one
+UPDATE transactions SET
+    amount = CASE WHEN $1::boolean THEN $2::numeric ELSE amount END,
+    description = CASE WHEN $3::boolean THEN $4::text ELSE description END,
+    date = CASE WHEN $5::boolean THEN $6::date ELSE date END,
+    category = CASE WHEN $7::boolean THEN $8::varchar ELSE category END,
+    vat_amount = CASE WHEN $9::boolean THEN $10::numeric ELSE vat_amount END,
+    updated_at = NOW()
+WHERE id = $11 AND company_id = $12
+RETURNING id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag, from_currency, to_currency, exchange_rate, from_amount, submitted_by
+`
+
+type UpdateTransactionFieldsParams struct {
+	SetAmount      bool           `json:"set_amount"`
+	NewAmount      pgtype.Numeric `json:"new_amount"`
+	SetDescription bool           `json:"set_description"`
+	NewDescription string         `json:"new_description"`
+	SetDate        bool           `json:"set_date"`
+	NewDate        pgtype.Date    `json:"new_date"`
+	SetCategory    bool           `json:"set_category"`
+	NewCategory    string         `json:"new_category"`
+	SetVatAmount   bool           `json:"set_vat_amount"`
+	NewVatAmount   pgtype.Numeric `json:"new_vat_amount"`
+	ID             uuid.UUID      `json:"id"`
+	CompanyID      uuid.UUID      `json:"company_id"`
+}
+
+func (q *Queries) UpdateTransactionFields(ctx context.Context, arg UpdateTransactionFieldsParams) (Transaction, error) {
+	row := q.db.QueryRow(ctx, updateTransactionFields,
+		arg.SetAmount,
+		arg.NewAmount,
+		arg.SetDescription,
+		arg.NewDescription,
+		arg.SetDate,
+		arg.NewDate,
+		arg.SetCategory,
+		arg.NewCategory,
+		arg.SetVatAmount,
+		arg.NewVatAmount,
+		arg.ID,
+		arg.CompanyID,
+	)
+	var i Transaction
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.SessionID,
+		&i.SourceType,
+		&i.SourceFileID,
+		&i.RowIndex,
+		&i.Date,
+		&i.Description,
+		&i.Amount,
+		&i.VatAmount,
+		&i.VatType,
+		&i.Category,
+		&i.Tin,
+		&i.Confidence,
+		&i.ClassificationSource,
+		&i.RawData,
+		&i.MatchGroupID,
+		&i.MatchStatus,
+		&i.EwtRate,
+		&i.EwtAmount,
+		&i.AtcCode,
+		&i.SupplierID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.JournalEntryID,
+		&i.ProjectTag,
+		&i.FromCurrency,
+		&i.ToCurrency,
+		&i.ExchangeRate,
+		&i.FromAmount,
+		&i.SubmittedBy,
+	)
+	return i, err
 }
 
 const updateTransactionMatch = `-- name: UpdateTransactionMatch :exec

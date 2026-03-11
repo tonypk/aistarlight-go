@@ -200,11 +200,11 @@ func GenerateBookkeepingExcel(w io.Writer, txns []TransactionResponse, period st
 	// Title
 	_ = f.SetCellValue(sheet, "A1", fmt.Sprintf("%s — Bookkeeping Export (%s)", company.CompanyName, period))
 	_ = f.SetCellStyle(sheet, "A1", "A1", titleStyle)
-	_ = f.MergeCell(sheet, "A1", "H1")
+	_ = f.MergeCell(sheet, "A1", "I1")
 	_ = f.SetCellValue(sheet, "A2", fmt.Sprintf("Currency: %s", currencySymbol))
 
 	// Headers
-	headers := []string{"Date", "Description", "Amount", "VAT Amount", "VAT Type", "Category", "Confidence", "Source Type"}
+	headers := []string{"Date", "Description", "Amount", "VAT Amount", "VAT Type", "Category", "Confidence", "Source Type", "Submitted By"}
 	for i, h := range headers {
 		col := colName(i + 1)
 		_ = f.SetCellValue(sheet, fmt.Sprintf("%s4", col), h)
@@ -223,6 +223,10 @@ func GenerateBookkeepingExcel(w io.Writer, txns []TransactionResponse, period st
 		if txn.Description != nil {
 			desc = *txn.Description
 		}
+		submittedBy := ""
+		if txn.SubmittedByName != nil {
+			submittedBy = *txn.SubmittedByName
+		}
 		_ = f.SetCellValue(sheet, fmt.Sprintf("A%d", row), date)
 		_ = f.SetCellValue(sheet, fmt.Sprintf("B%d", row), desc)
 		_ = f.SetCellValue(sheet, fmt.Sprintf("C%d", row), txn.Amount)
@@ -231,6 +235,7 @@ func GenerateBookkeepingExcel(w io.Writer, txns []TransactionResponse, period st
 		_ = f.SetCellValue(sheet, fmt.Sprintf("F%d", row), txn.Category)
 		_ = f.SetCellValue(sheet, fmt.Sprintf("G%d", row), txn.Confidence)
 		_ = f.SetCellValue(sheet, fmt.Sprintf("H%d", row), txn.SourceType)
+		_ = f.SetCellValue(sheet, fmt.Sprintf("I%d", row), submittedBy)
 		totalAmount += txn.Amount
 		totalVAT += txn.VATAmount
 	}
@@ -249,7 +254,7 @@ func GenerateBookkeepingExcel(w io.Writer, txns []TransactionResponse, period st
 	}
 
 	widths := map[string]float64{
-		"A": 12, "B": 35, "C": 15, "D": 15, "E": 12, "F": 12, "G": 12, "H": 16,
+		"A": 12, "B": 35, "C": 15, "D": 15, "E": 12, "F": 12, "G": 12, "H": 16, "I": 18,
 	}
 	for col, width := range widths {
 		_ = f.SetColWidth(sheet, col, col, width)

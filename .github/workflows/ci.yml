@@ -143,8 +143,12 @@ jobs:
             sudo cp $DEPLOY_DIR/docker-compose.prod.yml "$PROJECT_DIR/"
             sudo chown -R anna:anna "$PROJECT_DIR"
 
-            # Start database first, wait for it to be ready
-            $COMPOSE up -d --remove-orphans postgres redis
+            # Build images first (no restart yet)
+            $COMPOSE build api worker bot
+
+            # Stop and restart everything in one shot to avoid port conflicts
+            $COMPOSE down --remove-orphans 2>/dev/null || true
+            $COMPOSE up -d postgres redis
             echo "Waiting for postgres to be healthy..."
             for i in $(seq 1 30); do
                 if $COMPOSE exec -T postgres pg_isready -U aistarlight > /dev/null 2>&1; then
@@ -164,9 +168,8 @@ jobs:
                 sleep 5
             done
 
-            # Build and restart application services
-            $COMPOSE build api worker bot
-            $COMPOSE up -d --remove-orphans api worker bot nginx
+            # Start all application services
+            $COMPOSE up -d api worker bot nginx frontend
 
             # Reload nginx to pick up new container IPs
             $COMPOSE exec -T nginx nginx -s reload 2>/dev/null || true

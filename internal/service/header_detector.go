@@ -59,7 +59,7 @@ func DetectHeadersWithAI(ctx context.Context, ai *openai.Client, rows [][]string
 	// Send the first 30 rows (for header detection) + the last 20 rows (for footer detection).
 	// For small sheets, just send everything.
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Spreadsheet has %d total rows.\n\n", len(rows)))
+	fmt.Fprintf(&sb, "Spreadsheet has %d total rows.\n\n", len(rows))
 
 	headLimit := 30
 	if headLimit > len(rows) {

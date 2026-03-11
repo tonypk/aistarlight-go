@@ -956,9 +956,9 @@ func buildCorrectionHint(corrections []MappingCorrection) string {
 	var sb strings.Builder
 	sb.WriteString("\n\nUser previously corrected these column mappings (prefer these):\n")
 	for _, c := range corrections {
-		sb.WriteString(fmt.Sprintf("- \"%s\" should map to \"%s\"", c.ColumnName, c.NewTarget))
+		fmt.Fprintf(&sb, "- \"%s\" should map to \"%s\"", c.ColumnName, c.NewTarget)
 		if c.OldTarget != "" {
-			sb.WriteString(fmt.Sprintf(" (not \"%s\")", c.OldTarget))
+			fmt.Fprintf(&sb, " (not \"%s\")", c.OldTarget)
 		}
 		sb.WriteString("\n")
 	}

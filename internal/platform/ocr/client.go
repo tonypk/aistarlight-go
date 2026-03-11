@@ -37,7 +37,7 @@ func (c *Client) ExtractText(ctx context.Context, imagePath string) (*service.OC
 	if err != nil {
 		return nil, fmt.Errorf("open image: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)

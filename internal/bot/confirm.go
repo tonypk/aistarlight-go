@@ -277,6 +277,9 @@ func (b *Bot) handleReceiptEditReply(c tele.Context, batchID uuid.UUID, text str
 		return c.Send("Failed to load receipt data.")
 	}
 
+	// Store original OCR results before user edits (for auto-learning).
+	b.originalResults.Store(batchID, results[0])
+
 	parsed := &results[0].Parsed
 	for _, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(line)
@@ -393,7 +396,12 @@ func (b *Bot) confirmAndProcess(ctx context.Context, batch sqlc.ReceiptBatch, tg
 				"source_type": txn.SourceType,
 			}
 		}
-		classResults, err = b.classifier.ClassifyTransactions(ctx, classInput, tgUser.CompanyID, jurisdictionCode, "")
+		// Use the user note as a classification hint if available.
+		classHint := ""
+		if note != "" {
+			classHint = "User context: " + note
+		}
+		classResults, err = b.classifier.ClassifyTransactions(ctx, classInput, tgUser.CompanyID, jurisdictionCode, classHint)
 		if err != nil {
 			slog.Warn("classification failed, continuing without", "error", err)
 		} else {
@@ -422,6 +430,11 @@ func (b *Bot) confirmAndProcess(ctx context.Context, batch sqlc.ReceiptBatch, tg
 			continue
 		}
 		journalEntries = append(journalEntries, je)
+	}
+
+	// Auto-learning: record corrections from user edits.
+	if len(txns) > 0 {
+		b.recordReceiptCorrections(ctx, batch.ID, tgUser.CompanyID, tgUser.UserID, txns[0].ID)
 	}
 
 	var results []service.ReceiptResult
@@ -527,6 +540,94 @@ func (b *Bot) handleReceiptNoteInput(c tele.Context, text string) bool {
 	markup := confirmationMarkup(pending.BatchID, pending.ProjectTag)
 	_ = c.Send(preview, markup)
 	return true
+}
+
+// recordReceiptCorrections compares original OCR results with user-edited results
+// and records corrections for auto-learning.
+func (b *Bot) recordReceiptCorrections(ctx context.Context, batchID, companyID, userID, txnID uuid.UUID) {
+	if b.corrections == nil {
+		return
+	}
+
+	raw, ok := b.originalResults.LoadAndDelete(batchID)
+	if !ok {
+		return // no edits were made
+	}
+	original, ok := raw.(service.ReceiptResult)
+	if !ok {
+		return
+	}
+
+	// Load the current (edited) results from DB.
+	batch, err := b.q.GetReceiptBatchByID(ctx, batchID)
+	if err != nil {
+		return
+	}
+
+	var current []service.ReceiptResult
+	if err := json.Unmarshal(batch.Results, &current); err != nil || len(current) == 0 {
+		return
+	}
+
+	edited := current[0]
+
+	// Compare each field and record corrections for differences.
+	type fieldPair struct {
+		name     string
+		oldField service.ParsedField
+		newField service.ParsedField
+	}
+	pairs := []fieldPair{
+		{"total_amount", original.Parsed.TotalAmount, edited.Parsed.TotalAmount},
+		{"vendor_name", original.Parsed.VendorName, edited.Parsed.VendorName},
+		{"date", original.Parsed.Date, edited.Parsed.Date},
+		{"vat_amount", original.Parsed.VATAmount, edited.Parsed.VATAmount},
+		{"vat_type", original.Parsed.VATType, edited.Parsed.VATType},
+		{"category", original.Parsed.Category, edited.Parsed.Category},
+		{"tin", original.Parsed.TIN, edited.Parsed.TIN},
+		{"receipt_number", original.Parsed.ReceiptNumber, edited.Parsed.ReceiptNumber},
+	}
+
+	var recorded int
+	for _, p := range pairs {
+		oldStr := fieldValueString(p.oldField)
+		newStr := fieldValueString(p.newField)
+		if oldStr == newStr {
+			continue
+		}
+		// User changed this field — record correction.
+		reason := "telegram_bot_edit"
+		_, err := b.corrections.RecordCorrection(ctx, service.RecordCorrectionInput{
+			CompanyID:  companyID,
+			UserID:     userID,
+			EntityType: "receipt_field",
+			EntityID:   txnID,
+			FieldName:  p.name,
+			OldValue:   ptrStr(oldStr),
+			NewValue:   newStr,
+			Reason:     &reason,
+		})
+		if err != nil {
+			slog.Warn("record correction failed", "field", p.name, "error", err)
+			continue
+		}
+		recorded++
+	}
+
+	if recorded > 0 {
+		slog.Info("receipt corrections recorded (auto-learning)",
+			"batch_id", batchID,
+			"corrections", recorded,
+		)
+	}
+}
+
+// fieldValueString converts a ParsedField value to a comparable string.
+func fieldValueString(f service.ParsedField) string {
+	if f.Value == nil {
+		return ""
+	}
+	return fmt.Sprintf("%v", f.Value)
 }
 
 // senderDisplayName returns a display name for the telegram sender.

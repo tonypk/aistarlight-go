@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	_ "golang.org/x/image/webp"
 
 	"github.com/tonypk/aistarlight-go/internal/repository/sqlc"
+	"github.com/tonypk/aistarlight-go/internal/service"
 	"github.com/tonypk/aistarlight-go/pkg/jurisdiction"
 )
 
@@ -41,7 +43,14 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 	if photo == nil {
 		return nil
 	}
-	return b.processReceipt(c, photo.FileID)
+	// Collect instruction from photo caption or pending text instruction.
+	instruction := strings.TrimSpace(c.Message().Caption)
+	if instruction == "" {
+		if raw, ok := b.pendingInstructions.LoadAndDelete(c.Sender().ID); ok {
+			instruction, _ = raw.(string)
+		}
+	}
+	return b.processReceipt(c, photo.FileID, instruction)
 }
 
 func (b *Bot) handleDocument(c tele.Context) error {
@@ -58,10 +67,16 @@ func (b *Bot) handleDocument(c tele.Context) error {
 		return c.Send("Image is too large. Please send a file under 10 MB.")
 	}
 
-	return b.processReceipt(c, doc.FileID)
+	instruction := strings.TrimSpace(c.Message().Caption)
+	if instruction == "" {
+		if raw, ok := b.pendingInstructions.LoadAndDelete(c.Sender().ID); ok {
+			instruction, _ = raw.(string)
+		}
+	}
+	return b.processReceipt(c, doc.FileID, instruction)
 }
 
-func (b *Bot) processReceipt(c tele.Context, fileID string) error {
+func (b *Bot) processReceipt(c tele.Context, fileID string, instruction string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
@@ -126,6 +141,11 @@ func (b *Bot) processReceipt(c tele.Context, fileID string) error {
 		_ = os.Remove(localPath)
 	}
 
+	// Apply user instruction to OCR results (e.g., "use net total", "amount: 1500").
+	if instruction != "" && len(results) > 0 {
+		applyInstruction(&results[0], instruction)
+	}
+
 	// Update batch: set status to pending_confirmation and store image_path.
 	// Use the actual results (not batch.Results which is the stale initial empty value).
 	resultsJSON, _ := json.Marshal(results)
@@ -135,6 +155,11 @@ func (b *Bot) processReceipt(c tele.Context, fileID string) error {
 		Results:   resultsJSON,
 		ImagePath: ptrStr(imagePath),
 	})
+
+	// If instruction provided, auto-store as receipt note.
+	if instruction != "" {
+		b.receiptNotes.Store(batch.ID, instruction)
+	}
 
 	// Format preview with uploader info and send with buttons.
 	uploaderName := senderDisplayName(c.Sender())
@@ -213,6 +238,97 @@ func resizeIfNeeded(img image.Image, maxPx int) image.Image {
 	dst := image.NewRGBA(image.Rect(0, 0, newW, newH))
 	draw.CatmullRom.Scale(dst, dst.Bounds(), img, bounds, draw.Over, nil)
 	return dst
+}
+
+// applyInstruction parses a user instruction and applies field overrides to the receipt result.
+// Supports:
+//   - Direct values: "amount: 1500", "vendor: ABC Store"
+//   - Field hints: "use net total", "record the vat amount", "总金额是1500"
+func applyInstruction(result *service.ReceiptResult, instruction string) {
+	lower := strings.ToLower(instruction)
+
+	// Parse key:value pairs (same format as edit).
+	for _, line := range strings.Split(instruction, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			parts = strings.SplitN(line, "：", 2) // Chinese colon
+		}
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(strings.ToLower(parts[0]))
+		value := strings.TrimSpace(parts[1])
+		if value == "" {
+			continue
+		}
+
+		switch key {
+		case "amount", "金额", "总额", "total":
+			if f, err := strconv.ParseFloat(strings.ReplaceAll(value, ",", ""), 64); err == nil {
+				result.Parsed.TotalAmount = service.ParsedField{Value: f, Confidence: 1.0}
+			}
+		case "vendor", "商家", "店家", "供应商":
+			result.Parsed.VendorName = service.ParsedField{Value: value, Confidence: 1.0}
+		case "date", "日期":
+			result.Parsed.Date = service.ParsedField{Value: value, Confidence: 1.0}
+		case "vat", "税额":
+			if f, err := strconv.ParseFloat(strings.ReplaceAll(value, ",", ""), 64); err == nil {
+				result.Parsed.VATAmount = service.ParsedField{Value: f, Confidence: 1.0}
+			}
+		case "category", "类别":
+			result.Parsed.Category = service.ParsedField{Value: value, Confidence: 1.0}
+		}
+	}
+
+	// Extract embedded amounts from natural language (e.g., "总金额是1500", "amount 1500").
+	if amountRe := extractAmountFromText(lower); amountRe > 0 {
+		// Only override if the instruction seems to be about the total amount.
+		amountKeywords := []string{"amount", "total", "金额", "总额", "总计", "net total"}
+		for _, kw := range amountKeywords {
+			if strings.Contains(lower, kw) {
+				result.Parsed.TotalAmount = service.ParsedField{Value: amountRe, Confidence: 1.0}
+				break
+			}
+		}
+	}
+
+	// Handle "use net total" / "use vat amount" style hints.
+	if strings.Contains(lower, "net total") || strings.Contains(lower, "net amount") {
+		// Hint: prefer net total over gross total — already the default behavior, but boost confidence.
+		if result.Parsed.TotalAmount.Confidence < 1.0 {
+			result.Parsed.TotalAmount.Confidence = 0.95
+		}
+	}
+}
+
+// extractAmountFromText finds the first decimal/integer number in text.
+func extractAmountFromText(text string) float64 {
+	// Match patterns like: 1500, 1,500, 1500.00, 1,500.00
+	var numStr strings.Builder
+	inNumber := false
+	for _, ch := range text {
+		if ch >= '0' && ch <= '9' {
+			numStr.WriteRune(ch)
+			inNumber = true
+		} else if inNumber && (ch == '.' || ch == ',') {
+			numStr.WriteRune(ch)
+		} else if inNumber {
+			break
+		}
+	}
+	s := strings.TrimRight(numStr.String(), ",.")
+	if s == "" {
+		return 0
+	}
+	f, err := strconv.ParseFloat(strings.ReplaceAll(s, ",", ""), 64)
+	if err != nil {
+		return 0
+	}
+	return f
 }
 
 func ptrStr(s string) *string {

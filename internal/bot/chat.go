@@ -40,6 +40,12 @@ func (b *Bot) handleText(c tele.Context) error {
 		return nil
 	}
 
+	// Check if this looks like a receipt instruction (e.g., "record the net total").
+	if isReceiptInstruction(text) {
+		b.pendingInstructions.Store(c.Sender().ID, text)
+		return c.Send("Got it! Now send the receipt photo.")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
@@ -76,6 +82,50 @@ func (b *Bot) handleText(c tele.Context) error {
 
 	// Split long messages to respect Telegram's 4096-char limit.
 	return sendLongMessage(c, resp.Response)
+}
+
+// isReceiptInstruction detects if a message is an instruction for receipt processing.
+// Returns true for messages like:
+//   - "记录图片中的 net total" / "请你记录这张发票"
+//   - "record the net total" / "use the amount 1500"
+//   - "amount: 1500" / "vendor: ABC"
+func isReceiptInstruction(text string) bool {
+	lower := strings.ToLower(text)
+
+	// Direct key:value format (same as edit format).
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			parts = strings.SplitN(line, "：", 2) // Chinese colon
+		}
+		if len(parts) == 2 {
+			key := strings.TrimSpace(strings.ToLower(parts[0]))
+			switch key {
+			case "amount", "vendor", "date", "vat", "category", "金额", "总额", "商家", "日期", "税额", "类别", "total":
+				return true
+			}
+		}
+	}
+
+	// Chinese instruction keywords.
+	cnKeywords := []string{"记录", "识别", "这张", "图片中", "照片中", "发票", "收据", "请你记", "帮我记", "帮我识别",
+		"总金额", "金额是", "总额是", "用这个", "net total"}
+	for _, kw := range cnKeywords {
+		if strings.Contains(lower, kw) {
+			return true
+		}
+	}
+
+	// English instruction keywords (must match 2+ to avoid false positives with general chat).
+	enKeywords := []string{"record", "receipt", "invoice", "amount", "total", "vendor", "use the"}
+	matchCount := 0
+	for _, kw := range enKeywords {
+		if strings.Contains(lower, kw) {
+			matchCount++
+		}
+	}
+	return matchCount >= 2
 }
 
 func sendLongMessage(c tele.Context, text string) error {

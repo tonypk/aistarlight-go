@@ -21,17 +21,24 @@ type Bot struct {
 	journalGen   *service.JournalGenerator
 	classifier   *service.ClassifierService
 	chat         *service.ChatService
+	corrections  *service.CorrectionService
 	uploadDir    string
 	projects     []string // configurable project tags (from BOT_PROJECTS env)
 	pendingEdits sync.Map // map[int64]uuid.UUID — telegram user ID → batch ID awaiting edit
 	pendingForex sync.Map // map[int64]*ForexPending — telegram user ID → forex exchange state
 	pendingNotes sync.Map // map[int64]*ReceiptPendingNote — telegram user ID → awaiting note input
 	receiptNotes sync.Map // map[uuid.UUID]string — batch ID → user note
+
+	// Auto-learning: store original OCR results before user edits.
+	originalResults sync.Map // map[uuid.UUID]service.ReceiptResult — batch ID → pre-edit results
+
+	// Smart instructions: store text instructions for upcoming photo receipt.
+	pendingInstructions sync.Map // map[int64]string — telegram user ID → instruction text
 }
 
 // New creates and configures a new Telegram Bot.
 // projects is an optional list of project tags for receipt classification.
-func New(token string, q *sqlc.Queries, receipt *service.ReceiptService, bridge *service.ReceiptBridge, journalGen *service.JournalGenerator, classifier *service.ClassifierService, chat *service.ChatService, uploadDir string, projects []string) (*Bot, error) {
+func New(token string, q *sqlc.Queries, receipt *service.ReceiptService, bridge *service.ReceiptBridge, journalGen *service.JournalGenerator, classifier *service.ClassifierService, chat *service.ChatService, corrections *service.CorrectionService, uploadDir string, projects []string) (*Bot, error) {
 	pref := tele.Settings{
 		Token:  token,
 		Poller: &tele.LongPoller{Timeout: 10 * time.Second},
@@ -43,15 +50,16 @@ func New(token string, q *sqlc.Queries, receipt *service.ReceiptService, bridge 
 	}
 
 	bot := &Bot{
-		B:          b,
-		q:          q,
-		receipt:    receipt,
-		bridge:     bridge,
-		journalGen: journalGen,
-		classifier: classifier,
-		chat:       chat,
-		uploadDir:  uploadDir,
-		projects:   projects,
+		B:           b,
+		q:           q,
+		receipt:     receipt,
+		bridge:      bridge,
+		journalGen:  journalGen,
+		classifier:  classifier,
+		chat:        chat,
+		corrections: corrections,
+		uploadDir:   uploadDir,
+		projects:    projects,
 	}
 
 	bot.registerHandlers()

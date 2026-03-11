@@ -68,9 +68,10 @@ func main() {
 	journalGen := service.NewJournalGenerator(q, journalSvc)
 	knowledgeSvc := service.NewKnowledgeService(aiClient, q)
 	chatSvc := service.NewChatService(aiClient, q, knowledgeSvc)
+	correctionSvc := service.NewCorrectionService(q)
 
 	// Bot.
-	b, err := bot.New(cfg.Telegram.BotToken, q, receiptSvc, bridgeSvc, journalGen, classifier, chatSvc, cfg.UploadDir, cfg.Telegram.Projects)
+	b, err := bot.New(cfg.Telegram.BotToken, q, receiptSvc, bridgeSvc, journalGen, classifier, chatSvc, correctionSvc, cfg.UploadDir, cfg.Telegram.Projects)
 	if err != nil {
 		slog.Error("failed to create bot", "error", err)
 		os.Exit(1)

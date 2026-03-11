@@ -47,9 +47,8 @@ func TestDetectDataRegions_MultipleBlocks(t *testing.T) {
 	best := BestDataRegion(regions)
 	if best == nil {
 		t.Fatal("BestDataRegion returned nil")
-	}
-	// The largest region should be the data block (6 rows)
-	if best.RowCount < 5 {
+	} else if best.RowCount < 5 {
+		// The largest region should be the data block (6 rows)
 		t.Errorf("best region RowCount = %d, expected >= 5", best.RowCount)
 	}
 }

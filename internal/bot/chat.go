@@ -134,11 +134,7 @@ func isReceiptInstruction(text string) bool {
 			matchCount++
 		}
 	}
-	if matchCount >= 2 {
-		return true
-	}
-
-	return false
+	return matchCount >= 2
 }
 
 func sendLongMessage(c tele.Context, text string) error {

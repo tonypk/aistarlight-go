@@ -48,7 +48,7 @@ func (h *DataHandler) Upload(c *gin.Context) {
 		response.BadRequest(c, "No file provided. Please select a file to upload.")
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// Validate filename.
 	if header.Filename == "" {
@@ -188,7 +188,7 @@ func (h *DataHandler) Preview(c *gin.Context) {
 		response.BadRequest(c, "No file provided.")
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	limitReader := io.LimitReader(file, service.MaxUploadSize+1)
 	content, err := io.ReadAll(limitReader)

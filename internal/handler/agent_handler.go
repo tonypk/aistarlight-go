@@ -109,7 +109,7 @@ func (h *AgentHandler) Stream(c *gin.Context) {
 			return false
 		}
 		data, _ := json.Marshal(evt)
-		fmt.Fprintf(w, "data: %s\n\n", data)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
 		c.Writer.Flush()
 		return !evt.Done
 	})

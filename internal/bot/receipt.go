@@ -82,7 +82,7 @@ func (b *Bot) processReceipt(c tele.Context, fileID string) error {
 		slog.Error("failed to download file", "error", err)
 		return editError("Failed to download image.")
 	}
-	defer os.Remove(localPath)
+	defer func() { _ = os.Remove(localPath) }()
 
 	period := time.Now().UTC().Format("2006-01")
 	sessionID, err := b.getOrCreateSession(ctx, tgUser.CompanyID, tgUser.UserID, period)
@@ -173,7 +173,7 @@ func (b *Bot) downloadFile(fileID string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("download file: %w", err)
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	if err := os.MkdirAll(b.uploadDir, 0o755); err != nil {
 		return "", fmt.Errorf("create upload dir: %w", err)
@@ -190,10 +190,10 @@ func (b *Bot) downloadFile(fileID string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("create file: %w", err)
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 
 	if _, err := io.Copy(out, rc); err != nil {
-		os.Remove(localPath)
+		_ = os.Remove(localPath)
 		return "", fmt.Errorf("write file: %w", err)
 	}
 

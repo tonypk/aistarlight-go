@@ -30,7 +30,7 @@ func main() {
 		slog.Error("failed to create migrator", "error", err)
 		os.Exit(1)
 	}
-	defer m.Close()
+	defer func() { _, _ = m.Close() }()
 
 	switch *action {
 	case "up":

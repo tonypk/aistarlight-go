@@ -71,7 +71,7 @@ func (p *OAuthProvider) tokenRequest(ctx context.Context, data url.Values) (*Tok
 	if err != nil {
 		return nil, fmt.Errorf("token request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

@@ -12,7 +12,7 @@ import (
 // GenerateTransactionExcel creates an .xlsx file from transaction data.
 func GenerateTransactionExcel(w io.Writer, txns []TransactionResponse, period string, company CompanyInfo) error {
 	f := excelize.NewFile()
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	sheet := "Transactions"
 	_ = f.SetSheetName("Sheet1", sheet)
@@ -103,7 +103,7 @@ func GenerateTransactionExcel(w io.Writer, txns []TransactionResponse, period st
 // GenerateReportExcel creates an .xlsx file from BIR report data.
 func GenerateReportExcel(w io.Writer, reportType string, calcData map[string]string, company CompanyInfo) error {
 	f := excelize.NewFile()
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	sheet := strings.ReplaceAll(reportType, "_", " ")
 	if len(sheet) > 31 { // Excel sheet name limit

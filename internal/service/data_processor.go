@@ -57,7 +57,7 @@ func parseExcel(content []byte) (*ParsedFile, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot open Excel file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	sheetList := f.GetSheetList()
 	if len(sheetList) > MaxSheets {
@@ -685,7 +685,7 @@ func extractExcelRawRows(content []byte) (map[string][][]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot open Excel file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	sheetList := f.GetSheetList()
 	if len(sheetList) > MaxSheets {

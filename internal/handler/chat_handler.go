@@ -101,14 +101,14 @@ func (h *ChatHandler) Stream(c *gin.Context) {
 		}
 		fullContent += token
 		data, _ := json.Marshal(gin.H{"token": token})
-		fmt.Fprintf(w, "data: %s\n\n", data)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
 		c.Writer.Flush()
 		return true
 	})
 
 	// Send done signal with accumulated content
 	doneData, _ := json.Marshal(gin.H{"done": true, "content": fullContent})
-	fmt.Fprintf(c.Writer, "data: %s\n\n", doneData)
+	_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", doneData)
 	c.Writer.Flush()
 
 	// Save assistant response with accumulated content

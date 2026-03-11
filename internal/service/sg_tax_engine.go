@@ -155,7 +155,7 @@ func CalculateFormCS(input map[string]interface{}) (TaxResult, error) {
 
 	// Eligibility check: revenue must be ≤ S$5M
 	if revenue.GreaterThan(irasforms.FormCSRevenueLimit) {
-		return nil, fmt.Errorf("Form C-S not eligible: revenue S$%s exceeds S$5M limit, use Form C", revenue.String())
+		return nil, fmt.Errorf("form C-S not eligible: revenue S$%s exceeds S$5M limit, use Form C", revenue.String())
 	}
 
 	// Adjusted profit

@@ -50,7 +50,7 @@ func (c *Client) ExtractText(ctx context.Context, imagePath string) (*service.OC
 	if _, err := io.Copy(part, f); err != nil {
 		return nil, fmt.Errorf("copy file: %w", err)
 	}
-	writer.Close()
+	_ = writer.Close()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/ocr", body)
 	if err != nil {
@@ -62,7 +62,7 @@ func (c *Client) ExtractText(ctx context.Context, imagePath string) (*service.OC
 	if err != nil {
 		return nil, fmt.Errorf("ocr request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)

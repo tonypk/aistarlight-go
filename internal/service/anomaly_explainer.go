@@ -56,10 +56,10 @@ func ExplainAnomalies(ctx context.Context, ai *openai.Client, anomalies []Detect
 func explainBatch(ctx context.Context, ai *openai.Client, batch []DetectedAnomaly) ([]AnomalyExplanation, error) {
 	var sb strings.Builder
 	for i, a := range batch {
-		sb.WriteString(fmt.Sprintf("[%d] Type: %s | Severity: %s | Description: %s\n", i+1, a.AnomalyType, a.Severity, a.Description))
+		fmt.Fprintf(&sb, "[%d] Type: %s | Severity: %s | Description: %s\n", i+1, a.AnomalyType, a.Severity, a.Description)
 		if a.Details != nil {
 			detailsJSON, _ := json.Marshal(a.Details)
-			sb.WriteString(fmt.Sprintf("    Details: %s\n", string(detailsJSON)))
+			fmt.Fprintf(&sb, "    Details: %s\n", string(detailsJSON))
 		}
 	}
 

@@ -163,7 +163,7 @@ func (h *ReceiptHandler) Upload(c *gin.Context) {
 		}
 
 		// Remove the full-quality OCR file (no longer needed)
-		os.Remove(fi.ocrPath)
+		_ = os.Remove(fi.ocrPath)
 
 		compressionInfo = append(compressionInfo, gin.H{
 			"filename":        fi.filename,
@@ -242,7 +242,7 @@ func (h *ReceiptHandler) UploadJSON(c *gin.Context) {
 		}
 
 		// Remove original
-		os.Remove(imgPath)
+		_ = os.Remove(imgPath)
 
 		slog.Info("receipt archived",
 			"original", len(data), "compressed", compressed.CompressedSize,

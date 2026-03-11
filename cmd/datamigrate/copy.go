@@ -158,13 +158,13 @@ func guessTargetTable(label string) string {
 
 func buildCreateTemp(name string, colNames []string, fds []pgconn.FieldDescription) string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("CREATE TEMP TABLE %s (", name))
+	fmt.Fprintf(&sb, "CREATE TEMP TABLE %s (", name)
 	for i, col := range colNames {
 		if i > 0 {
 			sb.WriteString(", ")
 		}
 		// Use TEXT as a safe fallback type for all columns in temp table.
-		sb.WriteString(fmt.Sprintf("%s TEXT", col))
+		fmt.Fprintf(&sb, "%s TEXT", col)
 	}
 	sb.WriteString(") ON COMMIT DROP")
 	return sb.String()

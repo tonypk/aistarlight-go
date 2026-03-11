@@ -168,7 +168,7 @@ func (h *ReconciliationHandler) Process(c *gin.Context) {
 
 	// Read records file (sales/purchases)
 	if recFile, header, err := c.Request.FormFile("records_file"); err == nil {
-		defer recFile.Close()
+		defer func() { _ = recFile.Close() }()
 		content, err := io.ReadAll(recFile)
 		if err != nil {
 			response.BadRequest(c, "failed to read records file: "+err.Error())
@@ -204,7 +204,7 @@ func (h *ReconciliationHandler) Process(c *gin.Context) {
 
 	// Read bank statement file
 	if bankFile, header, err := c.Request.FormFile("bank_file"); err == nil {
-		defer bankFile.Close()
+		defer func() { _ = bankFile.Close() }()
 		content, err := io.ReadAll(bankFile)
 		if err != nil {
 			response.BadRequest(c, "failed to read bank file: "+err.Error())

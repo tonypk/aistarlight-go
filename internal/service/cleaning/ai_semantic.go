@@ -76,7 +76,7 @@ func (s *AISemanticService) Analyze(ctx context.Context, rows CellGrid) (*AISema
 
 	// Build the prompt with first 30 + last 20 rows
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Spreadsheet has %d total rows.\n\n", len(rows)))
+	fmt.Fprintf(&sb, "Spreadsheet has %d total rows.\n\n", len(rows))
 
 	headLimit := 30
 	if headLimit > len(rows) {
@@ -87,17 +87,17 @@ func (s *AISemanticService) Analyze(ctx context.Context, rows CellGrid) (*AISema
 		// Small sheet — send all rows
 		sb.WriteString("ALL ROWS:\n\n")
 		for i := 0; i < len(rows); i++ {
-			sb.WriteString(fmt.Sprintf("Row %d: %s\n", i, FormatRowForAI(rows[i])))
+			fmt.Fprintf(&sb, "Row %d: %s\n", i, FormatRowForAI(rows[i]))
 		}
 	} else {
-		sb.WriteString(fmt.Sprintf("FIRST %d ROWS (for header detection):\n\n", headLimit))
+		fmt.Fprintf(&sb, "FIRST %d ROWS (for header detection):\n\n", headLimit)
 		for i := 0; i < headLimit; i++ {
-			sb.WriteString(fmt.Sprintf("Row %d: %s\n", i, FormatRowForAI(rows[i])))
+			fmt.Fprintf(&sb, "Row %d: %s\n", i, FormatRowForAI(rows[i]))
 		}
-		sb.WriteString(fmt.Sprintf("\n... (rows %d-%d omitted) ...\n\n", headLimit, tailStart-1))
-		sb.WriteString(fmt.Sprintf("LAST %d ROWS (for footer/total detection):\n\n", len(rows)-tailStart))
+		fmt.Fprintf(&sb, "\n... (rows %d-%d omitted) ...\n\n", headLimit, tailStart-1)
+		fmt.Fprintf(&sb, "LAST %d ROWS (for footer/total detection):\n\n", len(rows)-tailStart)
 		for i := tailStart; i < len(rows); i++ {
-			sb.WriteString(fmt.Sprintf("Row %d: %s\n", i, FormatRowForAI(rows[i])))
+			fmt.Fprintf(&sb, "Row %d: %s\n", i, FormatRowForAI(rows[i]))
 		}
 	}
 

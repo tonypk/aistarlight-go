@@ -29,6 +29,12 @@ var (
 
 const confirmationTimeout = 5 * time.Minute
 
+// ReceiptPendingNote tracks the state when waiting for a user note on a receipt.
+type ReceiptPendingNote struct {
+	BatchID    uuid.UUID
+	ProjectTag string
+}
+
 // callbackData encodes batchID + optional projectTag into callback data.
 // Format: "batchID" or "batchID|projectTag"
 func encodeCallbackData(batchID uuid.UUID, projectTag string) string {
@@ -112,25 +118,13 @@ func (b *Bot) handleProjectSelect(c tele.Context) error {
 
 	_ = c.Respond(&tele.CallbackResponse{Text: "Project: " + projectTag})
 
-	// Show preview with selected project and confirm/edit/cancel buttons.
-	var results []service.ReceiptResult
-	if err := json.Unmarshal(batch.Results, &results); err != nil || len(results) == 0 {
-		_, _ = b.B.Edit(c.Message(), "Failed to load receipt data.")
-		return nil
-	}
+	// Prompt for note before showing confirmation.
+	b.pendingNotes.Store(c.Sender().ID, &ReceiptPendingNote{
+		BatchID:    batchID,
+		ProjectTag: projectTag,
+	})
 
-	company, compErr := b.q.GetCompanyByID(ctx, tgUser.CompanyID)
-	jurisdictionCode := "PH"
-	if compErr == nil {
-		jurisdictionCode = company.Jurisdiction
-	}
-	jCfg := jurisdiction.Get(jurisdictionCode)
-
-	uploaderName := senderDisplayName(c.Sender())
-	preview := formatReceiptPreview(results[0], jCfg.CurrencySymbol, uploaderName, projectTag)
-	markup := confirmationMarkup(batchID, projectTag)
-
-	_, _ = b.B.Edit(c.Message(), preview, markup)
+	_, _ = b.B.Edit(c.Message(), fmt.Sprintf("Project: %s\n\nAdd a note/description (type '-' to skip):", projectTag))
 	return nil
 }
 
@@ -173,7 +167,13 @@ func (b *Bot) handleReceiptConfirm(c tele.Context) error {
 		projPtr = &projectTag
 	}
 
-	reply, err := b.confirmAndProcess(ctx, batch, tgUser, jCfg, projPtr)
+	// Read user note if present.
+	var note string
+	if rawNote, ok := b.receiptNotes.LoadAndDelete(batchID); ok {
+		note, _ = rawNote.(string)
+	}
+
+	reply, err := b.confirmAndProcess(ctx, batch, tgUser, jCfg, projPtr, note)
 	if err != nil {
 		slog.Error("confirm processing failed", "batch_id", batchID, "error", err)
 		_, _ = b.B.Edit(c.Message(), "Failed to record transaction.")
@@ -210,6 +210,7 @@ func (b *Bot) handleReceiptEdit(c tele.Context) error {
 
 	_ = c.Respond(&tele.CallbackResponse{})
 
+	b.receiptNotes.Delete(batchID)
 	b.pendingEdits.Store(c.Sender().ID, batchID)
 
 	editInstructions := "Please reply with corrections in key:value format.\n" +
@@ -332,18 +333,18 @@ func (b *Bot) handleReceiptEditReply(c tele.Context, batchID uuid.UUID, text str
 	preview := formatReceiptPreview(results[0], jCfg.CurrencySymbol, uploaderName, "")
 
 	// After edit, show project selection again if projects are configured.
-	var markup *tele.ReplyMarkup
 	if len(b.projects) > 0 {
-		markup = projectSelectionMarkup(batch.ID, b.projects)
-	} else {
-		markup = confirmationMarkup(batch.ID, "")
+		markup := projectSelectionMarkup(batch.ID, b.projects)
+		return c.Send(preview+"\n\nPlease select a project:", markup)
 	}
 
-	return c.Send(preview, markup)
+	// No projects — prompt for note directly.
+	b.pendingNotes.Store(c.Sender().ID, &ReceiptPendingNote{BatchID: batch.ID})
+	return c.Send(preview + "\n\nAdd a note/description (type '-' to skip):")
 }
 
 // confirmAndProcess executes Phase 2: create transactions, classify, generate journal.
-func (b *Bot) confirmAndProcess(ctx context.Context, batch sqlc.ReceiptBatch, tgUser sqlc.TelegramUser, jCfg jurisdiction.Config, projectTag *string) (string, error) {
+func (b *Bot) confirmAndProcess(ctx context.Context, batch sqlc.ReceiptBatch, tgUser sqlc.TelegramUser, jCfg jurisdiction.Config, projectTag *string, note string) (string, error) {
 	jurisdictionCode := jCfg.Code
 	if jurisdictionCode == "" {
 		jurisdictionCode = "PH"
@@ -363,6 +364,22 @@ func (b *Bot) confirmAndProcess(ctx context.Context, batch sqlc.ReceiptBatch, tg
 	txns, err := b.bridge.ConvertReceiptToTransactions(ctx, tgUser.CompanyID, batch.ID, sessionID, projectTag)
 	if err != nil {
 		return "", fmt.Errorf("convert receipt: %w", err)
+	}
+
+	// Append user note to transaction descriptions.
+	if note != "" {
+		for _, txn := range txns {
+			desc := derefStr(txn.Description)
+			if desc != "" {
+				desc = desc + " — " + note
+			} else {
+				desc = note
+			}
+			_ = b.q.UpdateTransactionDescription(ctx, sqlc.UpdateTransactionDescriptionParams{
+				ID:          txn.ID,
+				Description: &desc,
+			})
+		}
 	}
 
 	var classResults []service.ClassificationResult
@@ -415,9 +432,12 @@ func (b *Bot) confirmAndProcess(ctx context.Context, batch sqlc.ReceiptBatch, tg
 
 	reply := formatReceiptReply(results[0], len(txns), classResults, journalEntries, jCfg.CurrencySymbol)
 
-	// Append project tag to reply.
+	// Append project tag and note to reply.
 	if projectTag != nil && *projectTag != "" {
 		reply += fmt.Sprintf("\nProject: %s", *projectTag)
+	}
+	if note != "" {
+		reply += fmt.Sprintf("\nNote: %s", note)
 	}
 
 	return reply, nil
@@ -446,6 +466,67 @@ func (b *Bot) receiptTimeout(chatID int64, msgID int, batchID uuid.UUID) {
 
 	msg := &tele.Message{ID: msgID, Chat: &tele.Chat{ID: chatID}}
 	_, _ = b.B.Edit(msg, "Receipt expired (5 min timeout). Please send the photo again.")
+}
+
+// handleReceiptNoteInput processes a user's text note for a pending receipt.
+// Returns true if the message was consumed.
+func (b *Bot) handleReceiptNoteInput(c tele.Context, text string) bool {
+	raw, ok := b.pendingNotes.LoadAndDelete(c.Sender().ID)
+	if !ok {
+		return false
+	}
+	pending, ok := raw.(*ReceiptPendingNote)
+	if !ok {
+		return false
+	}
+
+	note := strings.TrimSpace(text)
+	if note == "-" || strings.EqualFold(note, "skip") {
+		note = ""
+	}
+
+	if note != "" {
+		b.receiptNotes.Store(pending.BatchID, note)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	batch, err := b.q.GetReceiptBatchByID(ctx, pending.BatchID)
+	if err != nil {
+		_ = c.Send("Batch not found. Please send a new receipt.")
+		return true
+	}
+
+	var results []service.ReceiptResult
+	if err := json.Unmarshal(batch.Results, &results); err != nil || len(results) == 0 {
+		_ = c.Send("Failed to load receipt data.")
+		return true
+	}
+
+	tgUser, err := b.q.GetTelegramUser(ctx, c.Sender().ID)
+	if err != nil {
+		_ = c.Send("Account not linked.")
+		return true
+	}
+
+	company, compErr := b.q.GetCompanyByID(ctx, tgUser.CompanyID)
+	jurisdictionCode := "PH"
+	if compErr == nil {
+		jurisdictionCode = company.Jurisdiction
+	}
+	jCfg := jurisdiction.Get(jurisdictionCode)
+
+	uploaderName := senderDisplayName(c.Sender())
+	preview := formatReceiptPreview(results[0], jCfg.CurrencySymbol, uploaderName, pending.ProjectTag)
+	if note != "" {
+		preview += fmt.Sprintf("\nNote: %s", note)
+	}
+	preview += "\n\nPlease review and confirm:"
+
+	markup := confirmationMarkup(pending.BatchID, pending.ProjectTag)
+	_ = c.Send(preview, markup)
+	return true
 }
 
 // senderDisplayName returns a display name for the telegram sender.

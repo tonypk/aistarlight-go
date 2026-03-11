@@ -180,12 +180,6 @@ func formatReceiptPreview(result service.ReceiptResult, currencySymbol, uploader
 
 	lines = append(lines, fmt.Sprintf("\nUploaded by: %s", uploaderName))
 
-	if projectTag == "" {
-		lines = append(lines, "\nPlease select a project:")
-	} else {
-		lines = append(lines, "\nPlease review and confirm:")
-	}
-
 	return strings.Join(lines, "\n")
 }
 

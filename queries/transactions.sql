@@ -103,6 +103,9 @@ SELECT * FROM transactions
 WHERE id = ANY(@ids::uuid[]) AND company_id = @company_id
 ORDER BY date ASC, row_index ASC;
 
+-- name: UpdateTransactionDescription :exec
+UPDATE transactions SET description = $2, updated_at = NOW() WHERE id = $1;
+
 -- name: ListTransactionsByCompanyAndDateRange :many
 SELECT * FROM transactions
 WHERE company_id = $1

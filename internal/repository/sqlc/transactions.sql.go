@@ -782,6 +782,20 @@ func (q *Queries) UpdateTransaction(ctx context.Context, arg UpdateTransactionPa
 	return err
 }
 
+const updateTransactionDescription = `-- name: UpdateTransactionDescription :exec
+UPDATE transactions SET description = $2, updated_at = NOW() WHERE id = $1
+`
+
+type UpdateTransactionDescriptionParams struct {
+	ID          uuid.UUID `json:"id"`
+	Description *string   `json:"description"`
+}
+
+func (q *Queries) UpdateTransactionDescription(ctx context.Context, arg UpdateTransactionDescriptionParams) error {
+	_, err := q.db.Exec(ctx, updateTransactionDescription, arg.ID, arg.Description)
+	return err
+}
+
 const updateTransactionMatch = `-- name: UpdateTransactionMatch :exec
 UPDATE transactions SET
     match_group_id = $2, match_status = $3, updated_at = NOW()

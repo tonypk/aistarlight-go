@@ -25,6 +25,8 @@ type Bot struct {
 	projects     []string // configurable project tags (from BOT_PROJECTS env)
 	pendingEdits sync.Map // map[int64]uuid.UUID — telegram user ID → batch ID awaiting edit
 	pendingForex sync.Map // map[int64]*ForexPending — telegram user ID → forex exchange state
+	pendingNotes sync.Map // map[int64]*ReceiptPendingNote — telegram user ID → awaiting note input
+	receiptNotes sync.Map // map[uuid.UUID]string — batch ID → user note
 }
 
 // New creates and configures a new Telegram Bot.

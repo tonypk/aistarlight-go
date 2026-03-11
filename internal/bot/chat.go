@@ -30,6 +30,11 @@ func (b *Bot) handleText(c tele.Context) error {
 		}
 	}
 
+	// Check for pending receipt note input.
+	if b.handleReceiptNoteInput(c, text) {
+		return nil
+	}
+
 	// Check for pending forex exchange input.
 	if b.handleForexInput(c, text) {
 		return nil

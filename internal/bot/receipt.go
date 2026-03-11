@@ -140,15 +140,14 @@ func (b *Bot) processReceipt(c tele.Context, fileID string) error {
 	uploaderName := senderDisplayName(c.Sender())
 	preview := formatReceiptPreview(results[0], jCfg.CurrencySymbol, uploaderName, "")
 
-	// If projects are configured, show project selection first; otherwise skip to confirm.
-	var markup *tele.ReplyMarkup
+	// If projects are configured, show project selection first; otherwise prompt for note.
 	if len(b.projects) > 0 {
-		markup = projectSelectionMarkup(batch.ID, b.projects)
+		markup := projectSelectionMarkup(batch.ID, b.projects)
+		_, _ = b.B.Edit(processing, preview+"\n\nPlease select a project:", markup)
 	} else {
-		markup = confirmationMarkup(batch.ID, "")
+		b.pendingNotes.Store(c.Sender().ID, &ReceiptPendingNote{BatchID: batch.ID})
+		_, _ = b.B.Edit(processing, preview+"\n\nAdd a note/description (type '-' to skip):")
 	}
-
-	_, _ = b.B.Edit(processing, preview, markup)
 
 	// Start timeout goroutine.
 	go b.receiptTimeout(c.Chat().ID, processing.ID, batch.ID)

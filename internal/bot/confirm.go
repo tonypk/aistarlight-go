@@ -287,12 +287,20 @@ func (b *Bot) handleReceiptEditReply(c tele.Context, batchID uuid.UUID, text str
 		if line == "" {
 			continue
 		}
-		parts := strings.SplitN(line, ":", 2)
-		if len(parts) != 2 {
+		// Support both "key: value" and "key value" formats.
+		var key, value string
+		if parts := strings.SplitN(line, ":", 2); len(parts) == 2 {
+			key = strings.TrimSpace(strings.ToLower(parts[0]))
+			value = strings.TrimSpace(parts[1])
+		} else if parts := strings.SplitN(line, " ", 2); len(parts) == 2 {
+			key = strings.TrimSpace(strings.ToLower(parts[0]))
+			value = strings.TrimSpace(parts[1])
+		} else {
 			continue
 		}
-		key := strings.TrimSpace(strings.ToLower(parts[0]))
-		value := strings.TrimSpace(parts[1])
+		if value == "" {
+			continue
+		}
 
 		switch key {
 		case "amount":

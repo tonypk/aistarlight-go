@@ -132,7 +132,7 @@ jobs:
             set -euo pipefail
             PROJECT_DIR=/home/anna/aistarlight-go
             DEPLOY_DIR=/tmp/aistarlight-deploy
-            COMPOSE="sudo docker compose --project-directory $PROJECT_DIR -p aistarlight -f $PROJECT_DIR/docker-compose.prod.yml"
+            COMPOSE="sudo docker compose --project-directory $PROJECT_DIR -p aistarlight-go -f $PROJECT_DIR/docker-compose.prod.yml"
 
             # Copy binaries and config
             sudo cp $DEPLOY_DIR/aistarlight-{api,worker,bot,migrate} "$PROJECT_DIR/"

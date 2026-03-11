@@ -110,25 +110,17 @@ jobs:
         with:
           name: binaries
 
-      - name: Set up SSH
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.GCE_SSH_KEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H ${{ secrets.GCE_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+      - name: Make binaries executable
+        run: chmod +x aistarlight-api aistarlight-worker aistarlight-bot aistarlight-migrate
 
-      - name: Upload binaries to server
-        run: |
-          scp -i ~/.ssh/deploy_key \
-            aistarlight-api aistarlight-worker aistarlight-bot aistarlight-migrate \
-            ${{ secrets.GCE_USER }}@${{ secrets.GCE_HOST }}:/tmp/
-
-      - name: Upload config files
-        run: |
-          ssh -i ~/.ssh/deploy_key ${{ secrets.GCE_USER }}@${{ secrets.GCE_HOST }} "mkdir -p /tmp/aistarlight-deploy"
-          scp -i ~/.ssh/deploy_key -r \
-            migrations/ docker/ deploy/ docker-compose.prod.yml \
-            ${{ secrets.GCE_USER }}@${{ secrets.GCE_HOST }}:/tmp/aistarlight-deploy/
+      - name: Upload files to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.GCE_HOST }}
+          username: ${{ secrets.GCE_USER }}
+          key: ${{ secrets.GCE_SSH_KEY }}
+          source: "aistarlight-api,aistarlight-worker,aistarlight-bot,aistarlight-migrate,migrations,docker,deploy,docker-compose.prod.yml"
+          target: "/tmp/aistarlight-deploy"
 
       - name: Deploy on server
         uses: appleboy/ssh-action@v1.2.2
@@ -139,15 +131,16 @@ jobs:
           script: |
             set -euo pipefail
             PROJECT_DIR=/home/anna/aistarlight-go
+            DEPLOY_DIR=/tmp/aistarlight-deploy
             COMPOSE="sudo docker compose --project-directory $PROJECT_DIR -p aistarlight -f $PROJECT_DIR/docker-compose.prod.yml"
 
             # Copy binaries and config
-            sudo cp /tmp/aistarlight-api /tmp/aistarlight-worker /tmp/aistarlight-bot /tmp/aistarlight-migrate "$PROJECT_DIR/"
+            sudo cp $DEPLOY_DIR/aistarlight-{api,worker,bot,migrate} "$PROJECT_DIR/"
             sudo chmod +x "$PROJECT_DIR"/aistarlight-{api,worker,bot,migrate}
-            sudo cp -r /tmp/aistarlight-deploy/migrations "$PROJECT_DIR/"
-            sudo cp -r /tmp/aistarlight-deploy/docker "$PROJECT_DIR/"
-            sudo cp -r /tmp/aistarlight-deploy/deploy "$PROJECT_DIR/"
-            sudo cp /tmp/aistarlight-deploy/docker-compose.prod.yml "$PROJECT_DIR/"
+            sudo cp -r $DEPLOY_DIR/migrations "$PROJECT_DIR/"
+            sudo cp -r $DEPLOY_DIR/docker "$PROJECT_DIR/"
+            sudo cp -r $DEPLOY_DIR/deploy "$PROJECT_DIR/"
+            sudo cp $DEPLOY_DIR/docker-compose.prod.yml "$PROJECT_DIR/"
             sudo chown -R anna:anna "$PROJECT_DIR"
 
             # Run migrations before starting new containers
@@ -177,4 +170,4 @@ jobs:
 
             # Cleanup
             sudo docker image prune -f
-            rm -rf /tmp/aistarlight-{api,worker,bot,migrate} /tmp/aistarlight-deploy
+            rm -rf $DEPLOY_DIR

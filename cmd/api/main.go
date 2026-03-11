@@ -288,7 +288,7 @@ func newHandlers(svc services, cfg *config.Config, ai *oai.Client, q *sqlc.Queri
 		Correction:     handler.NewCorrectionHandler(svc.Corrections, svc.Analyzer),
 		Withholding:    handler.NewWithholdingHandler(svc.Withholding, svc.Supplier),
 		Dashboard:      handler.NewDashboardHandler(svc.Dashboard),
-		Receipt:        handler.NewReceiptHandler(svc.Receipt, cfg),
+		Receipt:        handler.NewReceiptHandler(svc.Receipt, cfg, q),
 		Audit:          handler.NewAuditHandler(svc.Audit),
 		Memory:         handler.NewMemoryHandler(svc.Memory),
 		Task:           handler.NewTaskHandler(svc.Task),

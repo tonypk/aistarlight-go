@@ -172,8 +172,8 @@ func applyRuleBasedClassification(tx map[string]interface{}, jCfg jurisdiction.C
 		}
 	}
 
-	// Export-related keywords
-	exportKW := []string{"export", "foreign buyer", "ecofree", "peza"}
+	// Export-related keywords (PH + LK + SG)
+	exportKW := []string{"export", "foreign buyer", "ecofree", "peza", "boi", "epz", "free trade zone"}
 	for _, kw := range exportKW {
 		if strings.Contains(desc, kw) {
 			return &ClassificationResult{
@@ -183,8 +183,9 @@ func applyRuleBasedClassification(tx map[string]interface{}, jCfg jurisdiction.C
 		}
 	}
 
-	// VAT-exempt keywords
-	exemptKW := []string{"agricultural", "senior citizen", "pwd discount", "educational", "cooperative"}
+	// VAT-exempt keywords (PH + LK + SG)
+	exemptKW := []string{"agricultural", "senior citizen", "pwd discount", "educational", "cooperative",
+		"medical", "hospital", "pharmacy", "unprocessed food", "essential goods"}
 	for _, kw := range exemptKW {
 		if strings.Contains(desc, kw) {
 			return &ClassificationResult{

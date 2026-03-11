@@ -116,11 +116,18 @@ func (b *ReceiptBridge) createTransactionFromReceipt(ctx context.Context, compan
 		}
 	}
 
-	// Extract date
+	// Extract date — try multiple formats including DD/MM/YYYY.
 	var txnDate pgtype.Date
 	if parsed.Date.Value != nil {
 		if dateStr, ok := parsed.Date.Value.(string); ok {
-			for _, layout := range []string{"2006-01-02", "01/02/2006", "1/2/2006"} {
+			for _, layout := range []string{
+				"2006-01-02",     // ISO
+				"02/01/2006",     // DD/MM/YYYY
+				"01/02/2006",     // MM/DD/YYYY
+				"2/1/2006",       // D/M/YYYY
+				"02-01-2006",     // DD-MM-YYYY
+				"2 January 2006", // D Month YYYY
+			} {
 				if t, err := time.Parse(layout, dateStr); err == nil {
 					txnDate = pgtype.Date{Time: t, Valid: true}
 					break

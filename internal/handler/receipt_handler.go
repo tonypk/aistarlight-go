@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/tonypk/aistarlight-go/internal/config"
 	"github.com/tonypk/aistarlight-go/internal/handler/middleware"
 	"github.com/tonypk/aistarlight-go/internal/handler/response"
+	"github.com/tonypk/aistarlight-go/internal/repository/sqlc"
 	"github.com/tonypk/aistarlight-go/internal/service"
 	"github.com/tonypk/aistarlight-go/pkg/pagination"
 )
@@ -31,11 +33,12 @@ var allowedImageExts = map[string]bool{
 type ReceiptHandler struct {
 	svc *service.ReceiptService
 	cfg *config.Config
+	q   *sqlc.Queries
 }
 
 // NewReceiptHandler creates a receipt handler.
-func NewReceiptHandler(svc *service.ReceiptService, cfg *config.Config) *ReceiptHandler {
-	return &ReceiptHandler{svc: svc, cfg: cfg}
+func NewReceiptHandler(svc *service.ReceiptService, cfg *config.Config, q *sqlc.Queries) *ReceiptHandler {
+	return &ReceiptHandler{svc: svc, cfg: cfg, q: q}
 }
 
 // Upload handles POST /api/v1/receipts/upload.
@@ -117,13 +120,14 @@ func (h *ReceiptHandler) Upload(c *gin.Context) {
 	}
 
 	// --- Phase 2: Run OCR on full-quality images ---
+	jurisdictionCode := h.getCompanyJurisdiction(c.Request.Context(), companyID)
 	batch, results, err := h.svc.ProcessBatch(
 		c.Request.Context(),
 		companyID, userID,
 		ocrPaths,
 		period,
 		reportType,
-		"", // jurisdictionCode: uses company default (PH)
+		jurisdictionCode,
 	)
 	if err != nil {
 		slog.Error("process receipt batch", "error", err)
@@ -210,13 +214,14 @@ func (h *ReceiptHandler) UploadJSON(c *gin.Context) {
 	userID := middleware.GetUserID(c)
 
 	// OCR first on original files
+	jCode := h.getCompanyJurisdiction(c.Request.Context(), companyID)
 	batch, results, err := h.svc.ProcessBatch(
 		c.Request.Context(),
 		companyID, userID,
 		req.ImagePaths,
 		req.Period,
 		req.ReportType,
-		"", // jurisdictionCode: uses company default (PH)
+		jCode,
 	)
 	if err != nil {
 		slog.Error("process receipt batch", "error", err)
@@ -286,4 +291,19 @@ func (h *ReceiptHandler) List(c *gin.Context) {
 	}
 
 	response.Paginated(c, batches, int(total), p.Page, p.Limit)
+}
+
+// getCompanyJurisdiction looks up the company's jurisdiction code, defaulting to "PH".
+func (h *ReceiptHandler) getCompanyJurisdiction(ctx context.Context, companyID uuid.UUID) string {
+	if h.q == nil {
+		return "PH"
+	}
+	company, err := h.q.GetCompanyByID(ctx, companyID)
+	if err != nil {
+		return "PH"
+	}
+	if company.Jurisdiction == "" {
+		return "PH"
+	}
+	return company.Jurisdiction
 }

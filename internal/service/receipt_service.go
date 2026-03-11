@@ -196,10 +196,10 @@ func parseReceipt(text string, lines []string, jCfg jurisdiction.Config) ParsedR
 	p := ParsedReceipt{}
 	upperText := strings.ToUpper(text)
 
-	// TIN — use jurisdiction-specific pattern
+	// TIN — use jurisdiction-specific pattern and normalization
 	tinRe := regexp.MustCompile(jCfg.TINPattern)
 	if match := tinRe.FindString(text); match != "" {
-		normalized := normalizeTIN(match)
+		normalized := normalizeTIN(match, jCfg.Code)
 		p.TIN = ParsedField{Value: normalized, Confidence: 0.95}
 	}
 
@@ -209,8 +209,8 @@ func parseReceipt(text string, lines []string, jCfg jurisdiction.Config) ParsedR
 		amountRe = regexp.MustCompile(jCfg.AmountPatterns[0])
 	}
 
-	// Date
-	p.Date = extractDate(text)
+	// Date — jurisdiction determines DD/MM vs MM/DD interpretation
+	p.Date = extractDate(text, jCfg.Code)
 
 	// Amounts — use jurisdiction-specific labels
 	p.TotalAmount = extractLabeledAmount(lines, jCfg.TotalLabels, 0.85, amountRe)
@@ -235,6 +235,9 @@ func parseReceipt(text string, lines []string, jCfg jurisdiction.Config) ParsedR
 	// VAT type — use jurisdiction-specific labels
 	if containsAny(upperText, jCfg.ExemptLabels) {
 		p.VATType = ParsedField{Value: "exempt", Confidence: 0.90}
+	} else if jCfg.Code == "LK" && containsAnyCI(text, []string{"SVAT", "SUSPENDED VAT"}) {
+		// LK SVAT is a distinct type, not zero_rated.
+		p.VATType = ParsedField{Value: "svat", Confidence: 0.90}
 	} else if containsAny(upperText, jCfg.ZeroRatedLabels) {
 		p.VATType = ParsedField{Value: "zero_rated", Confidence: 0.90}
 	} else if containsAny(upperText, jCfg.VatableLabels) || p.VATAmount.Value != nil {
@@ -273,30 +276,69 @@ func parseReceipt(text string, lines []string, jCfg jurisdiction.Config) ParsedR
 	return p
 }
 
-func normalizeTIN(raw string) string {
+func normalizeTIN(raw, jurisdictionCode string) string {
 	digits := regexp.MustCompile(`\d`).FindAllString(raw, -1)
 	joined := strings.Join(digits, "")
-	if len(joined) >= 12 {
-		return fmt.Sprintf("%s-%s-%s-%s", joined[:3], joined[3:6], joined[6:9], joined[9:])
+	switch jurisdictionCode {
+	case "PH":
+		// PH TIN: XXX-XXX-XXX-XXXX
+		if len(joined) >= 12 {
+			return fmt.Sprintf("%s-%s-%s-%s", joined[:3], joined[3:6], joined[6:9], joined[9:])
+		}
+	case "LK":
+		// LK TIN: 9-digit numeric, return as-is
+		return strings.TrimSpace(raw)
+	case "SG":
+		// SG UEN: alphanumeric, return as-is
+		return strings.TrimSpace(raw)
 	}
 	return raw
 }
 
-var datePatterns = []struct {
-	re     *regexp.Regexp
-	layout string
-}{
-	{regexp.MustCompile(`\d{2}/\d{2}/\d{4}`), "01/02/2006"},
-	{regexp.MustCompile(`\d{4}-\d{2}-\d{2}`), "2006-01-02"},
-	{regexp.MustCompile(`\d{1,2}/\d{1,2}/\d{4}`), "1/2/2006"},
+var (
+	reDateSlash2  = regexp.MustCompile(`\d{2}/\d{2}/\d{4}`)
+	reDateISO     = regexp.MustCompile(`\d{4}-\d{2}-\d{2}`)
+	reDateSlash1  = regexp.MustCompile(`\d{1,2}/\d{1,2}/\d{4}`)
+	reDateDash    = regexp.MustCompile(`\d{2}-\d{2}-\d{4}`)
+	reDateTextMon = regexp.MustCompile(`(?i)\d{1,2}\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{4}`)
+)
+
+// useDDMMFirst returns true for jurisdictions using DD/MM date order.
+func useDDMMFirst(code string) bool {
+	return code == "LK" || code == "SG"
 }
 
-func extractDate(text string) ParsedField {
-	for _, dp := range datePatterns {
-		if match := dp.re.FindString(text); match != "" {
+func extractDate(text string, jurisdictionCode string) ParsedField {
+	ddmm := useDDMMFirst(jurisdictionCode)
+
+	// ISO dates are unambiguous — try first.
+	if match := reDateISO.FindString(text); match != "" {
+		return ParsedField{Value: match, Confidence: 0.95}
+	}
+
+	// "15 January 2025" style — unambiguous.
+	if match := reDateTextMon.FindString(text); match != "" {
+		return ParsedField{Value: match, Confidence: 0.95}
+	}
+
+	// DD/MM/YYYY vs MM/DD/YYYY — jurisdiction determines layout.
+	if match := reDateSlash2.FindString(text); match != "" {
+		if ddmm {
 			return ParsedField{Value: match, Confidence: 0.90}
 		}
+		return ParsedField{Value: match, Confidence: 0.90}
 	}
+
+	// DD-MM-YYYY — common in LK.
+	if match := reDateDash.FindString(text); match != "" {
+		return ParsedField{Value: match, Confidence: 0.90}
+	}
+
+	// Flexible single-digit day/month.
+	if match := reDateSlash1.FindString(text); match != "" {
+		return ParsedField{Value: match, Confidence: 0.85}
+	}
+
 	return ParsedField{}
 }
 
@@ -363,8 +405,25 @@ func containsAny(text string, keywords []string) bool {
 	return false
 }
 
+func containsAnyCI(text string, keywords []string) bool {
+	upper := strings.ToUpper(text)
+	for _, kw := range keywords {
+		if strings.Contains(upper, strings.ToUpper(kw)) {
+			return true
+		}
+	}
+	return false
+}
+
 func isHeaderLine(line string) bool {
-	headers := []string{"OFFICIAL RECEIPT", "SALES INVOICE", "DELIVERY RECEIPT", "CHARGE INVOICE"}
+	headers := []string{
+		// PH
+		"OFFICIAL RECEIPT", "SALES INVOICE", "DELIVERY RECEIPT", "CHARGE INVOICE",
+		// LK / SG / General
+		"TAX INVOICE", "VAT INVOICE", "SIMPLIFIED VAT", "FISCAL INVOICE",
+		"RETAIL INVOICE", "CASH BILL", "CREDIT NOTE", "DEBIT NOTE",
+		"PROFORMA INVOICE", "COMMERCIAL INVOICE",
+	}
 	upper := strings.ToUpper(line)
 	for _, h := range headers {
 		if strings.Contains(upper, h) {

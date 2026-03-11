@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 env:
-  GO_VERSION: "1.24"
+  GO_VERSION: "1.26"
 
 jobs:
   lint:
@@ -115,7 +115,7 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.GCE_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          echo "${{ secrets.GCE_SSH_KNOWN_HOST }}" >> ~/.ssh/known_hosts
+          ssh-keyscan -H ${{ secrets.GCE_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
 
       - name: Upload binaries to server
         run: |

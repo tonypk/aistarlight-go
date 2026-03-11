@@ -22,15 +22,25 @@ RUN wget -q "https://github.com/microsoft/onnxruntime/releases/download/v${ONNXR
     ldconfig && \
     rm -rf /tmp/ort.tgz /tmp/onnxruntime-*
 
-# Download ONNX models from rapidocr-onnxruntime Python package
-RUN pip3 install --no-cache-dir rapidocr_onnxruntime==1.4.4 && \
-    MODELS_DIR=$(python3 -c "import rapidocr_onnxruntime as r; import os; print(os.path.dirname(r.__file__))") && \
-    mkdir -p /models && \
-    cp ${MODELS_DIR}/models/ch_PP-OCRv4_det_infer.onnx /models/det.onnx && \
-    cp ${MODELS_DIR}/models/ch_ppocr_mobile_v2.0_cls_infer.onnx /models/cls.onnx && \
-    cp ${MODELS_DIR}/models/ch_PP-OCRv4_rec_infer.onnx /models/rec.onnx && \
-    cp ${MODELS_DIR}/models/ppocr_keys_v1.txt /models/keys.txt && \
-    pip3 uninstall -y rapidocr_onnxruntime && \
+# Download ONNX models: extract from rapidocr wheel + download keys from PaddleOCR
+RUN mkdir -p /models && \
+    pip3 download --no-deps -d /tmp/pkgs rapidocr_onnxruntime==1.4.4 && \
+    python3 -c "
+import zipfile, shutil, os
+whl = '/tmp/pkgs/rapidocr_onnxruntime-1.4.4-py3-none-any.whl'
+with zipfile.ZipFile(whl) as z:
+    for name in z.namelist():
+        if name.endswith('.onnx'):
+            base = os.path.basename(name)
+            with z.open(name) as src, open(f'/models/{base}', 'wb') as dst:
+                shutil.copyfileobj(src, dst)
+" && \
+    mv /models/ch_PP-OCRv4_det_infer.onnx /models/det.onnx && \
+    mv /models/ch_ppocr_mobile_v2.0_cls_infer.onnx /models/cls.onnx && \
+    mv /models/ch_PP-OCRv4_rec_infer.onnx /models/rec.onnx && \
+    wget -q -O /models/keys.txt \
+      "https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/release/2.8/ppocr/utils/ppocr_keys_v1.txt" && \
+    rm -rf /tmp/pkgs && \
     ls -la /models/
 
 # Build OCR service

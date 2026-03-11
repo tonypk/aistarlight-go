@@ -1,7 +1,9 @@
 package bot
 
 import (
+	"context"
 	"log/slog"
+	"sync"
 	"time"
 
 	tele "gopkg.in/telebot.v3"
@@ -12,14 +14,15 @@ import (
 
 // Bot wraps the Telegram bot and its dependencies.
 type Bot struct {
-	B          *tele.Bot
-	q          *sqlc.Queries
-	receipt    *service.ReceiptService
-	bridge     *service.ReceiptBridge
-	journalGen *service.JournalGenerator
-	classifier *service.ClassifierService
-	chat       *service.ChatService
-	uploadDir  string
+	B            *tele.Bot
+	q            *sqlc.Queries
+	receipt      *service.ReceiptService
+	bridge       *service.ReceiptBridge
+	journalGen   *service.JournalGenerator
+	classifier   *service.ClassifierService
+	chat         *service.ChatService
+	uploadDir    string
+	pendingEdits sync.Map // map[int64]uuid.UUID — telegram user ID → batch ID awaiting edit
 }
 
 // New creates and configures a new Telegram Bot.
@@ -57,10 +60,22 @@ func (b *Bot) registerHandlers() {
 	b.B.Handle(tele.OnPhoto, b.handlePhoto)
 	b.B.Handle(tele.OnDocument, b.handleDocument)
 	b.B.Handle(tele.OnText, b.handleText)
+
+	// Receipt confirmation callback handlers.
+	b.B.Handle(&btnConfirm, b.handleReceiptConfirm)
+	b.B.Handle(&btnEdit, b.handleReceiptEdit)
+	b.B.Handle(&btnCancel, b.handleReceiptCancel)
 }
 
 // Start begins polling for updates (blocks until Stop is called).
 func (b *Bot) Start() {
+	// Cancel stale pending batches from previous runs.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	if err := b.q.CancelStalePendingBatches(ctx); err != nil {
+		slog.Warn("failed to cancel stale pending batches", "error", err)
+	}
+	cancel()
+
 	slog.Info("telegram bot starting")
 	b.B.Start()
 }

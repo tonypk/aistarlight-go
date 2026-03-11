@@ -76,8 +76,11 @@ services:
       TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-AIStarlightbot}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      UPLOAD_DIR: /data/receipts
       LOG_FORMAT: json
       LOG_LEVEL: info
+    volumes:
+      - receipt-uploads:/data/receipts
     depends_on:
       postgres:
         condition: service_healthy
@@ -213,3 +216,4 @@ services:
 volumes:
   pgdata:
   redisdata:
+  receipt-uploads:

@@ -390,6 +390,7 @@ type ReceiptBatch struct {
 	CreatedAt      time.Time   `json:"created_at"`
 	UpdatedAt      time.Time   `json:"updated_at"`
 	TransactionIds []uuid.UUID `json:"transaction_ids"`
+	ImagePath      *string     `json:"image_path"`
 }
 
 type ReconciliationSession struct {

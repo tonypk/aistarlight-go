@@ -25,8 +25,8 @@ WHERE company_id = $1 AND report_type = $2;
 -- ---- Receipt Batches ----
 
 -- name: CreateReceiptBatch :one
-INSERT INTO receipt_batches (id, company_id, user_id, status, total_images, processed_count, session_id, report_id, report_type, period, results, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
+INSERT INTO receipt_batches (id, company_id, user_id, status, total_images, processed_count, session_id, report_id, report_type, period, results, image_path, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())
 RETURNING *;
 
 -- name: GetReceiptBatchByID :one
@@ -38,8 +38,22 @@ UPDATE receipt_batches SET
     processed_count = COALESCE($3, processed_count),
     results = COALESCE($4, results),
     error_message = $5,
+    image_path = COALESCE($6, image_path),
     updated_at = NOW()
 WHERE id = $1;
+
+-- name: UpdateReceiptBatchStatus :exec
+UPDATE receipt_batches SET
+    status = $2,
+    updated_at = NOW()
+WHERE id = $1;
+
+-- name: CancelStalePendingBatches :exec
+UPDATE receipt_batches SET
+    status = 'cancelled',
+    updated_at = NOW()
+WHERE status = 'pending_confirmation'
+  AND created_at < NOW() - INTERVAL '10 minutes';
 
 -- name: ListReceiptBatchesByCompany :many
 SELECT * FROM receipt_batches WHERE company_id = $1

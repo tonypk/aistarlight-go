@@ -85,6 +85,7 @@ func (s *ReceiptService) ProcessBatch(ctx context.Context, companyID, userID uui
 		ReportType:     reportType,
 		Period:         period,
 		Results:        []byte("[]"),
+		ImagePath:      nil,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("create batch: %w", err)
@@ -112,6 +113,7 @@ func (s *ReceiptService) ProcessBatch(ctx context.Context, companyID, userID uui
 		Status:         status,
 		ProcessedCount: int32(processedCount),
 		Results:        resultsJSON,
+		ImagePath:      nil,
 	})
 
 	// Auto-discover suppliers from parsed receipts
@@ -181,7 +183,7 @@ func (s *ReceiptService) processOneReceipt(ctx context.Context, imagePath string
 
 	parsed := parseReceipt(ocrResult.Text, ocrResult.Lines, jCfg)
 	result.Parsed = parsed
-	result.OverallConfidence = averageConfidence(parsed)
+	result.OverallConfidence = AverageConfidence(parsed)
 
 	return result
 }
@@ -372,7 +374,8 @@ func isHeaderLine(line string) bool {
 	return false
 }
 
-func averageConfidence(p ParsedReceipt) float64 {
+// AverageConfidence computes the average confidence of non-zero fields.
+func AverageConfidence(p ParsedReceipt) float64 {
 	fields := []float64{
 		p.VendorName.Confidence, p.TIN.Confidence, p.Date.Confidence,
 		p.TotalAmount.Confidence, p.VATType.Confidence, p.Category.Confidence,

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	tele "gopkg.in/telebot.v3"
 )
 
@@ -20,6 +21,13 @@ func (b *Bot) handleText(c tele.Context) error {
 	// Ignore commands (handled by other handlers).
 	if strings.HasPrefix(text, "/") {
 		return nil
+	}
+
+	// Check for pending receipt edit reply.
+	if rawBatchID, ok := b.pendingEdits.LoadAndDelete(c.Sender().ID); ok {
+		if batchID, ok := rawBatchID.(uuid.UUID); ok {
+			return b.handleReceiptEditReply(c, batchID, text)
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

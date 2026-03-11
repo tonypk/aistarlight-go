@@ -13,6 +13,19 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const cancelStalePendingBatches = `-- name: CancelStalePendingBatches :exec
+UPDATE receipt_batches SET
+    status = 'cancelled',
+    updated_at = NOW()
+WHERE status = 'pending_confirmation'
+  AND created_at < NOW() - INTERVAL '10 minutes'
+`
+
+func (q *Queries) CancelStalePendingBatches(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, cancelStalePendingBatches)
+	return err
+}
+
 const countBankReconBatchesByCompany = `-- name: CountBankReconBatchesByCompany :one
 SELECT COUNT(*) FROM bank_reconciliation_batches WHERE company_id = $1
 `
@@ -94,9 +107,9 @@ func (q *Queries) CreateBankReconBatch(ctx context.Context, arg CreateBankReconB
 
 const createReceiptBatch = `-- name: CreateReceiptBatch :one
 
-INSERT INTO receipt_batches (id, company_id, user_id, status, total_images, processed_count, session_id, report_id, report_type, period, results, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
-RETURNING id, company_id, user_id, status, total_images, processed_count, session_id, report_id, report_type, period, results, error_message, created_at, updated_at, transaction_ids
+INSERT INTO receipt_batches (id, company_id, user_id, status, total_images, processed_count, session_id, report_id, report_type, period, results, image_path, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())
+RETURNING id, company_id, user_id, status, total_images, processed_count, session_id, report_id, report_type, period, results, error_message, created_at, updated_at, transaction_ids, image_path
 `
 
 type CreateReceiptBatchParams struct {
@@ -111,6 +124,7 @@ type CreateReceiptBatchParams struct {
 	ReportType     string      `json:"report_type"`
 	Period         string      `json:"period"`
 	Results        []byte      `json:"results"`
+	ImagePath      *string     `json:"image_path"`
 }
 
 // ---- Receipt Batches ----
@@ -127,6 +141,7 @@ func (q *Queries) CreateReceiptBatch(ctx context.Context, arg CreateReceiptBatch
 		arg.ReportType,
 		arg.Period,
 		arg.Results,
+		arg.ImagePath,
 	)
 	var i ReceiptBatch
 	err := row.Scan(
@@ -145,6 +160,7 @@ func (q *Queries) CreateReceiptBatch(ctx context.Context, arg CreateReceiptBatch
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.TransactionIds,
+		&i.ImagePath,
 	)
 	return i, err
 }
@@ -220,7 +236,7 @@ func (q *Queries) GetBankReconBatchByID(ctx context.Context, id uuid.UUID) (Bank
 }
 
 const getReceiptBatchByID = `-- name: GetReceiptBatchByID :one
-SELECT id, company_id, user_id, status, total_images, processed_count, session_id, report_id, report_type, period, results, error_message, created_at, updated_at, transaction_ids FROM receipt_batches WHERE id = $1
+SELECT id, company_id, user_id, status, total_images, processed_count, session_id, report_id, report_type, period, results, error_message, created_at, updated_at, transaction_ids, image_path FROM receipt_batches WHERE id = $1
 `
 
 func (q *Queries) GetReceiptBatchByID(ctx context.Context, id uuid.UUID) (ReceiptBatch, error) {
@@ -242,6 +258,7 @@ func (q *Queries) GetReceiptBatchByID(ctx context.Context, id uuid.UUID) (Receip
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.TransactionIds,
+		&i.ImagePath,
 	)
 	return i, err
 }
@@ -351,7 +368,7 @@ func (q *Queries) ListBankReconBatchesByCompany(ctx context.Context, arg ListBan
 }
 
 const listReceiptBatchesByCompany = `-- name: ListReceiptBatchesByCompany :many
-SELECT id, company_id, user_id, status, total_images, processed_count, session_id, report_id, report_type, period, results, error_message, created_at, updated_at, transaction_ids FROM receipt_batches WHERE company_id = $1
+SELECT id, company_id, user_id, status, total_images, processed_count, session_id, report_id, report_type, period, results, error_message, created_at, updated_at, transaction_ids, image_path FROM receipt_batches WHERE company_id = $1
 ORDER BY created_at DESC LIMIT $2 OFFSET $3
 `
 
@@ -386,6 +403,7 @@ func (q *Queries) ListReceiptBatchesByCompany(ctx context.Context, arg ListRecei
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.TransactionIds,
+			&i.ImagePath,
 		); err != nil {
 			return nil, err
 		}
@@ -475,6 +493,7 @@ UPDATE receipt_batches SET
     processed_count = COALESCE($3, processed_count),
     results = COALESCE($4, results),
     error_message = $5,
+    image_path = COALESCE($6, image_path),
     updated_at = NOW()
 WHERE id = $1
 `
@@ -485,6 +504,7 @@ type UpdateReceiptBatchParams struct {
 	ProcessedCount int32     `json:"processed_count"`
 	Results        []byte    `json:"results"`
 	ErrorMessage   *string   `json:"error_message"`
+	ImagePath      *string   `json:"image_path"`
 }
 
 func (q *Queries) UpdateReceiptBatch(ctx context.Context, arg UpdateReceiptBatchParams) error {
@@ -494,7 +514,25 @@ func (q *Queries) UpdateReceiptBatch(ctx context.Context, arg UpdateReceiptBatch
 		arg.ProcessedCount,
 		arg.Results,
 		arg.ErrorMessage,
+		arg.ImagePath,
 	)
+	return err
+}
+
+const updateReceiptBatchStatus = `-- name: UpdateReceiptBatchStatus :exec
+UPDATE receipt_batches SET
+    status = $2,
+    updated_at = NOW()
+WHERE id = $1
+`
+
+type UpdateReceiptBatchStatusParams struct {
+	ID     uuid.UUID `json:"id"`
+	Status string    `json:"status"`
+}
+
+func (q *Queries) UpdateReceiptBatchStatus(ctx context.Context, arg UpdateReceiptBatchStatusParams) error {
+	_, err := q.db.Exec(ctx, updateReceiptBatchStatus, arg.ID, arg.Status)
 	return err
 }
 

@@ -12,16 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"strconv"
-
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	tele "gopkg.in/telebot.v3"
 
-	"github.com/tonypk/aistarlight-go/internal/domain"
 	"github.com/tonypk/aistarlight-go/internal/repository/sqlc"
-	"github.com/tonypk/aistarlight-go/internal/service"
 	"github.com/tonypk/aistarlight-go/pkg/jurisdiction"
 )
 
@@ -90,22 +85,19 @@ func (b *Bot) processReceipt(c tele.Context, fileID string) error {
 		slog.Error("failed to download file", "error", err)
 		return editError("Failed to download image.")
 	}
-	defer func() { _ = os.Remove(localPath) }()
 
 	period := time.Now().UTC().Format("2006-01")
-	sessionID, err := b.getOrCreateSession(ctx, tgUser.CompanyID, tgUser.UserID, period)
-	if err != nil {
-		slog.Error("failed to get/create session", "error", err)
-		return editError("Failed to create session.")
-	}
 
+	// Phase 1: OCR only
 	batch, results, err := b.receipt.ProcessBatch(ctx, tgUser.CompanyID, tgUser.UserID, []string{localPath}, period, jCfg.DefaultReport, jurisdictionCode)
 	if err != nil {
+		_ = os.Remove(localPath)
 		slog.Error("receipt processing failed", "error", err)
 		return editError("Failed to process receipt.")
 	}
 
 	if len(results) == 0 || results[0].Error != "" {
+		_ = os.Remove(localPath)
 		errMsg := "unknown error"
 		if len(results) > 0 {
 			errMsg = results[0].Error
@@ -114,61 +106,76 @@ func (b *Bot) processReceipt(c tele.Context, fileID string) error {
 		return editError("Could not read receipt. Please try a clearer photo.")
 	}
 
-	txns, err := b.bridge.ConvertReceiptToTransactions(ctx, tgUser.CompanyID, batch.ID, sessionID)
-	if err != nil {
-		slog.Error("receipt bridge failed", "error", err)
-		return editError("Failed to record transaction.")
+	// Save image persistently.
+	imagePath, saveErr := b.saveReceiptImage(localPath, tgUser.CompanyID, batch.ID)
+	if saveErr != nil {
+		slog.Warn("failed to save receipt image persistently", "error", saveErr)
+		// Continue without persistent image — not fatal.
+	} else {
+		// Clean up temp file since we saved a persistent copy.
+		_ = os.Remove(localPath)
 	}
 
-	_, _ = b.B.Edit(processing, "Classifying transactions...")
+	// Update batch: set status to pending_confirmation and store image_path.
+	_ = b.q.UpdateReceiptBatch(ctx, sqlc.UpdateReceiptBatchParams{
+		ID:        batch.ID,
+		Status:    "pending_confirmation",
+		Results:   batch.Results,
+		ImagePath: ptrStr(imagePath),
+	})
 
-	// Classify transactions via AI.
-	var classResults []service.ClassificationResult
-	if len(txns) > 0 {
-		classInput := make([]map[string]interface{}, len(txns))
-		for i, txn := range txns {
-			classInput[i] = map[string]interface{}{
-				"id":          txn.ID.String(),
-				"description": derefStr(txn.Description),
-				"amount":      txn.Amount.String(),
-				"source_type": txn.SourceType,
-			}
-		}
-		classResults, err = b.classifier.ClassifyTransactions(ctx, classInput, tgUser.CompanyID, jurisdictionCode, "")
-		if err != nil {
-			slog.Warn("classification failed, continuing without", "error", err)
-		} else {
-			for i, cr := range classResults {
-				if i >= len(txns) {
-					break
-				}
-				var conf pgtype.Numeric
-				_ = conf.Scan(strconv.FormatFloat(cr.Confidence, 'f', -1, 64))
-				_ = b.q.BulkUpdateTransactionClassification(ctx, sqlc.BulkUpdateTransactionClassificationParams{
-					ID:                   txns[i].ID,
-					VatType:              cr.VATType,
-					Category:             cr.Category,
-					Confidence:           conf,
-					ClassificationSource: cr.ClassificationSource,
-				})
-			}
-		}
-	}
+	// Format preview with uploader info and send with confirmation buttons.
+	uploaderName := senderDisplayName(c.Sender())
+	preview := formatReceiptPreview(results[0], jCfg.CurrencySymbol, uploaderName)
+	markup := confirmationMarkup(batch.ID)
 
-	// Generate journal entries.
-	var journalEntries []*domain.JournalEntry
-	for _, txn := range txns {
-		je, jeErr := b.journalGen.GenerateFromTransaction(ctx, tgUser.CompanyID, txn.ID, tgUser.UserID)
-		if jeErr != nil {
-			slog.Warn("journal generation failed for txn", "txn_id", txn.ID, "error", jeErr)
-			continue
-		}
-		journalEntries = append(journalEntries, je)
-	}
+	_, _ = b.B.Edit(processing, preview, markup)
 
-	reply := formatReceiptReply(results[0], len(txns), classResults, journalEntries, jCfg.CurrencySymbol)
-	_, _ = b.B.Edit(processing, reply)
+	// Start timeout goroutine.
+	go b.receiptTimeout(c.Chat().ID, processing.ID, batch.ID)
+
 	return nil
+}
+
+// saveReceiptImage copies the temp image to a persistent path: {uploadDir}/{companyID}/{batchID}.jpg
+func (b *Bot) saveReceiptImage(localPath string, companyID, batchID uuid.UUID) (string, error) {
+	ext := strings.ToLower(filepath.Ext(localPath))
+	if ext == "" {
+		ext = ".jpg"
+	}
+
+	companyDir := filepath.Join(b.uploadDir, companyID.String())
+	if err := os.MkdirAll(companyDir, 0o755); err != nil {
+		return "", fmt.Errorf("create company dir: %w", err)
+	}
+
+	destPath := filepath.Join(companyDir, batchID.String()+ext)
+
+	src, err := os.Open(localPath)
+	if err != nil {
+		return "", fmt.Errorf("open source: %w", err)
+	}
+	defer func() { _ = src.Close() }()
+
+	dst, err := os.Create(destPath)
+	if err != nil {
+		return "", fmt.Errorf("create dest: %w", err)
+	}
+	defer func() { _ = dst.Close() }()
+
+	if _, err := io.Copy(dst, src); err != nil {
+		_ = os.Remove(destPath)
+		return "", fmt.Errorf("copy file: %w", err)
+	}
+
+	return destPath, nil
+}
+
+func ptrStr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 func (b *Bot) downloadFile(fileID string) (string, error) {

@@ -169,7 +169,7 @@ jobs:
             done
 
             # Start all application services
-            $COMPOSE up -d api worker bot nginx frontend
+            $COMPOSE up -d api worker bot nginx frontend ocr
 
             # Reload nginx to pick up new container IPs
             $COMPOSE exec -T nginx nginx -s reload 2>/dev/null || true

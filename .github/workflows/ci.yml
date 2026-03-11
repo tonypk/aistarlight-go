@@ -143,17 +143,30 @@ jobs:
             sudo cp $DEPLOY_DIR/docker-compose.prod.yml "$PROJECT_DIR/"
             sudo chown -R anna:anna "$PROJECT_DIR"
 
-            # Clean up orphan containers from previous deployments
-            $COMPOSE down --remove-orphans 2>/dev/null || true
+            # Start database first, wait for it to be ready
+            $COMPOSE up -d --remove-orphans postgres redis
+            echo "Waiting for postgres to be healthy..."
+            for i in $(seq 1 30); do
+                if $COMPOSE exec -T postgres pg_isready -U aistarlight > /dev/null 2>&1; then
+                    echo "Postgres ready!"
+                    break
+                fi
+                sleep 2
+            done
 
-            # Start database first, then run migrations
-            $COMPOSE up -d postgres redis
-            sleep 5
-            $COMPOSE run --rm migrate
+            # Run migrations with retry (Docker DNS can be slow)
+            for attempt in 1 2 3; do
+                if $COMPOSE run --rm migrate; then
+                    echo "Migrations completed!"
+                    break
+                fi
+                echo "Migration attempt $attempt failed, retrying in 5s..."
+                sleep 5
+            done
 
             # Build and restart application services
             $COMPOSE build api worker bot
-            $COMPOSE up -d api worker bot nginx
+            $COMPOSE up -d --remove-orphans api worker bot nginx
 
             # Reload nginx to pick up new container IPs
             $COMPOSE exec -T nginx nginx -s reload 2>/dev/null || true

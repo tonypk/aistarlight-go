@@ -159,6 +159,7 @@ func (rt *Router) Setup(r *gin.Engine) {
 			reportByID.GET("/approvals", rt.Report.ListApprovals)
 			reportByID.POST("/amend", rt.Report.Amend)
 			reportByID.GET("/amendments", rt.Report.ListAmendments)
+			reportByID.POST("/archive-duplicates", rt.Report.ArchiveDuplicates)
 			// Compliance routes nested under reports (frontend compat)
 			reportByID.POST("/validate", adaptReportIDParam(rt.Compliance.Validate))
 			reportByID.GET("/validation", adaptReportIDParam(rt.Compliance.GetLatest))

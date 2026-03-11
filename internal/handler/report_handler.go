@@ -247,6 +247,29 @@ func (h *ReportHandler) Delete(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"deleted": true}})
 }
 
+// ArchiveDuplicates handles POST /api/v1/reports/:id/archive-duplicates
+// Archives all other draft/rejected reports for the same type+period.
+func (h *ReportHandler) ArchiveDuplicates(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "invalid report ID")
+		return
+	}
+
+	companyID := middleware.GetCompanyID(c)
+	_, err = h.svc.ArchiveDuplicates(c.Request.Context(), id, companyID)
+	if err != nil {
+		if err == service.ErrReportNotFound {
+			response.NotFound(c, err.Error())
+			return
+		}
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	response.OK(c, gin.H{"archived": true, "message": "Duplicate reports archived. Only this report remains active."})
+}
+
 // Generate handles POST /api/v1/reports/generate (frontend report creation).
 // Accepts the frontend's format: data_file_id, column_mappings, manual_data.
 func (h *ReportHandler) Generate(c *gin.Context) {

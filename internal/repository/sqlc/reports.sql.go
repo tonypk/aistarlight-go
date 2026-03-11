@@ -12,6 +12,33 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const archiveDuplicateReports = `-- name: ArchiveDuplicateReports :exec
+UPDATE reports SET status = 'archived', updated_at = NOW()
+WHERE company_id = $1
+  AND report_type = $2
+  AND period = $3
+  AND id != $4
+  AND status IN ('draft', 'rejected')
+`
+
+type ArchiveDuplicateReportsParams struct {
+	CompanyID  uuid.UUID `json:"company_id"`
+	ReportType string    `json:"report_type"`
+	Period     string    `json:"period"`
+	ID         uuid.UUID `json:"id"`
+}
+
+// Archives all draft/rejected reports for the same company+type+period except the given report ID.
+func (q *Queries) ArchiveDuplicateReports(ctx context.Context, arg ArchiveDuplicateReportsParams) error {
+	_, err := q.db.Exec(ctx, archiveDuplicateReports,
+		arg.CompanyID,
+		arg.ReportType,
+		arg.Period,
+		arg.ID,
+	)
+	return err
+}
+
 const countReportsByCompany = `-- name: CountReportsByCompany :one
 SELECT COUNT(*) FROM reports WHERE company_id = $1
 `

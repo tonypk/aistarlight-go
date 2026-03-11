@@ -56,3 +56,12 @@ ORDER BY amendment_number ASC;
 SELECT COALESCE(MAX(amendment_number), 0)::int AS max_amendment
 FROM reports
 WHERE original_report_id = $1 OR id = $1;
+
+-- name: ArchiveDuplicateReports :exec
+-- Archives all draft/rejected reports for the same company+type+period except the given report ID.
+UPDATE reports SET status = 'archived', updated_at = NOW()
+WHERE company_id = $1
+  AND report_type = $2
+  AND period = $3
+  AND id != $4
+  AND status IN ('draft', 'rejected');

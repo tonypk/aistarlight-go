@@ -244,18 +244,20 @@ func CalculateBIR2550M(input map[string]interface{}) (TaxResult, error) {
 		"line_15_add_penalties":     penalties.String(),
 		"line_16_total_amount_due":  totalAmountDue.String(),
 		"tax_credit_carried_forward": taxCreditCarriedForward.String(),
-		// Legacy compatibility keys
-		"vatable_sales":     vatableSales.String(),
-		"vat_exempt_sales":  vatExemptSales.String(),
-		"zero_rated_sales":  zeroRatedSales.String(),
-		"total_sales":       totalSales.String(),
-		"output_vat":        outputVAT.String(),
-		"input_vat_goods":   inputVATGoods.String(),
-		"input_vat_services": inputVATServices.String(),
-		"input_vat_capital": inputVATCapital.String(),
-		"total_input_vat":   totalInputVAT.String(),
-		"vat_payable":       vatPayable.String(),
-		"net_vat_payable":   netVATPayable.String(),
+		// Legacy compatibility keys (used by compliance checks)
+		"vatable_sales":          vatableSales.String(),
+		"sales_to_government":    salesToGovernment.String(),
+		"vat_exempt_sales":       vatExemptSales.String(),
+		"zero_rated_sales":       zeroRatedSales.String(),
+		"total_sales":            totalSales.String(),
+		"output_vat":             outputVAT.String(),
+		"output_vat_government":  outputVATGovt.String(),
+		"input_vat_goods":        inputVATGoods.String(),
+		"input_vat_services":     inputVATServices.String(),
+		"input_vat_capital":      inputVATCapital.String(),
+		"total_input_vat":        totalInputVAT.String(),
+		"vat_payable":            vatPayable.String(),
+		"net_vat_payable":        netVATPayable.String(),
 	}, nil
 }
 

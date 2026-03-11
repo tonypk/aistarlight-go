@@ -27,6 +27,50 @@ func newCheck(id, name, severity string, passed bool, msg string) CheckResult {
 	return CheckResult{CheckID: id, CheckName: name, Severity: severity, Passed: passed, Message: msg}
 }
 
+// normalizeBIRFields ensures all expected compliance check fields exist in the data map.
+// It maps line_* prefixed keys to short names and defaults missing numeric fields to "0".
+func normalizeBIRFields(data map[string]interface{}) {
+	// Map from line_* keys to legacy short keys (compliance checks use short keys)
+	lineToShort := map[string]string{
+		"line_1_vatable_sales":        "vatable_sales",
+		"line_2_sales_to_government":  "sales_to_government",
+		"line_3_zero_rated_sales":     "zero_rated_sales",
+		"line_4_exempt_sales":         "vat_exempt_sales",
+		"line_5_total_sales":          "total_sales",
+		"line_6_output_vat":           "output_vat",
+		"line_6a_output_vat_government": "output_vat_government",
+		"line_6b_total_output_vat":    "total_output_vat",
+		"line_7_input_vat_goods":      "input_vat_goods",
+		"line_8_input_vat_capital":    "input_vat_capital",
+		"line_9_input_vat_services":   "input_vat_services",
+		"line_10_input_vat_imports":   "input_vat_imports",
+		"line_11_total_input_vat":     "total_input_vat",
+		"line_12_vat_payable":         "vat_payable",
+		"line_16_total_amount_due":    "total_amount_due",
+	}
+
+	// Fill short keys from line_* keys if missing
+	for lineKey, shortKey := range lineToShort {
+		if _, ok := data[shortKey]; !ok {
+			if v, ok := data[lineKey]; ok {
+				data[shortKey] = v
+			}
+		}
+	}
+
+	// Default fields that can legitimately be zero
+	zeroDefaults := []string{
+		"sales_to_government", "zero_rated_sales", "vat_exempt_sales",
+		"output_vat_government", "input_vat_goods", "input_vat_capital",
+		"input_vat_services", "input_vat_imports",
+	}
+	for _, f := range zeroDefaults {
+		if _, ok := data[f]; !ok {
+			data[f] = "0"
+		}
+	}
+}
+
 // RunAllChecks executes all compliance rules against report data.
 // Routes to jurisdiction-specific checks based on report type prefix.
 func RunAllChecks(data map[string]interface{}, reportType string, priorData map[string]interface{}, existingReports []map[string]interface{}) []CheckResult {
@@ -38,6 +82,9 @@ func RunAllChecks(data map[string]interface{}, reportType string, priorData map[
 	if strings.HasPrefix(reportType, "IRDSL_") {
 		return RunLKChecks(data, reportType, priorData, existingReports)
 	}
+
+	// Normalize BIR field names: fill short keys from line_* keys, default zeros
+	normalizeBIRFields(data)
 
 	// Default: Philippine (BIR) checks
 	var results []CheckResult

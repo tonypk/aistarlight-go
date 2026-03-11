@@ -70,17 +70,17 @@ func DetectHeadersWithAI(ctx context.Context, ai *openai.Client, rows [][]string
 		// Small sheet — just send all rows
 		sb.WriteString("ALL ROWS:\n\n")
 		for i := 0; i < len(rows); i++ {
-			sb.WriteString(fmt.Sprintf("Row %d: %s\n", i, formatRowForAI(rows[i])))
+			fmt.Fprintf(&sb, "Row %d: %s\n", i, formatRowForAI(rows[i]))
 		}
 	} else {
-		sb.WriteString(fmt.Sprintf("FIRST %d ROWS (for header detection):\n\n", headLimit))
+		fmt.Fprintf(&sb, "FIRST %d ROWS (for header detection):\n\n", headLimit)
 		for i := 0; i < headLimit; i++ {
-			sb.WriteString(fmt.Sprintf("Row %d: %s\n", i, formatRowForAI(rows[i])))
+			fmt.Fprintf(&sb, "Row %d: %s\n", i, formatRowForAI(rows[i]))
 		}
-		sb.WriteString(fmt.Sprintf("\n... (rows %d-%d omitted) ...\n\n", headLimit, tailStart-1))
-		sb.WriteString(fmt.Sprintf("LAST %d ROWS (for footer/total detection):\n\n", len(rows)-tailStart))
+		fmt.Fprintf(&sb, "\n... (rows %d-%d omitted) ...\n\n", headLimit, tailStart-1)
+		fmt.Fprintf(&sb, "LAST %d ROWS (for footer/total detection):\n\n", len(rows)-tailStart)
 		for i := tailStart; i < len(rows); i++ {
-			sb.WriteString(fmt.Sprintf("Row %d: %s\n", i, formatRowForAI(rows[i])))
+			fmt.Fprintf(&sb, "Row %d: %s\n", i, formatRowForAI(rows[i]))
 		}
 	}
 

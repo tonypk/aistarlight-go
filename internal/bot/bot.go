@@ -81,6 +81,7 @@ func (b *Bot) registerHandlers() {
 	b.B.Handle(&btnEdit, b.handleReceiptEdit)
 	b.B.Handle(&btnCancel, b.handleReceiptCancel)
 	b.B.Handle(&btnProject, b.handleProjectSelect)
+	b.B.Handle(&btnAmountSelect, b.handleAmountSelect)
 
 	// Forex exchange callback handlers.
 	b.B.Handle(&btnFxConfirm, b.handleForexConfirm)

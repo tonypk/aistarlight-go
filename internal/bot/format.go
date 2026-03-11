@@ -183,6 +183,44 @@ func formatReceiptPreview(result service.ReceiptResult, currencySymbol, uploader
 	return strings.Join(lines, "\n")
 }
 
+// formatAmountSelectionPreview shows a receipt preview with all detected amounts,
+// asking the user to select which amount to record.
+func formatAmountSelectionPreview(result service.ReceiptResult, currencySymbol, uploaderName string) string {
+	parsed := result.Parsed
+
+	var lines []string
+	lines = append(lines, "Receipt Preview — Multiple amounts detected\n")
+
+	// Vendor
+	if parsed.VendorName.Value != nil {
+		if v, ok := parsed.VendorName.Value.(string); ok && v != "" {
+			lines = append(lines, fmt.Sprintf("Vendor: %s", v))
+		}
+	}
+
+	// Date
+	if parsed.Date.Value != nil {
+		if v, ok := parsed.Date.Value.(string); ok && v != "" {
+			lines = append(lines, fmt.Sprintf("Date: %s", v))
+		}
+	}
+
+	lines = append(lines, "\nDetected amounts:")
+	for _, da := range parsed.DetectedAmounts {
+		d := decimal.NewFromFloat(da.Amount)
+		marker := ""
+		if da.IsLikelyTotal {
+			marker = " *"
+		}
+		lines = append(lines, fmt.Sprintf("  %s: %s%s%s", da.Label, currencySymbol, addCommas(d.StringFixed(2)), marker))
+	}
+
+	lines = append(lines, fmt.Sprintf("\nUploaded by: %s", uploaderName))
+	lines = append(lines, "\nWhich amount should be recorded?")
+
+	return strings.Join(lines, "\n")
+}
+
 // addCommas adds thousands separators to a decimal string like "5200.00" -> "5,200.00".
 func addCommas(s string) string {
 	parts := strings.SplitN(s, ".", 2)

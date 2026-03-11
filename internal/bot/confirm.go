@@ -21,10 +21,11 @@ import (
 
 // Inline keyboard buttons for receipt confirmation.
 var (
-	btnConfirm = tele.Btn{Unique: "rcpt_ok", Text: "Confirm"}
-	btnEdit    = tele.Btn{Unique: "rcpt_ed", Text: "Edit"}
-	btnCancel  = tele.Btn{Unique: "rcpt_no", Text: "Cancel"}
-	btnProject = tele.Btn{Unique: "rcpt_pj", Text: "Project"}
+	btnConfirm      = tele.Btn{Unique: "rcpt_ok", Text: "Confirm"}
+	btnEdit         = tele.Btn{Unique: "rcpt_ed", Text: "Edit"}
+	btnCancel       = tele.Btn{Unique: "rcpt_no", Text: "Cancel"}
+	btnProject      = tele.Btn{Unique: "rcpt_pj", Text: "Project"}
+	btnAmountSelect = tele.Btn{Unique: "rcpt_am", Text: "Amount"}
 )
 
 const confirmationTimeout = 5 * time.Minute
@@ -454,6 +455,107 @@ func (b *Bot) confirmAndProcess(ctx context.Context, batch sqlc.ReceiptBatch, tg
 	}
 
 	return reply, nil
+}
+
+// amountSelectionMarkup builds inline keyboard with amount buttons for user to pick.
+// Each button shows "Label: Amount" and encodes batchID|index in callback data.
+func amountSelectionMarkup(batchID uuid.UUID, amounts []service.DetectedAmount, currencySymbol string) *tele.ReplyMarkup {
+	markup := &tele.ReplyMarkup{}
+	var rows []tele.Row
+	for i, da := range amounts {
+		text := fmt.Sprintf("%s: %s%.2f", da.Label, currencySymbol, da.Amount)
+		rows = append(rows, markup.Row(tele.Btn{
+			Unique: btnAmountSelect.Unique,
+			Text:   text,
+			Data:   fmt.Sprintf("%s|%d", batchID.String(), i),
+		}))
+	}
+	// Add cancel button.
+	rows = append(rows, markup.Row(
+		tele.Btn{Unique: btnCancel.Unique, Text: "Cancel", Data: batchID.String()},
+	))
+	markup.Inline(rows...)
+	return markup
+}
+
+// handleAmountSelect handles the amount selection button click.
+func (b *Bot) handleAmountSelect(c tele.Context) error {
+	parts := strings.SplitN(c.Data(), "|", 2)
+	if len(parts) != 2 {
+		return c.Respond(&tele.CallbackResponse{Text: "Invalid data."})
+	}
+
+	batchID, err := uuid.Parse(parts[0])
+	if err != nil {
+		return c.Respond(&tele.CallbackResponse{Text: "Invalid batch ID."})
+	}
+
+	amountIdx, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return c.Respond(&tele.CallbackResponse{Text: "Invalid amount index."})
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	batch, err := b.q.GetReceiptBatchByID(ctx, batchID)
+	if err != nil {
+		return c.Respond(&tele.CallbackResponse{Text: "Batch not found."})
+	}
+
+	tgUser, err := b.q.GetTelegramUser(ctx, c.Sender().ID)
+	if err != nil || tgUser.CompanyID != batch.CompanyID {
+		return c.Respond(&tele.CallbackResponse{Text: "Unauthorized."})
+	}
+
+	if batch.Status != "pending_confirmation" {
+		return c.Respond(&tele.CallbackResponse{Text: "This receipt has already been processed."})
+	}
+
+	var results []service.ReceiptResult
+	if err := json.Unmarshal(batch.Results, &results); err != nil || len(results) == 0 {
+		return c.Respond(&tele.CallbackResponse{Text: "Failed to load receipt data."})
+	}
+
+	detected := results[0].Parsed.DetectedAmounts
+	if amountIdx < 0 || amountIdx >= len(detected) {
+		return c.Respond(&tele.CallbackResponse{Text: "Invalid amount selection."})
+	}
+
+	selected := detected[amountIdx]
+	_ = c.Respond(&tele.CallbackResponse{Text: fmt.Sprintf("Selected: %s", selected.Label)})
+
+	// Apply selected amount.
+	results[0].Parsed.TotalAmount = service.ParsedField{Value: selected.Amount, Confidence: 1.0}
+	results[0].OverallConfidence = service.AverageConfidence(results[0].Parsed)
+
+	resultsJSON, _ := json.Marshal(results)
+	_ = b.q.UpdateReceiptBatch(ctx, sqlc.UpdateReceiptBatchParams{
+		ID:      batch.ID,
+		Status:  "pending_confirmation",
+		Results: resultsJSON,
+	})
+
+	company, compErr := b.q.GetCompanyByID(ctx, tgUser.CompanyID)
+	jurisdictionCode := "PH"
+	if compErr == nil {
+		jurisdictionCode = company.Jurisdiction
+	}
+	jCfg := jurisdiction.Get(jurisdictionCode)
+
+	uploaderName := senderDisplayName(c.Sender())
+	preview := formatReceiptPreview(results[0], jCfg.CurrencySymbol, uploaderName, "")
+
+	// Proceed to project selection or note input.
+	if len(b.projects) > 0 {
+		markup := projectSelectionMarkup(batch.ID, b.projects)
+		_, _ = b.B.Edit(c.Message(), preview+"\n\nPlease select a project:", markup)
+	} else {
+		b.pendingNotes.Store(c.Sender().ID, &ReceiptPendingNote{BatchID: batch.ID})
+		_, _ = b.B.Edit(c.Message(), preview+"\n\nAdd a note/description (type '-' to skip):")
+	}
+
+	return nil
 }
 
 // receiptTimeout cancels a pending receipt after the timeout duration.

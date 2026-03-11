@@ -46,17 +46,25 @@ type ParsedField struct {
 	Confidence float64     `json:"confidence"`
 }
 
+// DetectedAmount represents a labeled amount found on a receipt.
+type DetectedAmount struct {
+	Label        string  `json:"label"`
+	Amount       float64 `json:"amount"`
+	IsLikelyTotal bool   `json:"is_likely_total"`
+}
+
 // ParsedReceipt holds all fields extracted from a receipt.
 type ParsedReceipt struct {
-	VendorName    ParsedField `json:"vendor_name"`
-	TIN           ParsedField `json:"tin"`
-	Date          ParsedField `json:"date"`
-	TotalAmount   ParsedField `json:"total_amount"`
-	VatableSales  ParsedField `json:"vatable_sales"`
-	VATAmount     ParsedField `json:"vat_amount"`
-	VATType       ParsedField `json:"vat_type"`
-	Category      ParsedField `json:"category"`
-	ReceiptNumber ParsedField `json:"receipt_number"`
+	VendorName      ParsedField      `json:"vendor_name"`
+	TIN             ParsedField      `json:"tin"`
+	Date            ParsedField      `json:"date"`
+	TotalAmount     ParsedField      `json:"total_amount"`
+	VatableSales    ParsedField      `json:"vatable_sales"`
+	VATAmount       ParsedField      `json:"vat_amount"`
+	VATType         ParsedField      `json:"vat_type"`
+	Category        ParsedField      `json:"category"`
+	ReceiptNumber   ParsedField      `json:"receipt_number"`
+	DetectedAmounts []DetectedAmount `json:"detected_amounts,omitempty"`
 }
 
 // ReceiptResult holds a single receipt processing result.
@@ -217,6 +225,9 @@ func parseReceipt(text string, lines []string, jCfg jurisdiction.Config) ParsedR
 	p.VatableSales = extractLabeledAmount(lines, jCfg.VatableLabels, 0.85, amountRe)
 	p.VATAmount = extractLabeledAmount(lines, jCfg.VATLabels, 0.85, amountRe)
 
+	// Extract all labeled amounts for multi-amount selection (Approach C).
+	p.DetectedAmounts = extractAllLabeledAmounts(lines, amountRe)
+
 	// If no labeled total, use largest amount
 	if p.TotalAmount.Value == nil {
 		p.TotalAmount = extractLargestAmount(text, 0.75)
@@ -354,6 +365,215 @@ func extractLabeledAmount(lines []string, labels []string, confidence float64, a
 		}
 	}
 	return ParsedField{}
+}
+
+// allAmountLabels defines all possible receipt amount labels across jurisdictions.
+// The order defines priority: earlier entries are more likely to be the "correct" total.
+var allAmountLabels = []struct {
+	Label        string
+	IsLikelyTotal bool
+}{
+	{"NET TOTAL", true},
+	{"NET AMOUNT", true},
+	{"TOTAL AMOUNT", true},
+	{"GRAND TOTAL", true},
+	{"TOTAL DUE", true},
+	{"AMOUNT DUE", true},
+	{"TOTAL PAYABLE", true},
+	{"BALANCE DUE", true},
+	{"BILL TOTAL", true},
+	{"TOTAL (SGD)", true},
+	{"TOTAL (LKR)", true},
+	{"TOTAL", true},
+	{"SUBTOTAL", false},
+	{"SUB TOTAL", false},
+	{"SUB-TOTAL", false},
+	{"VATABLE SALES", false},
+	{"TAXABLE AMOUNT", false},
+	{"AMOUNT BEFORE GST", false},
+	{"AMOUNT BEFORE VAT", false},
+	{"NET", false},
+	{"CASH", false},
+	{"CHANGE", false},
+	{"DISCOUNT", false},
+	{"VAT AMOUNT", false},
+	{"GST AMOUNT", false},
+	{"12% VAT", false},
+	{"9% GST", false},
+	{"18% VAT", false},
+	{"SERVICE CHARGE", false},
+	{"DELIVERY FEE", false},
+}
+
+// containsLabelWord checks if text contains label as a word (not as a substring of another word).
+// E.g., "SUBTOTAL" does NOT contain "TOTAL" as a word, but "TOTAL   326.00" does.
+func containsLabelWord(text, label string) bool {
+	idx := strings.Index(text, label)
+	if idx < 0 {
+		return false
+	}
+	// Check character before the match — must be start of string or non-alpha.
+	if idx > 0 {
+		before := text[idx-1]
+		if (before >= 'A' && before <= 'Z') || (before >= 'a' && before <= 'z') {
+			return false
+		}
+	}
+	// Check character after the match — must be end of string or non-alpha.
+	end := idx + len(label)
+	if end < len(text) {
+		after := text[end]
+		if (after >= 'A' && after <= 'Z') || (after >= 'a' && after <= 'z') {
+			return false
+		}
+	}
+	return true
+}
+
+// extractAllLabeledAmounts extracts all labeled amounts from OCR lines.
+// Returns unique amounts with their labels, deduplicating amounts that appear on multiple matching labels.
+func extractAllLabeledAmounts(lines []string, amountRe *regexp.Regexp) []DetectedAmount {
+	var detected []DetectedAmount
+	seen := make(map[float64]bool)
+
+	for _, def := range allAmountLabels {
+		for _, line := range lines {
+			upper := strings.ToUpper(line)
+			if !containsLabelWord(upper, def.Label) {
+				continue
+			}
+			amt := extractAmountFromLine(line, amountRe)
+			if amt <= 0 {
+				continue
+			}
+			if seen[amt] {
+				continue
+			}
+			seen[amt] = true
+			detected = append(detected, DetectedAmount{
+				Label:         def.Label,
+				Amount:        amt,
+				IsLikelyTotal: def.IsLikelyTotal,
+			})
+			break // only take first match per label
+		}
+	}
+
+	return detected
+}
+
+// SelectAmountByInstruction matches a user instruction against detected amounts.
+// Returns the matched amount and true if found, or zero and false.
+func SelectAmountByInstruction(amounts []DetectedAmount, instruction string) (DetectedAmount, bool) {
+	if instruction == "" || len(amounts) == 0 {
+		return DetectedAmount{}, false
+	}
+	lower := strings.ToLower(instruction)
+
+	// Direct match: instruction mentions a label name (word boundary).
+	// Sort by label length descending to match longer labels first (e.g., "subtotal" before "total").
+	for _, da := range amounts {
+		labelLower := strings.ToLower(da.Label)
+		if containsLabelWord(lower, labelLower) {
+			return da, true
+		}
+	}
+
+	// Fuzzy keywords from instruction.
+	keywordMap := map[string][]string{
+		"net":       {"NET TOTAL", "NET AMOUNT", "NET"},
+		"subtotal":  {"SUBTOTAL", "SUB TOTAL", "SUB-TOTAL"},
+		"sub total": {"SUBTOTAL", "SUB TOTAL", "SUB-TOTAL"},
+		"grand":     {"GRAND TOTAL"},
+		"due":       {"AMOUNT DUE", "TOTAL DUE", "BALANCE DUE"},
+		"balance":   {"BALANCE DUE"},
+		"cash":      {"CASH"},
+		"vat":       {"VAT AMOUNT"},
+		"gst":       {"GST AMOUNT"},
+		"discount":  {"DISCOUNT"},
+		"总额":       {"TOTAL", "TOTAL AMOUNT", "GRAND TOTAL"},
+		"净额":       {"NET TOTAL", "NET AMOUNT", "NET"},
+		"小计":       {"SUBTOTAL", "SUB TOTAL"},
+		"税额":       {"VAT AMOUNT", "GST AMOUNT"},
+		"应付":       {"AMOUNT DUE", "TOTAL DUE", "TOTAL PAYABLE"},
+		"现金":       {"CASH"},
+		"找零":       {"CHANGE"},
+		"折扣":       {"DISCOUNT"},
+	}
+
+	for kw, targetLabels := range keywordMap {
+		if !strings.Contains(lower, kw) {
+			continue
+		}
+		for _, da := range amounts {
+			for _, tl := range targetLabels {
+				if da.Label == tl {
+					return da, true
+				}
+			}
+		}
+	}
+
+	return DetectedAmount{}, false
+}
+
+// SelectBestAmount picks the best total amount from detected amounts using priority rules.
+// Priority: NET TOTAL > TOTAL AMOUNT > GRAND TOTAL > TOTAL > AMOUNT DUE > others.
+func SelectBestAmount(amounts []DetectedAmount) (DetectedAmount, bool) {
+	if len(amounts) == 0 {
+		return DetectedAmount{}, false
+	}
+
+	// If only one amount, use it.
+	if len(amounts) == 1 {
+		return amounts[0], true
+	}
+
+	// If only one is_likely_total, use it.
+	var totals []DetectedAmount
+	for _, da := range amounts {
+		if da.IsLikelyTotal {
+			totals = append(totals, da)
+		}
+	}
+	if len(totals) == 1 {
+		return totals[0], true
+	}
+
+	// Multiple totals: return the first one (allAmountLabels order = priority).
+	if len(totals) > 0 {
+		return totals[0], true
+	}
+
+	// No totals: return the largest amount.
+	best := amounts[0]
+	for _, da := range amounts[1:] {
+		if da.Amount > best.Amount {
+			best = da
+		}
+	}
+	return best, true
+}
+
+// NeedsAmountSelection returns true if multiple distinct total-like amounts are detected
+// and user should choose which one to use.
+func NeedsAmountSelection(amounts []DetectedAmount) bool {
+	if len(amounts) <= 1 {
+		return false
+	}
+	// Count distinct total-like amounts (amounts where IsLikelyTotal=true).
+	var totalCount int
+	for _, da := range amounts {
+		if da.IsLikelyTotal {
+			totalCount++
+		}
+	}
+	// If 2+ total-like amounts with different values, user should choose.
+	if totalCount >= 2 {
+		return true
+	}
+	// If many amounts (>=3) even including non-total ones, show selection.
+	return len(amounts) >= 3
 }
 
 func extractAmountFromLine(line string, amountRe *regexp.Regexp) float64 {

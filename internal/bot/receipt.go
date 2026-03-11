@@ -146,6 +146,20 @@ func (b *Bot) processReceipt(c tele.Context, fileID string, instruction string) 
 		applyInstruction(&results[0], instruction)
 	}
 
+	// Multi-amount selection logic (Approach C).
+	// If multiple amounts detected and no instruction resolved it, ask user to pick.
+	detected := results[0].Parsed.DetectedAmounts
+	needsSelection := false
+	if len(detected) > 0 && instruction != "" {
+		// Try to match instruction against detected amounts.
+		if matched, ok := service.SelectAmountByInstruction(detected, instruction); ok {
+			results[0].Parsed.TotalAmount = service.ParsedField{Value: matched.Amount, Confidence: 1.0}
+		}
+	}
+	if service.NeedsAmountSelection(detected) && results[0].Parsed.TotalAmount.Confidence < 1.0 {
+		needsSelection = true
+	}
+
 	// Update batch: set status to pending_confirmation and store image_path.
 	// Use the actual results (not batch.Results which is the stale initial empty value).
 	resultsJSON, _ := json.Marshal(results)
@@ -163,6 +177,16 @@ func (b *Bot) processReceipt(c tele.Context, fileID string, instruction string) 
 
 	// Format preview with uploader info and send with buttons.
 	uploaderName := senderDisplayName(c.Sender())
+
+	// If amount selection needed, show amount picker buttons instead of normal flow.
+	if needsSelection {
+		preview := formatAmountSelectionPreview(results[0], jCfg.CurrencySymbol, uploaderName)
+		markup := amountSelectionMarkup(batch.ID, detected, jCfg.CurrencySymbol)
+		_, _ = b.B.Edit(processing, preview, markup)
+		go b.receiptTimeout(c.Chat().ID, processing.ID, batch.ID)
+		return nil
+	}
+
 	preview := formatReceiptPreview(results[0], jCfg.CurrencySymbol, uploaderName, "")
 
 	// If projects are configured, show project selection first; otherwise prompt for note.
@@ -296,9 +320,16 @@ func applyInstruction(result *service.ReceiptResult, instruction string) {
 		}
 	}
 
-	// Handle "use net total" / "use vat amount" style hints.
+	// Handle "use net total" / "use vat amount" style hints via DetectedAmounts.
+	if len(result.Parsed.DetectedAmounts) > 0 {
+		if matched, ok := service.SelectAmountByInstruction(result.Parsed.DetectedAmounts, instruction); ok {
+			result.Parsed.TotalAmount = service.ParsedField{Value: matched.Amount, Confidence: 1.0}
+			return // instruction matched a detected amount, done
+		}
+	}
+
+	// Legacy hint: boost confidence for net total keywords.
 	if strings.Contains(lower, "net total") || strings.Contains(lower, "net amount") {
-		// Hint: prefer net total over gross total — already the default behavior, but boost confidence.
 		if result.Parsed.TotalAmount.Confidence < 1.0 {
 			result.Parsed.TotalAmount.Confidence = 0.95
 		}

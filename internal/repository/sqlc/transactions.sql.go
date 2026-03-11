@@ -100,11 +100,11 @@ INSERT INTO transactions (
     id, company_id, session_id, source_type, source_file_id, row_index,
     date, description, amount, vat_amount, vat_type, category, tin,
     confidence, classification_source, raw_data, match_group_id, match_status,
-    ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at
+    ewt_rate, ewt_amount, atc_code, supplier_id, project_tag, created_at, updated_at
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-    $14, $15, $16, $17, $18, $19, $20, $21, $22, NOW(), NOW()
-) RETURNING id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id
+    $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, NOW(), NOW()
+) RETURNING id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag
 `
 
 type CreateTransactionParams struct {
@@ -130,6 +130,7 @@ type CreateTransactionParams struct {
 	EwtAmount            pgtype.Numeric `json:"ewt_amount"`
 	AtcCode              *string        `json:"atc_code"`
 	SupplierID           pgtype.UUID    `json:"supplier_id"`
+	ProjectTag           *string        `json:"project_tag"`
 }
 
 func (q *Queries) CreateTransaction(ctx context.Context, arg CreateTransactionParams) (Transaction, error) {
@@ -156,6 +157,7 @@ func (q *Queries) CreateTransaction(ctx context.Context, arg CreateTransactionPa
 		arg.EwtAmount,
 		arg.AtcCode,
 		arg.SupplierID,
+		arg.ProjectTag,
 	)
 	var i Transaction
 	err := row.Scan(
@@ -184,6 +186,7 @@ func (q *Queries) CreateTransaction(ctx context.Context, arg CreateTransactionPa
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.JournalEntryID,
+		&i.ProjectTag,
 	)
 	return i, err
 }
@@ -198,7 +201,7 @@ func (q *Queries) DeleteTransactionsBySession(ctx context.Context, sessionID uui
 }
 
 const getTransactionByID = `-- name: GetTransactionByID :one
-SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id FROM transactions WHERE id = $1
+SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag FROM transactions WHERE id = $1
 `
 
 func (q *Queries) GetTransactionByID(ctx context.Context, id uuid.UUID) (Transaction, error) {
@@ -230,12 +233,13 @@ func (q *Queries) GetTransactionByID(ctx context.Context, id uuid.UUID) (Transac
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.JournalEntryID,
+		&i.ProjectTag,
 	)
 	return i, err
 }
 
 const getTransactionsByIDs = `-- name: GetTransactionsByIDs :many
-SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id FROM transactions
+SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag FROM transactions
 WHERE id = ANY($1::uuid[]) AND company_id = $2
 ORDER BY date ASC, row_index ASC
 `
@@ -280,6 +284,7 @@ func (q *Queries) GetTransactionsByIDs(ctx context.Context, arg GetTransactionsB
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.JournalEntryID,
+			&i.ProjectTag,
 		); err != nil {
 			return nil, err
 		}
@@ -292,7 +297,7 @@ func (q *Queries) GetTransactionsByIDs(ctx context.Context, arg GetTransactionsB
 }
 
 const getUnlinkedTransactions = `-- name: GetUnlinkedTransactions :many
-SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id FROM transactions
+SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag FROM transactions
 WHERE company_id = $1 AND journal_entry_id IS NULL
 ORDER BY date ASC, row_index ASC
 LIMIT $2 OFFSET $3
@@ -339,6 +344,7 @@ func (q *Queries) GetUnlinkedTransactions(ctx context.Context, arg GetUnlinkedTr
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.JournalEntryID,
+			&i.ProjectTag,
 		); err != nil {
 			return nil, err
 		}
@@ -367,7 +373,7 @@ func (q *Queries) LinkTransactionToJournalEntry(ctx context.Context, arg LinkTra
 }
 
 const listAllTransactionsBySession = `-- name: ListAllTransactionsBySession :many
-SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id FROM transactions WHERE session_id = $1 ORDER BY row_index
+SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag FROM transactions WHERE session_id = $1 ORDER BY row_index
 `
 
 func (q *Queries) ListAllTransactionsBySession(ctx context.Context, sessionID uuid.UUID) ([]Transaction, error) {
@@ -405,6 +411,7 @@ func (q *Queries) ListAllTransactionsBySession(ctx context.Context, sessionID uu
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.JournalEntryID,
+			&i.ProjectTag,
 		); err != nil {
 			return nil, err
 		}
@@ -417,7 +424,7 @@ func (q *Queries) ListAllTransactionsBySession(ctx context.Context, sessionID uu
 }
 
 const listTransactionsByCompany = `-- name: ListTransactionsByCompany :many
-SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id FROM transactions
+SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag FROM transactions
 WHERE company_id = $1
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3
@@ -464,6 +471,7 @@ func (q *Queries) ListTransactionsByCompany(ctx context.Context, arg ListTransac
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.JournalEntryID,
+			&i.ProjectTag,
 		); err != nil {
 			return nil, err
 		}
@@ -476,7 +484,7 @@ func (q *Queries) ListTransactionsByCompany(ctx context.Context, arg ListTransac
 }
 
 const listTransactionsByCompanyAndDateRange = `-- name: ListTransactionsByCompanyAndDateRange :many
-SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id FROM transactions
+SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag FROM transactions
 WHERE company_id = $1
   AND date >= $2
   AND date <= $3
@@ -525,6 +533,7 @@ func (q *Queries) ListTransactionsByCompanyAndDateRange(ctx context.Context, arg
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.JournalEntryID,
+			&i.ProjectTag,
 		); err != nil {
 			return nil, err
 		}
@@ -537,7 +546,7 @@ func (q *Queries) ListTransactionsByCompanyAndDateRange(ctx context.Context, arg
 }
 
 const listTransactionsBySession = `-- name: ListTransactionsBySession :many
-SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id FROM transactions
+SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag FROM transactions
 WHERE session_id = $1
 ORDER BY row_index
 LIMIT $2 OFFSET $3
@@ -584,6 +593,7 @@ func (q *Queries) ListTransactionsBySession(ctx context.Context, arg ListTransac
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.JournalEntryID,
+			&i.ProjectTag,
 		); err != nil {
 			return nil, err
 		}
@@ -596,7 +606,7 @@ func (q *Queries) ListTransactionsBySession(ctx context.Context, arg ListTransac
 }
 
 const listTransactionsBySessionFiltered = `-- name: ListTransactionsBySessionFiltered :many
-SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id FROM transactions
+SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag FROM transactions
 WHERE session_id = $1
   AND ($4::varchar = '' OR vat_type = $4)
   AND ($5::varchar = '' OR category = $5)
@@ -665,6 +675,7 @@ func (q *Queries) ListTransactionsBySessionFiltered(ctx context.Context, arg Lis
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.JournalEntryID,
+			&i.ProjectTag,
 		); err != nil {
 			return nil, err
 		}

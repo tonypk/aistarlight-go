@@ -25,7 +25,8 @@ func NewReceiptBridge(q *sqlc.Queries, classifier *ClassifierService) *ReceiptBr
 }
 
 // ConvertReceiptToTransactions converts a completed receipt batch into transaction records.
-func (b *ReceiptBridge) ConvertReceiptToTransactions(ctx context.Context, companyID uuid.UUID, receiptID uuid.UUID, sessionID uuid.UUID) ([]domain.Transaction, error) {
+// projectTag is optional and will be stored on each created transaction.
+func (b *ReceiptBridge) ConvertReceiptToTransactions(ctx context.Context, companyID uuid.UUID, receiptID uuid.UUID, sessionID uuid.UUID, projectTag *string) ([]domain.Transaction, error) {
 	batch, err := b.q.GetReceiptBatchByID(ctx, receiptID)
 	if err != nil {
 		return nil, fmt.Errorf("receipt batch not found: %w", err)
@@ -52,7 +53,7 @@ func (b *ReceiptBridge) ConvertReceiptToTransactions(ctx context.Context, compan
 			continue // skip failed OCR results
 		}
 
-		txn, err := b.createTransactionFromReceipt(ctx, companyID, sessionID, batch.ID, i, result)
+		txn, err := b.createTransactionFromReceipt(ctx, companyID, sessionID, batch.ID, i, result, projectTag)
 		if err != nil {
 			return nil, fmt.Errorf("create transaction from receipt %d: %w", i, err)
 		}
@@ -74,7 +75,7 @@ func (b *ReceiptBridge) ConvertReceiptToTransactions(ctx context.Context, compan
 	return transactions, nil
 }
 
-func (b *ReceiptBridge) createTransactionFromReceipt(ctx context.Context, companyID, sessionID, batchID uuid.UUID, rowIndex int, result ReceiptResult) (*domain.Transaction, error) {
+func (b *ReceiptBridge) createTransactionFromReceipt(ctx context.Context, companyID, sessionID, batchID uuid.UUID, rowIndex int, result ReceiptResult, projectTag *string) (*domain.Transaction, error) {
 	parsed := result.Parsed
 
 	// Extract amount
@@ -176,6 +177,7 @@ func (b *ReceiptBridge) createTransactionFromReceipt(ctx context.Context, compan
 		ClassificationSource: "ocr",
 		RawData:              rawData,
 		MatchStatus:          "unmatched",
+		ProjectTag:           projectTag,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create transaction: %w", err)

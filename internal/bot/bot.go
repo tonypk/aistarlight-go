@@ -22,11 +22,13 @@ type Bot struct {
 	classifier   *service.ClassifierService
 	chat         *service.ChatService
 	uploadDir    string
+	projects     []string // configurable project tags (from BOT_PROJECTS env)
 	pendingEdits sync.Map // map[int64]uuid.UUID — telegram user ID → batch ID awaiting edit
 }
 
 // New creates and configures a new Telegram Bot.
-func New(token string, q *sqlc.Queries, receipt *service.ReceiptService, bridge *service.ReceiptBridge, journalGen *service.JournalGenerator, classifier *service.ClassifierService, chat *service.ChatService, uploadDir string) (*Bot, error) {
+// projects is an optional list of project tags for receipt classification.
+func New(token string, q *sqlc.Queries, receipt *service.ReceiptService, bridge *service.ReceiptBridge, journalGen *service.JournalGenerator, classifier *service.ClassifierService, chat *service.ChatService, uploadDir string, projects []string) (*Bot, error) {
 	pref := tele.Settings{
 		Token:  token,
 		Poller: &tele.LongPoller{Timeout: 10 * time.Second},
@@ -46,6 +48,7 @@ func New(token string, q *sqlc.Queries, receipt *service.ReceiptService, bridge 
 		classifier: classifier,
 		chat:       chat,
 		uploadDir:  uploadDir,
+		projects:   projects,
 	}
 
 	bot.registerHandlers()
@@ -65,6 +68,7 @@ func (b *Bot) registerHandlers() {
 	b.B.Handle(&btnConfirm, b.handleReceiptConfirm)
 	b.B.Handle(&btnEdit, b.handleReceiptEdit)
 	b.B.Handle(&btnCancel, b.handleReceiptCancel)
+	b.B.Handle(&btnProject, b.handleProjectSelect)
 }
 
 // Start begins polling for updates (blocks until Stop is called).

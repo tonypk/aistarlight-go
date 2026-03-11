@@ -134,10 +134,17 @@ func (b *Bot) processReceipt(c tele.Context, fileID string) error {
 		ImagePath: ptrStr(imagePath),
 	})
 
-	// Format preview with uploader info and send with confirmation buttons.
+	// Format preview with uploader info and send with buttons.
 	uploaderName := senderDisplayName(c.Sender())
-	preview := formatReceiptPreview(results[0], jCfg.CurrencySymbol, uploaderName)
-	markup := confirmationMarkup(batch.ID)
+	preview := formatReceiptPreview(results[0], jCfg.CurrencySymbol, uploaderName, "")
+
+	// If projects are configured, show project selection first; otherwise skip to confirm.
+	var markup *tele.ReplyMarkup
+	if len(b.projects) > 0 {
+		markup = projectSelectionMarkup(batch.ID, b.projects)
+	} else {
+		markup = confirmationMarkup(batch.ID, "")
+	}
 
 	_, _ = b.B.Edit(processing, preview, markup)
 

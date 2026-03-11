@@ -3,6 +3,7 @@ package config
 import (
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/viper"
@@ -127,6 +128,7 @@ type EncryptionConfig struct {
 type TelegramConfig struct {
 	BotToken    string
 	BotUsername string
+	Projects    []string // configurable project tags (comma-separated BOT_PROJECTS env)
 }
 
 func Load() (*Config, error) {
@@ -225,9 +227,25 @@ func Load() (*Config, error) {
 		Telegram: TelegramConfig{
 			BotToken:    v.GetString("TELEGRAM_BOT_TOKEN"),
 			BotUsername: v.GetString("TELEGRAM_BOT_USERNAME"),
+			Projects:    parseProjects(v.GetString("BOT_PROJECTS")),
 		},
 		UploadDir: v.GetString("UPLOAD_DIR"),
 	}
 
 	return cfg, nil
+}
+
+// parseProjects splits a comma-separated BOT_PROJECTS string into a list of project names.
+func parseProjects(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var projects []string
+	for _, p := range strings.Split(s, ",") {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			projects = append(projects, p)
+		}
+	}
+	return projects
 }

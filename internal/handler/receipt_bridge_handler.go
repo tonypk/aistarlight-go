@@ -45,7 +45,7 @@ func (h *ReceiptBridgeHandler) Convert(c *gin.Context) {
 	companyID := middleware.GetCompanyID(c)
 
 	transactions, err := h.bridge.ConvertReceiptToTransactions(
-		c.Request.Context(), companyID, receiptID, sessionID,
+		c.Request.Context(), companyID, receiptID, sessionID, nil,
 	)
 	if err != nil {
 		response.InternalError(c, err.Error())

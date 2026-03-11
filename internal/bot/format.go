@@ -101,7 +101,7 @@ func formatReceiptReply(result service.ReceiptResult, txnCount int, classResults
 	return strings.Join(lines, "\n")
 }
 
-func formatReceiptPreview(result service.ReceiptResult, currencySymbol, uploaderName string) string {
+func formatReceiptPreview(result service.ReceiptResult, currencySymbol, uploaderName, projectTag string) string {
 	parsed := result.Parsed
 
 	var lines []string
@@ -174,8 +174,17 @@ func formatReceiptPreview(result service.ReceiptResult, currencySymbol, uploader
 		lines = append(lines, fmt.Sprintf("  Category: %s (%d%%)", category, confPct))
 	}
 
+	if projectTag != "" {
+		lines = append(lines, fmt.Sprintf("\nProject: %s", projectTag))
+	}
+
 	lines = append(lines, fmt.Sprintf("\nUploaded by: %s", uploaderName))
-	lines = append(lines, "\nPlease review and confirm:")
+
+	if projectTag == "" {
+		lines = append(lines, "\nPlease select a project:")
+	} else {
+		lines = append(lines, "\nPlease review and confirm:")
+	}
 
 	return strings.Join(lines, "\n")
 }

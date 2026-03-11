@@ -24,16 +24,61 @@ var (
 	btnConfirm = tele.Btn{Unique: "rcpt_ok", Text: "Confirm"}
 	btnEdit    = tele.Btn{Unique: "rcpt_ed", Text: "Edit"}
 	btnCancel  = tele.Btn{Unique: "rcpt_no", Text: "Cancel"}
+	btnProject = tele.Btn{Unique: "rcpt_pj", Text: "Project"}
 )
 
 const confirmationTimeout = 5 * time.Minute
 
-// confirmationMarkup builds the inline keyboard for receipt confirmation.
-func confirmationMarkup(batchID uuid.UUID) *tele.ReplyMarkup {
+// callbackData encodes batchID + optional projectTag into callback data.
+// Format: "batchID" or "batchID|projectTag"
+func encodeCallbackData(batchID uuid.UUID, projectTag string) string {
+	if projectTag == "" {
+		return batchID.String()
+	}
+	return batchID.String() + "|" + projectTag
+}
+
+// parseCallbackData extracts batchID and optional projectTag from callback data.
+func parseCallbackData(data string) (uuid.UUID, string, error) {
+	parts := strings.SplitN(data, "|", 2)
+	batchID, err := uuid.Parse(parts[0])
+	if err != nil {
+		return uuid.Nil, "", err
+	}
+	projectTag := ""
+	if len(parts) == 2 {
+		projectTag = parts[1]
+	}
+	return batchID, projectTag, nil
+}
+
+// projectSelectionMarkup builds inline keyboard with project buttons for selection.
+func projectSelectionMarkup(batchID uuid.UUID, projects []string) *tele.ReplyMarkup {
 	markup := &tele.ReplyMarkup{}
+	var btns []tele.Btn
+	for _, p := range projects {
+		btns = append(btns, tele.Btn{
+			Unique: btnProject.Unique,
+			Text:   p,
+			Data:   encodeCallbackData(batchID, p),
+		})
+	}
+	rows := []tele.Row{markup.Row(btns...)}
+	// Also add cancel button.
+	rows = append(rows, markup.Row(
+		tele.Btn{Unique: btnCancel.Unique, Text: "Cancel", Data: batchID.String()},
+	))
+	markup.Inline(rows...)
+	return markup
+}
+
+// confirmationMarkup builds the inline keyboard with selected project + confirm/edit/cancel.
+func confirmationMarkup(batchID uuid.UUID, projectTag string) *tele.ReplyMarkup {
+	markup := &tele.ReplyMarkup{}
+	data := encodeCallbackData(batchID, projectTag)
 	markup.Inline(
 		markup.Row(
-			tele.Btn{Unique: btnConfirm.Unique, Text: "Confirm", Data: batchID.String()},
+			tele.Btn{Unique: btnConfirm.Unique, Text: "Confirm", Data: data},
 			tele.Btn{Unique: btnEdit.Unique, Text: "Edit", Data: batchID.String()},
 			tele.Btn{Unique: btnCancel.Unique, Text: "Cancel", Data: batchID.String()},
 		),
@@ -41,9 +86,57 @@ func confirmationMarkup(batchID uuid.UUID) *tele.ReplyMarkup {
 	return markup
 }
 
+// handleProjectSelect handles the Project button click — user selected a project.
+func (b *Bot) handleProjectSelect(c tele.Context) error {
+	batchID, projectTag, err := parseCallbackData(c.Data())
+	if err != nil {
+		return c.Respond(&tele.CallbackResponse{Text: "Invalid data."})
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	batch, err := b.q.GetReceiptBatchByID(ctx, batchID)
+	if err != nil {
+		return c.Respond(&tele.CallbackResponse{Text: "Batch not found."})
+	}
+
+	tgUser, err := b.q.GetTelegramUser(ctx, c.Sender().ID)
+	if err != nil || tgUser.CompanyID != batch.CompanyID {
+		return c.Respond(&tele.CallbackResponse{Text: "Unauthorized."})
+	}
+
+	if batch.Status != "pending_confirmation" {
+		return c.Respond(&tele.CallbackResponse{Text: "This receipt has already been processed."})
+	}
+
+	_ = c.Respond(&tele.CallbackResponse{Text: "Project: " + projectTag})
+
+	// Show preview with selected project and confirm/edit/cancel buttons.
+	var results []service.ReceiptResult
+	if err := json.Unmarshal(batch.Results, &results); err != nil || len(results) == 0 {
+		_, _ = b.B.Edit(c.Message(), "Failed to load receipt data.")
+		return nil
+	}
+
+	company, compErr := b.q.GetCompanyByID(ctx, tgUser.CompanyID)
+	jurisdictionCode := "PH"
+	if compErr == nil {
+		jurisdictionCode = company.Jurisdiction
+	}
+	jCfg := jurisdiction.Get(jurisdictionCode)
+
+	uploaderName := senderDisplayName(c.Sender())
+	preview := formatReceiptPreview(results[0], jCfg.CurrencySymbol, uploaderName, projectTag)
+	markup := confirmationMarkup(batchID, projectTag)
+
+	_, _ = b.B.Edit(c.Message(), preview, markup)
+	return nil
+}
+
 // handleReceiptConfirm handles the Confirm button click.
 func (b *Bot) handleReceiptConfirm(c tele.Context) error {
-	batchID, err := uuid.Parse(c.Data())
+	batchID, projectTag, err := parseCallbackData(c.Data())
 	if err != nil {
 		return c.Respond(&tele.CallbackResponse{Text: "Invalid batch ID."})
 	}
@@ -56,7 +149,6 @@ func (b *Bot) handleReceiptConfirm(c tele.Context) error {
 		return c.Respond(&tele.CallbackResponse{Text: "Batch not found."})
 	}
 
-	// Verify ownership via telegram user.
 	tgUser, err := b.q.GetTelegramUser(ctx, c.Sender().ID)
 	if err != nil || tgUser.CompanyID != batch.CompanyID {
 		return c.Respond(&tele.CallbackResponse{Text: "Unauthorized."})
@@ -67,8 +159,6 @@ func (b *Bot) handleReceiptConfirm(c tele.Context) error {
 	}
 
 	_ = c.Respond(&tele.CallbackResponse{})
-
-	// Edit message to show processing state.
 	_, _ = b.B.Edit(c.Message(), "Recording transaction...")
 
 	company, compErr := b.q.GetCompanyByID(ctx, tgUser.CompanyID)
@@ -78,7 +168,12 @@ func (b *Bot) handleReceiptConfirm(c tele.Context) error {
 	}
 	jCfg := jurisdiction.Get(jurisdictionCode)
 
-	reply, err := b.confirmAndProcess(ctx, batch, tgUser, jCfg)
+	var projPtr *string
+	if projectTag != "" {
+		projPtr = &projectTag
+	}
+
+	reply, err := b.confirmAndProcess(ctx, batch, tgUser, jCfg, projPtr)
 	if err != nil {
 		slog.Error("confirm processing failed", "batch_id", batchID, "error", err)
 		_, _ = b.B.Edit(c.Message(), "Failed to record transaction.")
@@ -91,7 +186,7 @@ func (b *Bot) handleReceiptConfirm(c tele.Context) error {
 
 // handleReceiptEdit handles the Edit button click.
 func (b *Bot) handleReceiptEdit(c tele.Context) error {
-	batchID, err := uuid.Parse(c.Data())
+	batchID, _, err := parseCallbackData(c.Data())
 	if err != nil {
 		return c.Respond(&tele.CallbackResponse{Text: "Invalid batch ID."})
 	}
@@ -115,7 +210,6 @@ func (b *Bot) handleReceiptEdit(c tele.Context) error {
 
 	_ = c.Respond(&tele.CallbackResponse{})
 
-	// Store pending edit keyed by telegram user ID.
 	b.pendingEdits.Store(c.Sender().ID, batchID)
 
 	editInstructions := "Please reply with corrections in key:value format.\n" +
@@ -131,7 +225,7 @@ func (b *Bot) handleReceiptEdit(c tele.Context) error {
 
 // handleReceiptCancel handles the Cancel button click.
 func (b *Bot) handleReceiptCancel(c tele.Context) error {
-	batchID, err := uuid.Parse(c.Data())
+	batchID, _, err := parseCallbackData(c.Data())
 	if err != nil {
 		return c.Respond(&tele.CallbackResponse{Text: "Invalid batch ID."})
 	}
@@ -177,13 +271,11 @@ func (b *Bot) handleReceiptEditReply(c tele.Context, batchID uuid.UUID, text str
 		return c.Send("This receipt has already been processed.")
 	}
 
-	// Parse existing results.
 	var results []service.ReceiptResult
 	if err := json.Unmarshal(batch.Results, &results); err != nil || len(results) == 0 {
 		return c.Send("Failed to load receipt data.")
 	}
 
-	// Apply corrections.
 	parsed := &results[0].Parsed
 	for _, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(line)
@@ -221,7 +313,6 @@ func (b *Bot) handleReceiptEditReply(c tele.Context, batchID uuid.UUID, text str
 
 	results[0].OverallConfidence = service.AverageConfidence(results[0].Parsed)
 
-	// Save updated results to DB.
 	resultsJSON, _ := json.Marshal(results)
 	_ = b.q.UpdateReceiptBatch(ctx, sqlc.UpdateReceiptBatchParams{
 		ID:      batch.ID,
@@ -229,7 +320,6 @@ func (b *Bot) handleReceiptEditReply(c tele.Context, batchID uuid.UUID, text str
 		Results: resultsJSON,
 	})
 
-	// Get jurisdiction for currency symbol.
 	tgUser, _ := b.q.GetTelegramUser(ctx, c.Sender().ID)
 	company, compErr := b.q.GetCompanyByID(ctx, tgUser.CompanyID)
 	jurisdictionCode := "PH"
@@ -239,20 +329,26 @@ func (b *Bot) handleReceiptEditReply(c tele.Context, batchID uuid.UUID, text str
 	jCfg := jurisdiction.Get(jurisdictionCode)
 
 	uploaderName := senderDisplayName(c.Sender())
-	preview := formatReceiptPreview(results[0], jCfg.CurrencySymbol, uploaderName)
-	markup := confirmationMarkup(batch.ID)
+	preview := formatReceiptPreview(results[0], jCfg.CurrencySymbol, uploaderName, "")
+
+	// After edit, show project selection again if projects are configured.
+	var markup *tele.ReplyMarkup
+	if len(b.projects) > 0 {
+		markup = projectSelectionMarkup(batch.ID, b.projects)
+	} else {
+		markup = confirmationMarkup(batch.ID, "")
+	}
 
 	return c.Send(preview, markup)
 }
 
 // confirmAndProcess executes Phase 2: create transactions, classify, generate journal.
-func (b *Bot) confirmAndProcess(ctx context.Context, batch sqlc.ReceiptBatch, tgUser sqlc.TelegramUser, jCfg jurisdiction.Config) (string, error) {
+func (b *Bot) confirmAndProcess(ctx context.Context, batch sqlc.ReceiptBatch, tgUser sqlc.TelegramUser, jCfg jurisdiction.Config, projectTag *string) (string, error) {
 	jurisdictionCode := jCfg.Code
 	if jurisdictionCode == "" {
 		jurisdictionCode = "PH"
 	}
 
-	// Mark batch as completed so ConvertReceiptToTransactions can proceed.
 	_ = b.q.UpdateReceiptBatchStatus(ctx, sqlc.UpdateReceiptBatchStatusParams{
 		ID:     batch.ID,
 		Status: "completed",
@@ -264,12 +360,11 @@ func (b *Bot) confirmAndProcess(ctx context.Context, batch sqlc.ReceiptBatch, tg
 		return "", fmt.Errorf("create session: %w", err)
 	}
 
-	txns, err := b.bridge.ConvertReceiptToTransactions(ctx, tgUser.CompanyID, batch.ID, sessionID)
+	txns, err := b.bridge.ConvertReceiptToTransactions(ctx, tgUser.CompanyID, batch.ID, sessionID, projectTag)
 	if err != nil {
 		return "", fmt.Errorf("convert receipt: %w", err)
 	}
 
-	// Classify transactions.
 	var classResults []service.ClassificationResult
 	if len(txns) > 0 {
 		classInput := make([]map[string]interface{}, len(txns))
@@ -302,7 +397,6 @@ func (b *Bot) confirmAndProcess(ctx context.Context, batch sqlc.ReceiptBatch, tg
 		}
 	}
 
-	// Generate journal entries.
 	var journalEntries []*domain.JournalEntry
 	for _, txn := range txns {
 		je, jeErr := b.journalGen.GenerateFromTransaction(ctx, tgUser.CompanyID, txn.ID, tgUser.UserID)
@@ -313,7 +407,6 @@ func (b *Bot) confirmAndProcess(ctx context.Context, batch sqlc.ReceiptBatch, tg
 		journalEntries = append(journalEntries, je)
 	}
 
-	// Parse results for formatting.
 	var results []service.ReceiptResult
 	_ = json.Unmarshal(batch.Results, &results)
 	if len(results) == 0 {
@@ -321,6 +414,12 @@ func (b *Bot) confirmAndProcess(ctx context.Context, batch sqlc.ReceiptBatch, tg
 	}
 
 	reply := formatReceiptReply(results[0], len(txns), classResults, journalEntries, jCfg.CurrencySymbol)
+
+	// Append project tag to reply.
+	if projectTag != nil && *projectTag != "" {
+		reply += fmt.Sprintf("\nProject: %s", *projectTag)
+	}
+
 	return reply, nil
 }
 
@@ -337,7 +436,7 @@ func (b *Bot) receiptTimeout(chatID int64, msgID int, batchID uuid.UUID) {
 	}
 
 	if batch.Status != "pending_confirmation" {
-		return // already confirmed or cancelled
+		return
 	}
 
 	_ = b.q.UpdateReceiptBatchStatus(ctx, sqlc.UpdateReceiptBatchStatusParams{

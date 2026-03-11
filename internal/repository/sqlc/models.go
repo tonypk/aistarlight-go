@@ -516,6 +516,7 @@ type Transaction struct {
 	CreatedAt            time.Time      `json:"created_at"`
 	UpdatedAt            time.Time      `json:"updated_at"`
 	JournalEntryID       pgtype.UUID    `json:"journal_entry_id"`
+	ProjectTag           *string        `json:"project_tag"`
 }
 
 type User struct {

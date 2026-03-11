@@ -5,80 +5,95 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
+	"strconv"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	oai "github.com/sashabaranov/go-openai"
 	"github.com/tonypk/aistarlight-go/internal/domain"
 	"github.com/tonypk/aistarlight-go/internal/platform/openai"
 	"github.com/tonypk/aistarlight-go/internal/repository/sqlc"
 )
 
-const chatSystemPromptPH = `AIStarlight - AI-powered Philippine tax filing assistant for SMEs.
+const chatSystemPromptPH = `AIStarlight — Your smart bookkeeping assistant for Philippine businesses.
 
-Your capabilities:
-1. Process uploaded financial data (sales/purchase records, bank statements, receipts)
-2. Calculate VAT, withholding tax, generate BIR reports
-3. AI-powered transaction classification and column mapping
-4. Bank & billing auto-reconciliation (CSV/Excel/PDF/image)
-5. Receipt OCR scanning and data extraction
-6. EWT classification, BIR 2307 certificate generation, SAWT
-7. Compliance validation and anomaly detection
-8. Remember user preferences for recurring filings
-9. Answer questions about Philippine tax regulations (289 knowledge entries)
+You help users manage their business finances through natural conversation. You can:
+1. Record expenses and income from text descriptions
+2. Search and filter past transactions
+3. Show spending summaries and category breakdowns
+4. Process receipt photos (just send a photo)
+5. Record P2P forex exchanges (/exchange command)
+6. Export monthly bookkeeping to Excel (/export)
+7. Generate BIR tax reports and check compliance
+8. Answer questions about Philippine tax regulations
 
 Supported forms: BIR_2550M, BIR_2550Q, BIR_1601C, BIR_0619E, BIR_2307, SAWT
-(BIR 1701, 1702, 2316 coming soon)
 
 Tool routing:
+- User describes an expense or income → use record_expense tool
+- User asks about spending or totals → use get_spending_summary tool
+- User searches for specific transactions → use search_transactions tool
+- User wants to see recent activity → use list_recent_transactions tool
 - User asks to generate report → use generate_report tool
 - User asks about tax rules → use lookup_tax_rule tool
 - User asks about settings/preferences → use get_user_preferences tool
 
-Use language user writes in (English or Filipino).`
+Respond concisely. Use the user's language (English/Chinese/Filipino).
+Format currency amounts with ₱ symbol for PHP.`
 
-const chatSystemPromptSG = `AIStarlight - AI-powered Singapore tax filing assistant for SMEs.
+const chatSystemPromptSG = `AIStarlight — Your smart bookkeeping assistant for Singapore businesses.
 
-Your capabilities:
-1. Process uploaded financial data (sales/purchase records, bank statements, receipts)
-2. Calculate GST, corporate/individual income tax, generate IRAS reports
-3. AI-powered transaction classification and column mapping
-4. Bank & billing auto-reconciliation (CSV/Excel/PDF/image)
-5. Receipt OCR scanning and data extraction
-6. S45 withholding tax on non-resident payments
-7. Compliance validation and anomaly detection
-8. Remember user preferences for recurring filings
-9. Answer questions about Singapore tax regulations
+You help users manage their business finances through natural conversation. You can:
+1. Record expenses and income from text descriptions
+2. Search and filter past transactions
+3. Show spending summaries and category breakdowns
+4. Process receipt photos (just send a photo)
+5. Record P2P forex exchanges (/exchange command)
+6. Export monthly bookkeeping to Excel (/export)
+7. Generate IRAS tax reports and check compliance
+8. Answer questions about Singapore tax regulations
 
 Supported forms: IRAS_GST_F5, IRAS_FORM_C, IRAS_FORM_CS, IRAS_FORM_B, IRAS_IR8A, IRAS_S45
 
 Tool routing:
+- User describes an expense or income → use record_expense tool
+- User asks about spending or totals → use get_spending_summary tool
+- User searches for specific transactions → use search_transactions tool
+- User wants to see recent activity → use list_recent_transactions tool
 - User asks to generate report → use generate_report tool
 - User asks about tax rules → use lookup_tax_rule tool
 - User asks about settings/preferences → use get_user_preferences tool
 
-Use language user writes in (English or Mandarin).`
+Respond concisely. Use the user's language (English/Chinese/Mandarin).
+Format currency amounts with S$ symbol for SGD.`
 
-const chatSystemPromptLK = `AIStarlight - AI-powered Sri Lanka tax filing assistant for SMEs.
+const chatSystemPromptLK = `AIStarlight — Your smart bookkeeping assistant for Sri Lanka businesses.
 
-Your capabilities:
-1. Process uploaded financial data (sales/purchase records, bank statements, receipts)
-2. Calculate VAT, income tax, WHT, generate IRD reports
-3. AI-powered transaction classification and column mapping
-4. Bank & billing auto-reconciliation (CSV/Excel/PDF/image)
-5. Receipt OCR scanning and data extraction
-6. WHT classification, EPF/ETF calculations
-7. Compliance validation and anomaly detection
-8. Remember user preferences for recurring filings
-9. Answer questions about Sri Lanka tax regulations (Inland Revenue Act)
+You help users manage their business finances through natural conversation. You can:
+1. Record expenses and income from text descriptions
+2. Search and filter past transactions
+3. Show spending summaries and category breakdowns
+4. Process receipt photos (just send a photo)
+5. Record P2P forex exchanges (/exchange command)
+6. Export monthly bookkeeping to Excel (/export)
+7. Generate IRD tax reports and check compliance
+8. Answer questions about Sri Lanka tax regulations (Inland Revenue Act)
 
 Supported forms: IRDSL_VAT_RETURN, IRDSL_CIT, IRDSL_IT_RETURN, IRDSL_PAYE, IRDSL_WHT, IRDSL_APIT, IRDSL_SSCL, IRDSL_SVAT
 
 Tool routing:
+- User describes an expense or income → use record_expense tool
+- User asks about spending or totals → use get_spending_summary tool
+- User searches for specific transactions → use search_transactions tool
+- User wants to see recent activity → use list_recent_transactions tool
 - User asks to generate report → use generate_report tool
 - User asks about tax rules → use lookup_tax_rule tool
 - User asks about settings/preferences → use get_user_preferences tool
 
-Use language user writes in (English or Sinhala or Tamil).`
+Respond concisely. Use the user's language (English/Chinese/Sinhala/Tamil).
+Format currency amounts with Rs. symbol for LKR.`
 
 var chatToolsPH = []oai.Tool{
 	{
@@ -221,15 +236,85 @@ var chatToolsLK = []oai.Tool{
 	},
 }
 
+// bookkeepingTools are shared across all jurisdictions.
+var bookkeepingTools = []oai.Tool{
+	{
+		Type: oai.ToolTypeFunction,
+		Function: &oai.FunctionDefinition{
+			Name:        "record_expense",
+			Description: "Record a manual expense or income transaction from the user's text description",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"amount": {"type": "number", "description": "Transaction amount (positive number)"},
+					"description": {"type": "string", "description": "What the expense/income is for"},
+					"category": {"type": "string", "description": "Category: goods, services, utilities, rent, transport, food, office, salary, sales, other"},
+					"date": {"type": "string", "description": "Transaction date in YYYY-MM-DD format (defaults to today)"},
+					"project_tag": {"type": "string", "description": "Optional project tag for categorization"}
+				},
+				"required": ["amount", "description"]
+			}`),
+		},
+	},
+	{
+		Type: oai.ToolTypeFunction,
+		Function: &oai.FunctionDefinition{
+			Name:        "search_transactions",
+			Description: "Search past transactions by keyword, date range, or description",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"query": {"type": "string", "description": "Search keyword to match in description"},
+					"from_date": {"type": "string", "description": "Start date in YYYY-MM-DD format"},
+					"to_date": {"type": "string", "description": "End date in YYYY-MM-DD format"},
+					"limit": {"type": "integer", "description": "Max results to return (default 10)"}
+				},
+				"required": ["query"]
+			}`),
+		},
+	},
+	{
+		Type: oai.ToolTypeFunction,
+		Function: &oai.FunctionDefinition{
+			Name:        "get_spending_summary",
+			Description: "Get spending breakdown by category or month for a date range",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"group_by": {"type": "string", "enum": ["category", "month"], "description": "Group results by category or month"},
+					"from_date": {"type": "string", "description": "Start date in YYYY-MM-DD format (defaults to start of current month)"},
+					"to_date": {"type": "string", "description": "End date in YYYY-MM-DD format (defaults to today)"}
+				},
+				"required": ["group_by"]
+			}`),
+		},
+	},
+	{
+		Type: oai.ToolTypeFunction,
+		Function: &oai.FunctionDefinition{
+			Name:        "list_recent_transactions",
+			Description: "List the most recent transactions",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"limit": {"type": "integer", "description": "Number of transactions to show (default 5, max 20)"}
+				}
+			}`),
+		},
+	},
+}
+
 func chatToolsForJurisdiction(jurisdiction string) []oai.Tool {
+	var base []oai.Tool
 	switch jurisdiction {
 	case "SG":
-		return chatToolsSG
+		base = chatToolsSG
 	case "LK":
-		return chatToolsLK
+		base = chatToolsLK
 	default:
-		return chatToolsPH
+		base = chatToolsPH
 	}
+	return append(base, bookkeepingTools...)
 }
 
 func chatSystemPrompt(jurisdiction string) string {
@@ -275,9 +360,15 @@ func (s *ChatService) ProcessMessage(
 	history []domain.ChatMessage,
 	companyID uuid.UUID,
 	jurisdiction string,
+	userID ...uuid.UUID,
 ) (*ChatResponse, error) {
 	if s.ai == nil {
 		return nil, fmt.Errorf("AI service not configured — set OPENAI_API_KEY to enable chat")
+	}
+
+	uid := uuid.Nil
+	if len(userID) > 0 {
+		uid = userID[0]
 	}
 
 	messages := s.buildMessages(history, userMessage, jurisdiction)
@@ -305,7 +396,7 @@ func (s *ChatService) ProcessMessage(
 	var toolResults []ToolCallResult
 
 	for _, tc := range choice.Message.ToolCalls {
-		result := s.executeTool(ctx, tc.Function.Name, tc.Function.Arguments, companyID, jurisdiction)
+		result := s.executeTool(ctx, tc.Function.Name, tc.Function.Arguments, companyID, jurisdiction, uid)
 		toolResults = append(toolResults, ToolCallResult{
 			ToolName: tc.Function.Name,
 			ToolID:   tc.ID,
@@ -343,9 +434,15 @@ func (s *ChatService) ProcessMessageStream(
 	history []domain.ChatMessage,
 	companyID uuid.UUID,
 	jurisdiction string,
+	userID ...uuid.UUID,
 ) (<-chan string, *[]ToolCallResult, error) {
 	if s.ai == nil {
 		return nil, nil, fmt.Errorf("AI service not configured — set OPENAI_API_KEY to enable chat")
+	}
+
+	uid := uuid.Nil
+	if len(userID) > 0 {
+		uid = userID[0]
 	}
 
 	messages := s.buildMessages(history, userMessage, jurisdiction)
@@ -371,7 +468,7 @@ func (s *ChatService) ProcessMessageStream(
 	if choice.FinishReason == oai.FinishReasonToolCalls && len(choice.Message.ToolCalls) > 0 {
 		messages = append(messages, choice.Message)
 		for _, tc := range choice.Message.ToolCalls {
-			result := s.executeTool(ctx, tc.Function.Name, tc.Function.Arguments, companyID, jurisdiction)
+			result := s.executeTool(ctx, tc.Function.Name, tc.Function.Arguments, companyID, jurisdiction, uid)
 			toolResults = append(toolResults, ToolCallResult{
 				ToolName: tc.Function.Name,
 				ToolID:   tc.ID,
@@ -478,11 +575,15 @@ func (s *ChatService) buildMessages(history []domain.ChatMessage, userMessage st
 }
 
 // ExecuteTool executes a named tool with JSON arguments. Exported for use by agent runtime.
-func (s *ChatService) ExecuteTool(ctx context.Context, name, argsJSON string, companyID uuid.UUID, jurisdiction string) string {
-	return s.executeTool(ctx, name, argsJSON, companyID, jurisdiction)
+func (s *ChatService) ExecuteTool(ctx context.Context, name, argsJSON string, companyID uuid.UUID, jurisdiction string, userID ...uuid.UUID) string {
+	uid := uuid.Nil
+	if len(userID) > 0 {
+		uid = userID[0]
+	}
+	return s.executeTool(ctx, name, argsJSON, companyID, jurisdiction, uid)
 }
 
-func (s *ChatService) executeTool(ctx context.Context, name, argsJSON string, companyID uuid.UUID, jurisdiction string) string {
+func (s *ChatService) executeTool(ctx context.Context, name, argsJSON string, companyID uuid.UUID, jurisdiction string, userID uuid.UUID) string {
 	var args map[string]interface{}
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 		return jsonError("invalid tool arguments")
@@ -497,6 +598,14 @@ func (s *ChatService) executeTool(ctx context.Context, name, argsJSON string, co
 		return s.executeGetPreferences(ctx, args, companyID)
 	case "validate_report":
 		return s.executeValidateReport(ctx, args, companyID)
+	case "record_expense":
+		return s.executeRecordExpense(ctx, args, companyID, userID)
+	case "search_transactions":
+		return s.executeSearchTransactions(ctx, args, companyID)
+	case "get_spending_summary":
+		return s.executeGetSpendingSummary(ctx, args, companyID)
+	case "list_recent_transactions":
+		return s.executeListRecentTransactions(ctx, args, companyID)
 	default:
 		return jsonError(fmt.Sprintf("unknown tool: %s", name))
 	}
@@ -672,6 +781,323 @@ func (s *ChatService) executeValidateReport(ctx context.Context, args map[string
 		"action_route": fmt.Sprintf("/reports/%s", report.ID.String()),
 	})
 	return string(result)
+}
+
+func (s *ChatService) executeRecordExpense(ctx context.Context, args map[string]interface{}, companyID, userID uuid.UUID) string {
+	amountF, ok := args["amount"].(float64)
+	if !ok || amountF == 0 {
+		return jsonError("amount is required and must be a number")
+	}
+	description := toString(args["description"])
+	if description == "" {
+		return jsonError("description is required")
+	}
+
+	category := toString(args["category"])
+	if category == "" {
+		category = "other"
+	}
+
+	dateStr := toString(args["date"])
+	txDate := time.Now()
+	if dateStr != "" {
+		if parsed, err := time.Parse("2006-01-02", dateStr); err == nil {
+			txDate = parsed
+		}
+	}
+
+	projectTag := toString(args["project_tag"])
+
+	// Get or create session for current period.
+	period := txDate.Format("2006-01")
+	sessionID, err := s.getOrCreateSession(ctx, companyID, userID, period)
+	if err != nil {
+		slog.Error("failed to get/create session for expense", "error", err)
+		return jsonError("failed to create session")
+	}
+
+	// Build pgtype.Numeric from float.
+	amountNum := floatToNumeric(amountF)
+	confNum := floatToNumeric(1.0)
+
+	var descPtr *string
+	if description != "" {
+		descPtr = &description
+	}
+	var projPtr *string
+	if projectTag != "" {
+		projPtr = &projectTag
+	}
+
+	tx, err := s.q.CreateTransaction(ctx, sqlc.CreateTransactionParams{
+		ID:                   uuid.New(),
+		CompanyID:            companyID,
+		SessionID:            sessionID,
+		SourceType:           "manual",
+		SourceFileID:         "telegram_chat",
+		RowIndex:             0,
+		Date:                 pgtype.Date{Time: txDate, Valid: true},
+		Description:          descPtr,
+		Amount:               amountNum,
+		VatType:              "none",
+		Category:             category,
+		Confidence:           confNum,
+		ClassificationSource: "manual",
+		RawData:              []byte("{}"),
+		MatchStatus:          "unmatched",
+		ProjectTag:           projPtr,
+	})
+	if err != nil {
+		slog.Error("failed to create manual transaction", "error", err)
+		return jsonError("failed to record transaction")
+	}
+
+	result, _ := json.Marshal(map[string]interface{}{
+		"success":        true,
+		"transaction_id": tx.ID.String(),
+		"amount":         amountF,
+		"description":    description,
+		"category":       category,
+		"date":           txDate.Format("2006-01-02"),
+		"project_tag":    projectTag,
+		"message":        fmt.Sprintf("Recorded: %s — %.2f (%s)", description, amountF, category),
+	})
+	return string(result)
+}
+
+func (s *ChatService) executeSearchTransactions(ctx context.Context, args map[string]interface{}, companyID uuid.UUID) string {
+	query := toString(args["query"])
+	limit := toIntDefault(args["limit"], 10)
+	if limit > 50 {
+		limit = 50
+	}
+
+	fromDate := parseDateArg(args["from_date"])
+	toDate := parseDateArg(args["to_date"])
+
+	rows, err := s.q.SearchTransactionsByCompany(ctx, sqlc.SearchTransactionsByCompanyParams{
+		CompanyID: companyID,
+		Column2:   query,
+		Column3:   fromDate,
+		Column4:   toDate,
+		Limit:     int32(limit),
+		Offset:    0,
+	})
+	if err != nil {
+		slog.Error("search transactions failed", "error", err)
+		return jsonError("failed to search transactions")
+	}
+
+	items := make([]map[string]interface{}, 0, len(rows))
+	for _, r := range rows {
+		items = append(items, formatTransactionSummary(r))
+	}
+
+	result, _ := json.Marshal(map[string]interface{}{
+		"count":        len(items),
+		"transactions": items,
+		"query":        query,
+	})
+	return string(result)
+}
+
+func (s *ChatService) executeGetSpendingSummary(ctx context.Context, args map[string]interface{}, companyID uuid.UUID) string {
+	groupBy := toString(args["group_by"])
+	if groupBy == "" {
+		groupBy = "category"
+	}
+
+	now := time.Now()
+	fromDate := parseDateArg(args["from_date"])
+	toDate := parseDateArg(args["to_date"])
+
+	// Default to current month.
+	if !fromDate.Valid {
+		monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+		fromDate = pgtype.Date{Time: monthStart, Valid: true}
+	}
+	if !toDate.Valid {
+		toDate = pgtype.Date{Time: now, Valid: true}
+	}
+
+	if groupBy == "month" {
+		rows, err := s.q.GetSpendingSummaryByMonth(ctx, sqlc.GetSpendingSummaryByMonthParams{
+			CompanyID: companyID,
+			Date:      fromDate,
+			Date_2:    toDate,
+		})
+		if err != nil {
+			slog.Error("spending summary by month failed", "error", err)
+			return jsonError("failed to get spending summary")
+		}
+		items := make([]map[string]interface{}, 0, len(rows))
+		for _, r := range rows {
+			items = append(items, map[string]interface{}{
+				"month": r.Month,
+				"count": r.Count,
+				"total": r.Total,
+			})
+		}
+		result, _ := json.Marshal(map[string]interface{}{
+			"group_by":  "month",
+			"from_date": fromDate.Time.Format("2006-01-02"),
+			"to_date":   toDate.Time.Format("2006-01-02"),
+			"breakdown": items,
+		})
+		return string(result)
+	}
+
+	// Default: by category.
+	rows, err := s.q.GetSpendingSummaryByCategory(ctx, sqlc.GetSpendingSummaryByCategoryParams{
+		CompanyID: companyID,
+		Date:      fromDate,
+		Date_2:    toDate,
+	})
+	if err != nil {
+		slog.Error("spending summary by category failed", "error", err)
+		return jsonError("failed to get spending summary")
+	}
+	items := make([]map[string]interface{}, 0, len(rows))
+	for _, r := range rows {
+		items = append(items, map[string]interface{}{
+			"category": r.Category,
+			"count":    r.Count,
+			"total":    r.Total,
+		})
+	}
+	result, _ := json.Marshal(map[string]interface{}{
+		"group_by":  "category",
+		"from_date": fromDate.Time.Format("2006-01-02"),
+		"to_date":   toDate.Time.Format("2006-01-02"),
+		"breakdown": items,
+	})
+	return string(result)
+}
+
+func (s *ChatService) executeListRecentTransactions(ctx context.Context, args map[string]interface{}, companyID uuid.UUID) string {
+	limit := toIntDefault(args["limit"], 5)
+	if limit > 20 {
+		limit = 20
+	}
+
+	rows, err := s.q.GetRecentTransactionsByCompany(ctx, sqlc.GetRecentTransactionsByCompanyParams{
+		CompanyID: companyID,
+		Limit:     int32(limit),
+	})
+	if err != nil {
+		slog.Error("list recent transactions failed", "error", err)
+		return jsonError("failed to list transactions")
+	}
+
+	items := make([]map[string]interface{}, 0, len(rows))
+	for _, r := range rows {
+		items = append(items, formatTransactionSummary(r))
+	}
+
+	result, _ := json.Marshal(map[string]interface{}{
+		"count":        len(items),
+		"transactions": items,
+	})
+	return string(result)
+}
+
+// getOrCreateSession finds or creates a reconciliation session for the period.
+func (s *ChatService) getOrCreateSession(ctx context.Context, companyID, userID uuid.UUID, period string) (uuid.UUID, error) {
+	session, err := s.q.GetActiveSessionByCompanyAndPeriod(ctx, sqlc.GetActiveSessionByCompanyAndPeriodParams{
+		CompanyID: companyID,
+		Period:    period,
+	})
+	if err == nil {
+		return session.ID, nil
+	}
+
+	createdBy := userID
+	if createdBy == uuid.Nil {
+		createdBy = companyID // fallback: use companyID as placeholder
+	}
+
+	sourceFiles, _ := json.Marshal([]map[string]string{{"source": "telegram_bot"}})
+	newSession, err := s.q.CreateReconciliationSession(ctx, sqlc.CreateReconciliationSessionParams{
+		ID:          uuid.New(),
+		CompanyID:   companyID,
+		CreatedBy:   createdBy,
+		Period:      period,
+		Status:      "active",
+		SourceFiles: sourceFiles,
+	})
+	if err != nil {
+		// TOCTOU: retry lookup once.
+		session, retryErr := s.q.GetActiveSessionByCompanyAndPeriod(ctx, sqlc.GetActiveSessionByCompanyAndPeriodParams{
+			CompanyID: companyID,
+			Period:    period,
+		})
+		if retryErr == nil {
+			return session.ID, nil
+		}
+		return uuid.Nil, fmt.Errorf("create session: %w", err)
+	}
+	return newSession.ID, nil
+}
+
+// formatTransactionSummary builds a concise map for a transaction.
+func formatTransactionSummary(t sqlc.Transaction) map[string]interface{} {
+	m := map[string]interface{}{
+		"id":          t.ID.String(),
+		"source_type": t.SourceType,
+		"category":    t.Category,
+	}
+	if t.Description != nil {
+		m["description"] = *t.Description
+	}
+	if t.Amount.Valid {
+		f, _ := t.Amount.Float64Value()
+		m["amount"] = math.Round(f.Float64*100) / 100
+	}
+	if t.Date.Valid {
+		m["date"] = t.Date.Time.Format("2006-01-02")
+	}
+	if t.ProjectTag != nil {
+		m["project_tag"] = *t.ProjectTag
+	}
+	return m
+}
+
+// parseDateArg parses a date string arg from LLM tool call.
+func parseDateArg(v interface{}) pgtype.Date {
+	s := toString(v)
+	if s == "" {
+		return pgtype.Date{}
+	}
+	t, err := time.Parse("2006-01-02", s)
+	if err != nil {
+		return pgtype.Date{}
+	}
+	return pgtype.Date{Time: t, Valid: true}
+}
+
+// toInt extracts an integer from interface{} with a default.
+func toIntDefault(v interface{}, def int) int {
+	if v == nil {
+		return def
+	}
+	switch val := v.(type) {
+	case float64:
+		return int(val)
+	case int:
+		return val
+	case string:
+		if n, err := strconv.Atoi(val); err == nil {
+			return n
+		}
+	}
+	return def
+}
+
+// floatToNumeric converts a float64 to pgtype.Numeric.
+func floatToNumeric(f float64) pgtype.Numeric {
+	var n pgtype.Numeric
+	_ = n.Scan(fmt.Sprintf("%.2f", f))
+	return n
 }
 
 func jsonError(msg string) string {

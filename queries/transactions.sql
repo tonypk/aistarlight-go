@@ -113,3 +113,39 @@ WHERE company_id = $1
   AND date <= $3
 ORDER BY date DESC, created_at DESC
 LIMIT 10000;
+
+-- name: GetSpendingSummaryByCategory :many
+SELECT category, COUNT(*) AS count, COALESCE(SUM(amount), 0)::text AS total
+FROM transactions
+WHERE company_id = $1 AND date >= $2 AND date <= $3
+GROUP BY category ORDER BY SUM(amount) DESC NULLS LAST;
+
+-- name: GetSpendingSummaryByMonth :many
+SELECT TO_CHAR(date, 'YYYY-MM') AS month, COUNT(*) AS count, COALESCE(SUM(amount), 0)::text AS total
+FROM transactions
+WHERE company_id = $1 AND date >= $2 AND date <= $3
+GROUP BY TO_CHAR(date, 'YYYY-MM') ORDER BY month;
+
+-- name: SearchTransactionsByCompany :many
+SELECT * FROM transactions
+WHERE company_id = $1
+  AND ($2::text = '' OR description ILIKE '%' || $2 || '%')
+  AND ($3::date IS NULL OR date >= $3)
+  AND ($4::date IS NULL OR date <= $4)
+ORDER BY date DESC
+LIMIT $5 OFFSET $6;
+
+-- name: GetRecentTransactionsByCompany :many
+SELECT * FROM transactions
+WHERE company_id = $1
+ORDER BY COALESCE(date, created_at) DESC
+LIMIT $2;
+
+-- name: GetIncomeExpenseSummary :many
+SELECT
+  CASE WHEN source_type IN ('sales_record', 'sales') THEN 'income' ELSE 'expense' END AS type,
+  COUNT(*) AS count,
+  COALESCE(SUM(amount), 0)::text AS total
+FROM transactions
+WHERE company_id = $1 AND date >= $2 AND date <= $3
+GROUP BY CASE WHEN source_type IN ('sales_record', 'sales') THEN 'income' ELSE 'expense' END;

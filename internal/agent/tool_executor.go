@@ -22,7 +22,7 @@ func NewToolExecutor(chatSvc *service.ChatService) *ToolExecutor {
 // Execute routes a tool call to the appropriate service method.
 func (te *ToolExecutor) Execute(ctx context.Context, agentID, toolName string, args json.RawMessage, companyID uuid.UUID, userID uuid.UUID, jurisdiction string) (string, error) {
 	// Delegate to ChatService's existing tool execution for shared tools
-	result := te.chatSvc.ExecuteTool(ctx, toolName, string(args), companyID, jurisdiction)
+	result := te.chatSvc.ExecuteTool(ctx, toolName, string(args), companyID, jurisdiction, userID)
 	return result, nil
 }
 

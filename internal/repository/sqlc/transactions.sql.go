@@ -216,6 +216,189 @@ func (q *Queries) DeleteTransactionsBySession(ctx context.Context, sessionID uui
 	return err
 }
 
+const getIncomeExpenseSummary = `-- name: GetIncomeExpenseSummary :many
+SELECT
+  CASE WHEN source_type IN ('sales_record', 'sales') THEN 'income' ELSE 'expense' END AS type,
+  COUNT(*) AS count,
+  COALESCE(SUM(amount), 0)::text AS total
+FROM transactions
+WHERE company_id = $1 AND date >= $2 AND date <= $3
+GROUP BY CASE WHEN source_type IN ('sales_record', 'sales') THEN 'income' ELSE 'expense' END
+`
+
+type GetIncomeExpenseSummaryParams struct {
+	CompanyID uuid.UUID   `json:"company_id"`
+	Date      pgtype.Date `json:"date"`
+	Date_2    pgtype.Date `json:"date_2"`
+}
+
+type GetIncomeExpenseSummaryRow struct {
+	Type  string `json:"type"`
+	Count int64  `json:"count"`
+	Total string `json:"total"`
+}
+
+func (q *Queries) GetIncomeExpenseSummary(ctx context.Context, arg GetIncomeExpenseSummaryParams) ([]GetIncomeExpenseSummaryRow, error) {
+	rows, err := q.db.Query(ctx, getIncomeExpenseSummary, arg.CompanyID, arg.Date, arg.Date_2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetIncomeExpenseSummaryRow{}
+	for rows.Next() {
+		var i GetIncomeExpenseSummaryRow
+		if err := rows.Scan(&i.Type, &i.Count, &i.Total); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getRecentTransactionsByCompany = `-- name: GetRecentTransactionsByCompany :many
+SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag, from_currency, to_currency, exchange_rate, from_amount FROM transactions
+WHERE company_id = $1
+ORDER BY COALESCE(date, created_at) DESC
+LIMIT $2
+`
+
+type GetRecentTransactionsByCompanyParams struct {
+	CompanyID uuid.UUID `json:"company_id"`
+	Limit     int32     `json:"limit"`
+}
+
+func (q *Queries) GetRecentTransactionsByCompany(ctx context.Context, arg GetRecentTransactionsByCompanyParams) ([]Transaction, error) {
+	rows, err := q.db.Query(ctx, getRecentTransactionsByCompany, arg.CompanyID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Transaction{}
+	for rows.Next() {
+		var i Transaction
+		if err := rows.Scan(
+			&i.ID,
+			&i.CompanyID,
+			&i.SessionID,
+			&i.SourceType,
+			&i.SourceFileID,
+			&i.RowIndex,
+			&i.Date,
+			&i.Description,
+			&i.Amount,
+			&i.VatAmount,
+			&i.VatType,
+			&i.Category,
+			&i.Tin,
+			&i.Confidence,
+			&i.ClassificationSource,
+			&i.RawData,
+			&i.MatchGroupID,
+			&i.MatchStatus,
+			&i.EwtRate,
+			&i.EwtAmount,
+			&i.AtcCode,
+			&i.SupplierID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.JournalEntryID,
+			&i.ProjectTag,
+			&i.FromCurrency,
+			&i.ToCurrency,
+			&i.ExchangeRate,
+			&i.FromAmount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getSpendingSummaryByCategory = `-- name: GetSpendingSummaryByCategory :many
+SELECT category, COUNT(*) AS count, COALESCE(SUM(amount), 0)::text AS total
+FROM transactions
+WHERE company_id = $1 AND date >= $2 AND date <= $3
+GROUP BY category ORDER BY SUM(amount) DESC NULLS LAST
+`
+
+type GetSpendingSummaryByCategoryParams struct {
+	CompanyID uuid.UUID   `json:"company_id"`
+	Date      pgtype.Date `json:"date"`
+	Date_2    pgtype.Date `json:"date_2"`
+}
+
+type GetSpendingSummaryByCategoryRow struct {
+	Category string `json:"category"`
+	Count    int64  `json:"count"`
+	Total    string `json:"total"`
+}
+
+func (q *Queries) GetSpendingSummaryByCategory(ctx context.Context, arg GetSpendingSummaryByCategoryParams) ([]GetSpendingSummaryByCategoryRow, error) {
+	rows, err := q.db.Query(ctx, getSpendingSummaryByCategory, arg.CompanyID, arg.Date, arg.Date_2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetSpendingSummaryByCategoryRow{}
+	for rows.Next() {
+		var i GetSpendingSummaryByCategoryRow
+		if err := rows.Scan(&i.Category, &i.Count, &i.Total); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getSpendingSummaryByMonth = `-- name: GetSpendingSummaryByMonth :many
+SELECT TO_CHAR(date, 'YYYY-MM') AS month, COUNT(*) AS count, COALESCE(SUM(amount), 0)::text AS total
+FROM transactions
+WHERE company_id = $1 AND date >= $2 AND date <= $3
+GROUP BY TO_CHAR(date, 'YYYY-MM') ORDER BY month
+`
+
+type GetSpendingSummaryByMonthParams struct {
+	CompanyID uuid.UUID   `json:"company_id"`
+	Date      pgtype.Date `json:"date"`
+	Date_2    pgtype.Date `json:"date_2"`
+}
+
+type GetSpendingSummaryByMonthRow struct {
+	Month string `json:"month"`
+	Count int64  `json:"count"`
+	Total string `json:"total"`
+}
+
+func (q *Queries) GetSpendingSummaryByMonth(ctx context.Context, arg GetSpendingSummaryByMonthParams) ([]GetSpendingSummaryByMonthRow, error) {
+	rows, err := q.db.Query(ctx, getSpendingSummaryByMonth, arg.CompanyID, arg.Date, arg.Date_2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetSpendingSummaryByMonthRow{}
+	for rows.Next() {
+		var i GetSpendingSummaryByMonthRow
+		if err := rows.Scan(&i.Month, &i.Count, &i.Total); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getTransactionByID = `-- name: GetTransactionByID :one
 SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag, from_currency, to_currency, exchange_rate, from_amount FROM transactions WHERE id = $1
 `
@@ -685,6 +868,83 @@ func (q *Queries) ListTransactionsBySessionFiltered(ctx context.Context, arg Lis
 		arg.Column7,
 		arg.Column8,
 		arg.Column9,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Transaction{}
+	for rows.Next() {
+		var i Transaction
+		if err := rows.Scan(
+			&i.ID,
+			&i.CompanyID,
+			&i.SessionID,
+			&i.SourceType,
+			&i.SourceFileID,
+			&i.RowIndex,
+			&i.Date,
+			&i.Description,
+			&i.Amount,
+			&i.VatAmount,
+			&i.VatType,
+			&i.Category,
+			&i.Tin,
+			&i.Confidence,
+			&i.ClassificationSource,
+			&i.RawData,
+			&i.MatchGroupID,
+			&i.MatchStatus,
+			&i.EwtRate,
+			&i.EwtAmount,
+			&i.AtcCode,
+			&i.SupplierID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.JournalEntryID,
+			&i.ProjectTag,
+			&i.FromCurrency,
+			&i.ToCurrency,
+			&i.ExchangeRate,
+			&i.FromAmount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const searchTransactionsByCompany = `-- name: SearchTransactionsByCompany :many
+SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag, from_currency, to_currency, exchange_rate, from_amount FROM transactions
+WHERE company_id = $1
+  AND ($2::text = '' OR description ILIKE '%' || $2 || '%')
+  AND ($3::date IS NULL OR date >= $3)
+  AND ($4::date IS NULL OR date <= $4)
+ORDER BY date DESC
+LIMIT $5 OFFSET $6
+`
+
+type SearchTransactionsByCompanyParams struct {
+	CompanyID uuid.UUID   `json:"company_id"`
+	Column2   string      `json:"column_2"`
+	Column3   pgtype.Date `json:"column_3"`
+	Column4   pgtype.Date `json:"column_4"`
+	Limit     int32       `json:"limit"`
+	Offset    int32       `json:"offset"`
+}
+
+func (q *Queries) SearchTransactionsByCompany(ctx context.Context, arg SearchTransactionsByCompanyParams) ([]Transaction, error) {
+	rows, err := q.db.Query(ctx, searchTransactionsByCompany,
+		arg.CompanyID,
+		arg.Column2,
+		arg.Column3,
+		arg.Column4,
+		arg.Limit,
+		arg.Offset,
 	)
 	if err != nil {
 		return nil, err

@@ -7,25 +7,29 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	tele "gopkg.in/telebot.v3"
 
 	"github.com/tonypk/aistarlight-go/internal/repository/sqlc"
 )
 
-const startMsg = `Welcome to AIStarlight Receipt Bot!
+const startMsg = `Welcome to AIStarlight — Your Smart Bookkeeping Assistant!
 
-I can process your receipts and record transactions automatically.
+I can help you manage your business finances through natural conversation.
+
+What I can do:
+- Record expenses: "I spent 500 on office supplies"
+- Check spending: "How much did I spend this month?"
+- Search transactions: "Find all restaurant expenses"
+- Process receipts: Just send a photo!
+- Forex: /exchange
+- Export data: /export [YYYY-MM]
+- View stats: /status
 
 To get started:
 1. Get your API key from the web dashboard
 2. Run /link <your_api_key>
-3. Send me a receipt photo!
-
-Commands:
-/link <api_key> - Link your account
-/exchange - Record a P2P forex exchange
-/export [YYYY-MM] - Export bookkeeping data
-/status - View monthly stats`
+3. Start chatting or send a receipt photo!`
 
 func (b *Bot) handleStart(c tele.Context) error {
 	payload := strings.TrimSpace(c.Message().Payload)
@@ -158,10 +162,11 @@ func (b *Bot) handleStatus(c tele.Context) error {
 		return c.Send("Service temporarily unavailable. Please try again later.")
 	}
 
-	// Stats since beginning of current month (UTC)
 	now := time.Now().UTC()
 	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	month := now.Format("Jan 2006")
 
+	// Basic stats.
 	stats, err := b.q.GetTransactionStatsSince(ctx, sqlc.GetTransactionStatsSinceParams{
 		CompanyID: tgUser.CompanyID,
 		CreatedAt: monthStart,
@@ -172,7 +177,48 @@ func (b *Bot) handleStatus(c tele.Context) error {
 	}
 
 	total := formatInterface(stats.TotalAmount)
-	month := now.Format("Jan 2006")
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("%s: %d transactions, %s total\n", month, stats.Count, total))
 
-	return c.Send(fmt.Sprintf("%s: %d receipts, P%s total", month, stats.Count, total))
+	// Category breakdown.
+	catRows, err := b.q.GetSpendingSummaryByCategory(ctx, sqlc.GetSpendingSummaryByCategoryParams{
+		CompanyID: tgUser.CompanyID,
+		Date:      pgtype.Date{Time: monthStart, Valid: true},
+		Date_2:    pgtype.Date{Time: now, Valid: true},
+	})
+	if err == nil && len(catRows) > 0 {
+		sb.WriteString("\nBy category:\n")
+		for _, r := range catRows {
+			sb.WriteString(fmt.Sprintf("  %s: %s (%d)\n", capitalize(r.Category), r.Total, r.Count))
+		}
+	}
+
+	// Recent 3 transactions preview.
+	recent, err := b.q.GetRecentTransactionsByCompany(ctx, sqlc.GetRecentTransactionsByCompanyParams{
+		CompanyID: tgUser.CompanyID,
+		Limit:     3,
+	})
+	if err == nil && len(recent) > 0 {
+		sb.WriteString("\nRecent:\n")
+		for _, t := range recent {
+			desc := ""
+			if t.Description != nil {
+				desc = *t.Description
+			}
+			if len(desc) > 30 {
+				desc = desc[:30] + "..."
+			}
+			amt := ""
+			if f, fErr := t.Amount.Float64Value(); fErr == nil {
+				amt = fmt.Sprintf("%.2f", f.Float64)
+			}
+			dateStr := ""
+			if t.Date.Valid {
+				dateStr = t.Date.Time.Format("01/02")
+			}
+			sb.WriteString(fmt.Sprintf("  %s %s — %s\n", dateStr, desc, amt))
+		}
+	}
+
+	return c.Send(sb.String())
 }

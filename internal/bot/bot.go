@@ -98,6 +98,18 @@ func (b *Bot) Start() {
 	}
 	cancel()
 
+	// Register bot commands so users see hints when typing "/".
+	commands := []tele.Command{
+		{Text: "start", Description: "Get started / show help"},
+		{Text: "link", Description: "Link account: /link <api_key>"},
+		{Text: "status", Description: "View monthly stats & breakdown"},
+		{Text: "export", Description: "Export bookkeeping: /export [YYYY-MM]"},
+		{Text: "exchange", Description: "Record a P2P forex exchange"},
+	}
+	if err := b.B.SetCommands(commands); err != nil {
+		slog.Warn("failed to set bot commands", "error", err)
+	}
+
 	slog.Info("telegram bot starting")
 	b.B.Start()
 }

@@ -42,7 +42,7 @@ func (h *ChatHandler) Message(c *gin.Context) {
 	history, _ := h.svc.ListHistory(c.Request.Context(), companyID, 20)
 
 	// Process message
-	chatResp, err := h.svc.ProcessMessage(c.Request.Context(), req.Content, history, companyID, jurisdiction)
+	chatResp, err := h.svc.ProcessMessage(c.Request.Context(), req.Content, history, companyID, jurisdiction, userID)
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return
@@ -80,7 +80,7 @@ func (h *ChatHandler) Stream(c *gin.Context) {
 	_ = h.svc.SaveMessage(c.Request.Context(), companyID, userID, "user", req.Content, nil)
 
 	// Process message with streaming
-	tokenCh, toolResults, err := h.svc.ProcessMessageStream(c.Request.Context(), req.Content, history, companyID, jurisdiction)
+	tokenCh, toolResults, err := h.svc.ProcessMessageStream(c.Request.Context(), req.Content, history, companyID, jurisdiction, userID)
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return

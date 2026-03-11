@@ -85,13 +85,12 @@ func (b *Bot) handleText(c tele.Context) error {
 }
 
 // isReceiptInstruction detects if a message is an instruction for upcoming receipt photo processing.
-// Must be conservative — bookkeeping intents like "I spent 500 on lunch" should NOT match here,
-// they should fall through to the AI chat which handles them via record_expense tool.
-// Only matches explicit receipt/photo instructions or key:value field formats.
+// Must NOT match standalone expense descriptions like "I spent 500 on lunch" — those go to AI chat.
+// Matches: "record the net total", "记录net total", "amount: 1500", etc.
 func isReceiptInstruction(text string) bool {
 	lower := strings.ToLower(text)
 
-	// Direct key:value format (same as edit format) — only receipt-specific fields.
+	// Direct key:value format (same as edit format).
 	for _, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(line)
 		parts := strings.SplitN(line, ":", 2)
@@ -101,27 +100,41 @@ func isReceiptInstruction(text string) bool {
 		if len(parts) == 2 {
 			key := strings.TrimSpace(strings.ToLower(parts[0]))
 			switch key {
-			case "vendor", "商家", "vat", "税额":
+			case "amount", "vendor", "date", "vat", "category", "total",
+				"金额", "总额", "商家", "日期", "税额", "类别":
 				return true
 			}
 		}
 	}
 
-	// Chinese: photo/receipt instruction keywords (must reference photo/image explicitly).
-	photoKeywords := []string{"图片中", "照片中", "这张发票", "这张收据", "帮我识别"}
-	for _, kw := range photoKeywords {
+	// Chinese: standalone photo/receipt keywords — always match.
+	standaloneKw := []string{"图片中", "照片中", "这张发票", "这张收据", "帮我识别"}
+	for _, kw := range standaloneKw {
 		if strings.Contains(lower, kw) {
 			return true
 		}
 	}
 
-	// English: must explicitly reference photo/receipt processing, not just "record".
-	// "record the receipt" or "use the receipt amount" — needs both action + photo reference.
-	hasPhotoRef := strings.Contains(lower, "photo") || strings.Contains(lower, "receipt photo") ||
-		strings.Contains(lower, "picture") || strings.Contains(lower, "image")
-	hasAction := strings.Contains(lower, "record") || strings.Contains(lower, "use the") ||
-		strings.Contains(lower, "extract") || strings.Contains(lower, "scan")
-	if hasPhotoRef && hasAction {
+	// Chinese: "记录/识别" combined with receipt-related words.
+	cnAction := strings.Contains(lower, "记录") || strings.Contains(lower, "识别") ||
+		strings.Contains(lower, "帮我记") || strings.Contains(lower, "请你记")
+	cnReceiptRef := strings.Contains(lower, "total") || strings.Contains(lower, "net total") ||
+		strings.Contains(lower, "总金额") || strings.Contains(lower, "总额") ||
+		strings.Contains(lower, "金额是") || strings.Contains(lower, "发票") ||
+		strings.Contains(lower, "收据")
+	if cnAction && cnReceiptRef {
+		return true
+	}
+
+	// English: 2+ receipt-related keywords (won't match "I spent 500 on lunch").
+	enKeywords := []string{"record", "receipt", "invoice", "total", "vendor", "use the", "net total"}
+	matchCount := 0
+	for _, kw := range enKeywords {
+		if strings.Contains(lower, kw) {
+			matchCount++
+		}
+	}
+	if matchCount >= 2 {
 		return true
 	}
 

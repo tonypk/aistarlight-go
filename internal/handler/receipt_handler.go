@@ -123,6 +123,7 @@ func (h *ReceiptHandler) Upload(c *gin.Context) {
 		ocrPaths,
 		period,
 		reportType,
+		"", // jurisdictionCode: uses company default (PH)
 	)
 	if err != nil {
 		slog.Error("process receipt batch", "error", err)
@@ -215,6 +216,7 @@ func (h *ReceiptHandler) UploadJSON(c *gin.Context) {
 		req.ImagePaths,
 		req.Period,
 		req.ReportType,
+		"", // jurisdictionCode: uses company default (PH)
 	)
 	if err != nil {
 		slog.Error("process receipt batch", "error", err)

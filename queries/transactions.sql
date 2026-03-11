@@ -98,3 +98,11 @@ LIMIT $2 OFFSET $3;
 SELECT * FROM transactions
 WHERE id = ANY(@ids::uuid[]) AND company_id = @company_id
 ORDER BY date ASC, row_index ASC;
+
+-- name: ListTransactionsByCompanyAndDateRange :many
+SELECT * FROM transactions
+WHERE company_id = $1
+  AND date >= $2
+  AND date <= $3
+ORDER BY date DESC, created_at DESC
+LIMIT 10000;

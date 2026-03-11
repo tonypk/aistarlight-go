@@ -10,7 +10,7 @@ import (
 	"github.com/tonypk/aistarlight-go/internal/service"
 )
 
-func formatReceiptReply(result service.ReceiptResult, txnCount int, classResults []service.ClassificationResult, journalEntries []*domain.JournalEntry) string {
+func formatReceiptReply(result service.ReceiptResult, txnCount int, classResults []service.ClassificationResult, journalEntries []*domain.JournalEntry, currencySymbol string) string {
 	parsed := result.Parsed
 
 	// Amount
@@ -34,7 +34,7 @@ func formatReceiptReply(result service.ReceiptResult, txnCount int, classResults
 
 	var lines []string
 	line1Parts := []string{
-		fmt.Sprintf("Receipt Recorded\nP%s %s", addCommas(amount.StringFixed(2)), category),
+		fmt.Sprintf("Receipt Recorded\n%s%s %s", currencySymbol, addCommas(amount.StringFixed(2)), category),
 	}
 
 	// Date
@@ -63,7 +63,7 @@ func formatReceiptReply(result service.ReceiptResult, txnCount int, classResults
 			vatAmount, _ = decimal.NewFromString(v)
 		}
 		if !vatAmount.IsZero() {
-			lines = append(lines, fmt.Sprintf("VAT: P%s", addCommas(vatAmount.StringFixed(2))))
+			lines = append(lines, fmt.Sprintf("VAT: %s%s", currencySymbol, addCommas(vatAmount.StringFixed(2))))
 		}
 	}
 
@@ -80,16 +80,16 @@ func formatReceiptReply(result service.ReceiptResult, txnCount int, classResults
 		if len(je.Lines) >= 2 {
 			dr := je.Lines[0]
 			cr := je.Lines[1]
-			lines = append(lines, fmt.Sprintf("Journal: DR %s P%s / CR %s P%s",
-				dr.AccountName, addCommas(dr.Debit.StringFixed(2)),
-				cr.AccountName, addCommas(cr.Credit.StringFixed(2)),
+			lines = append(lines, fmt.Sprintf("Journal: DR %s %s%s / CR %s %s%s",
+				dr.AccountName, currencySymbol, addCommas(dr.Debit.StringFixed(2)),
+				cr.AccountName, currencySymbol, addCommas(cr.Credit.StringFixed(2)),
 			))
 		} else if len(je.Lines) == 1 {
 			l := je.Lines[0]
 			if !l.Debit.IsZero() {
-				lines = append(lines, fmt.Sprintf("Journal: DR %s P%s", l.AccountName, addCommas(l.Debit.StringFixed(2))))
+				lines = append(lines, fmt.Sprintf("Journal: DR %s %s%s", l.AccountName, currencySymbol, addCommas(l.Debit.StringFixed(2))))
 			} else {
-				lines = append(lines, fmt.Sprintf("Journal: CR %s P%s", l.AccountName, addCommas(l.Credit.StringFixed(2))))
+				lines = append(lines, fmt.Sprintf("Journal: CR %s %s%s", l.AccountName, currencySymbol, addCommas(l.Credit.StringFixed(2))))
 			}
 		}
 	}

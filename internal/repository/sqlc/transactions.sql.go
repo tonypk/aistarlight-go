@@ -475,6 +475,67 @@ func (q *Queries) ListTransactionsByCompany(ctx context.Context, arg ListTransac
 	return items, nil
 }
 
+const listTransactionsByCompanyAndDateRange = `-- name: ListTransactionsByCompanyAndDateRange :many
+SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id FROM transactions
+WHERE company_id = $1
+  AND date >= $2
+  AND date <= $3
+ORDER BY date DESC, created_at DESC
+LIMIT 10000
+`
+
+type ListTransactionsByCompanyAndDateRangeParams struct {
+	CompanyID uuid.UUID   `json:"company_id"`
+	Date      pgtype.Date `json:"date"`
+	Date_2    pgtype.Date `json:"date_2"`
+}
+
+func (q *Queries) ListTransactionsByCompanyAndDateRange(ctx context.Context, arg ListTransactionsByCompanyAndDateRangeParams) ([]Transaction, error) {
+	rows, err := q.db.Query(ctx, listTransactionsByCompanyAndDateRange, arg.CompanyID, arg.Date, arg.Date_2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Transaction{}
+	for rows.Next() {
+		var i Transaction
+		if err := rows.Scan(
+			&i.ID,
+			&i.CompanyID,
+			&i.SessionID,
+			&i.SourceType,
+			&i.SourceFileID,
+			&i.RowIndex,
+			&i.Date,
+			&i.Description,
+			&i.Amount,
+			&i.VatAmount,
+			&i.VatType,
+			&i.Category,
+			&i.Tin,
+			&i.Confidence,
+			&i.ClassificationSource,
+			&i.RawData,
+			&i.MatchGroupID,
+			&i.MatchStatus,
+			&i.EwtRate,
+			&i.EwtAmount,
+			&i.AtcCode,
+			&i.SupplierID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.JournalEntryID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTransactionsBySession = `-- name: ListTransactionsBySession :many
 SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id FROM transactions
 WHERE session_id = $1

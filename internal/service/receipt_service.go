@@ -13,7 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/tonypk/aistarlight-go/internal/repository/sqlc"
-	"github.com/tonypk/aistarlight-go/pkg/birforms"
+	"github.com/tonypk/aistarlight-go/pkg/jurisdiction"
 )
 
 // ReceiptService orchestrates receipt OCR processing.
@@ -68,9 +68,11 @@ type ReceiptResult struct {
 }
 
 // ProcessBatch processes a batch of receipt images.
-func (s *ReceiptService) ProcessBatch(ctx context.Context, companyID, userID uuid.UUID, imagePaths []string, period, reportType string) (*sqlc.ReceiptBatch, []ReceiptResult, error) {
+// jurisdictionCode determines country-specific parsing rules (defaults to "PH").
+func (s *ReceiptService) ProcessBatch(ctx context.Context, companyID, userID uuid.UUID, imagePaths []string, period, reportType, jurisdictionCode string) (*sqlc.ReceiptBatch, []ReceiptResult, error) {
+	jCfg := jurisdiction.Get(jurisdictionCode)
 	if reportType == "" {
-		reportType = birforms.FormBIR2550M
+		reportType = jCfg.DefaultReport
 	}
 
 	batch, err := s.q.CreateReceiptBatch(ctx, sqlc.CreateReceiptBatchParams{
@@ -92,7 +94,7 @@ func (s *ReceiptService) ProcessBatch(ctx context.Context, companyID, userID uui
 	processedCount := 0
 
 	for _, path := range imagePaths {
-		result := s.processOneReceipt(ctx, path)
+		result := s.processOneReceipt(ctx, path, jCfg)
 		results = append(results, result)
 		if result.Error == "" {
 			processedCount++
@@ -163,7 +165,7 @@ func (s *ReceiptService) ListBatches(ctx context.Context, companyID uuid.UUID, l
 	return batches, total, nil
 }
 
-func (s *ReceiptService) processOneReceipt(ctx context.Context, imagePath string) ReceiptResult {
+func (s *ReceiptService) processOneReceipt(ctx context.Context, imagePath string, jCfg jurisdiction.Config) ReceiptResult {
 	result := ReceiptResult{Filename: imagePath}
 
 	if s.ocr == nil {
@@ -177,7 +179,7 @@ func (s *ReceiptService) processOneReceipt(ctx context.Context, imagePath string
 		return result
 	}
 
-	parsed := parseReceipt(ocrResult.Text, ocrResult.Lines)
+	parsed := parseReceipt(ocrResult.Text, ocrResult.Lines, jCfg)
 	result.Parsed = parsed
 	result.OverallConfidence = averageConfidence(parsed)
 
@@ -186,35 +188,32 @@ func (s *ReceiptService) processOneReceipt(ctx context.Context, imagePath string
 
 // Receipt parsing — rule-based extraction
 
-var (
-	tinRe      = regexp.MustCompile(`\d{3}[-\s]?\d{3}[-\s]?\d{3}[-\s]?\d{3,4}`)
-	amountRe   = regexp.MustCompile(`(?i)(?:₱|PHP|PhP|Php|P)\s*([\d,]+\.\d{2})`)
-	receiptNoRe = regexp.MustCompile(`(?i)(?:OR|Invoice|SI|Receipt)\s*(?:No\.?|#)\s*[:\s]*([\w-]+)`)
+var receiptNoRe = regexp.MustCompile(`(?i)(?:OR|Invoice|SI|Receipt)\s*(?:No\.?|#)\s*[:\s]*([\w-]+)`)
 
-	totalLabels   = []string{"TOTAL", "TOTAL AMOUNT", "GRAND TOTAL", "AMOUNT DUE", "NET AMOUNT"}
-	vatableLabels = []string{"VATABLE SALES", "VATABLE", "VAT SALES"}
-	vatLabels     = []string{"VAT AMOUNT", "VAT", "OUTPUT TAX", "12% VAT"}
-	exemptLabels  = []string{"VAT EXEMPT", "EXEMPT SALES", "VAT-EXEMPT"}
-	zeroLabels    = []string{"ZERO RATED", "ZERO-RATED", "0% VAT"}
-)
-
-func parseReceipt(text string, lines []string) ParsedReceipt {
+func parseReceipt(text string, lines []string, jCfg jurisdiction.Config) ParsedReceipt {
 	p := ParsedReceipt{}
 	upperText := strings.ToUpper(text)
 
-	// TIN
+	// TIN — use jurisdiction-specific pattern
+	tinRe := regexp.MustCompile(jCfg.TINPattern)
 	if match := tinRe.FindString(text); match != "" {
 		normalized := normalizeTIN(match)
 		p.TIN = ParsedField{Value: normalized, Confidence: 0.95}
 	}
 
+	// Build currency-aware amount regex from jurisdiction config
+	var amountRe *regexp.Regexp
+	if len(jCfg.AmountPatterns) > 0 {
+		amountRe = regexp.MustCompile(jCfg.AmountPatterns[0])
+	}
+
 	// Date
 	p.Date = extractDate(text)
 
-	// Amounts
-	p.TotalAmount = extractLabeledAmount(lines, totalLabels, 0.85)
-	p.VatableSales = extractLabeledAmount(lines, vatableLabels, 0.85)
-	p.VATAmount = extractLabeledAmount(lines, vatLabels, 0.85)
+	// Amounts — use jurisdiction-specific labels
+	p.TotalAmount = extractLabeledAmount(lines, jCfg.TotalLabels, 0.85, amountRe)
+	p.VatableSales = extractLabeledAmount(lines, jCfg.VatableLabels, 0.85, amountRe)
+	p.VATAmount = extractLabeledAmount(lines, jCfg.VATLabels, 0.85, amountRe)
 
 	// If no labeled total, use largest amount
 	if p.TotalAmount.Value == nil {
@@ -231,15 +230,23 @@ func parseReceipt(text string, lines []string) ParsedReceipt {
 		}
 	}
 
-	// VAT type
-	if containsAny(upperText, exemptLabels) {
+	// VAT type — use jurisdiction-specific labels
+	if containsAny(upperText, jCfg.ExemptLabels) {
 		p.VATType = ParsedField{Value: "exempt", Confidence: 0.90}
-	} else if containsAny(upperText, zeroLabels) {
+	} else if containsAny(upperText, jCfg.ZeroRatedLabels) {
 		p.VATType = ParsedField{Value: "zero_rated", Confidence: 0.90}
-	} else if containsAny(upperText, vatableLabels) || p.VATAmount.Value != nil {
-		p.VATType = ParsedField{Value: "vatable", Confidence: 0.90}
+	} else if containsAny(upperText, jCfg.VatableLabels) || p.VATAmount.Value != nil {
+		defaultVATType := "vatable"
+		if len(jCfg.VATTypes) > 0 {
+			defaultVATType = jCfg.VATTypes[0] // first type is the standard one
+		}
+		p.VATType = ParsedField{Value: defaultVATType, Confidence: 0.90}
 	} else {
-		p.VATType = ParsedField{Value: "vatable", Confidence: 0.50}
+		defaultVATType := "vatable"
+		if len(jCfg.VATTypes) > 0 {
+			defaultVATType = jCfg.VATTypes[0]
+		}
+		p.VATType = ParsedField{Value: defaultVATType, Confidence: 0.50}
 	}
 
 	// Category default
@@ -291,12 +298,12 @@ func extractDate(text string) ParsedField {
 	return ParsedField{}
 }
 
-func extractLabeledAmount(lines []string, labels []string, confidence float64) ParsedField {
+func extractLabeledAmount(lines []string, labels []string, confidence float64, amountRe *regexp.Regexp) ParsedField {
 	for _, line := range lines {
 		upper := strings.ToUpper(line)
 		for _, label := range labels {
 			if strings.Contains(upper, label) {
-				if amt := extractAmountFromLine(line); amt > 0 {
+				if amt := extractAmountFromLine(line, amountRe); amt > 0 {
 					return ParsedField{Value: amt, Confidence: confidence}
 				}
 			}
@@ -305,12 +312,14 @@ func extractLabeledAmount(lines []string, labels []string, confidence float64) P
 	return ParsedField{}
 }
 
-func extractAmountFromLine(line string) float64 {
-	if match := amountRe.FindStringSubmatch(line); len(match) > 1 {
-		s := strings.ReplaceAll(match[1], ",", "")
-		f, err := strconv.ParseFloat(s, 64)
-		if err == nil {
-			return f
+func extractAmountFromLine(line string, amountRe *regexp.Regexp) float64 {
+	if amountRe != nil {
+		if match := amountRe.FindStringSubmatch(line); len(match) > 1 {
+			s := strings.ReplaceAll(match[1], ",", "")
+			f, err := strconv.ParseFloat(s, 64)
+			if err == nil {
+				return f
+			}
 		}
 	}
 	// Try plain number

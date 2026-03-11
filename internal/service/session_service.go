@@ -613,7 +613,7 @@ func (s *SessionService) ClassifySession(ctx context.Context, sessionID, company
 	}
 
 	// Run classification
-	results, err := s.classifier.ClassifyTransactions(ctx, txnDicts, companyID, promptSupplement)
+	results, err := s.classifier.ClassifyTransactions(ctx, txnDicts, companyID, "", promptSupplement)
 	if err != nil {
 		return nil, fmt.Errorf("classification failed: %w", err)
 	}

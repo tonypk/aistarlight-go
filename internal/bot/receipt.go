@@ -22,7 +22,7 @@ import (
 	"github.com/tonypk/aistarlight-go/internal/domain"
 	"github.com/tonypk/aistarlight-go/internal/repository/sqlc"
 	"github.com/tonypk/aistarlight-go/internal/service"
-	"github.com/tonypk/aistarlight-go/pkg/birforms"
+	"github.com/tonypk/aistarlight-go/pkg/jurisdiction"
 )
 
 const maxFileSizeBytes = 10 * 1024 * 1024 // 10 MB
@@ -65,6 +65,14 @@ func (b *Bot) processReceipt(c tele.Context, fileID string) error {
 		return c.Send("Account not linked. Use /link <api_key> first.")
 	}
 
+	// Look up company to get jurisdiction
+	company, compErr := b.q.GetCompanyByID(ctx, tgUser.CompanyID)
+	jurisdictionCode := "PH"
+	if compErr == nil {
+		jurisdictionCode = company.Jurisdiction
+	}
+	jCfg := jurisdiction.Get(jurisdictionCode)
+
 	processing, err := b.B.Send(c.Chat(), "Processing receipt...")
 	if err != nil {
 		return err
@@ -91,7 +99,7 @@ func (b *Bot) processReceipt(c tele.Context, fileID string) error {
 		return editError("Failed to create session.")
 	}
 
-	batch, results, err := b.receipt.ProcessBatch(ctx, tgUser.CompanyID, tgUser.UserID, []string{localPath}, period, birforms.FormBIR2550M)
+	batch, results, err := b.receipt.ProcessBatch(ctx, tgUser.CompanyID, tgUser.UserID, []string{localPath}, period, jCfg.DefaultReport, jurisdictionCode)
 	if err != nil {
 		slog.Error("receipt processing failed", "error", err)
 		return editError("Failed to process receipt.")
@@ -126,7 +134,7 @@ func (b *Bot) processReceipt(c tele.Context, fileID string) error {
 				"source_type": txn.SourceType,
 			}
 		}
-		classResults, err = b.classifier.ClassifyTransactions(ctx, classInput, tgUser.CompanyID, "")
+		classResults, err = b.classifier.ClassifyTransactions(ctx, classInput, tgUser.CompanyID, jurisdictionCode, "")
 		if err != nil {
 			slog.Warn("classification failed, continuing without", "error", err)
 		} else {
@@ -158,7 +166,7 @@ func (b *Bot) processReceipt(c tele.Context, fileID string) error {
 		journalEntries = append(journalEntries, je)
 	}
 
-	reply := formatReceiptReply(results[0], len(txns), classResults, journalEntries)
+	reply := formatReceiptReply(results[0], len(txns), classResults, journalEntries, jCfg.CurrencySymbol)
 	_, _ = b.B.Edit(processing, reply)
 	return nil
 }

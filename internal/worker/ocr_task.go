@@ -26,6 +26,7 @@ func (s *Server) handleOCRProcess(ctx context.Context, t *asynq.Task) error {
 	batch, results, err := s.svc.Receipt.ProcessBatch(
 		ctx, p.CompanyID, p.UserID,
 		p.ImagePaths, p.Period, p.ReportType,
+		"", // jurisdictionCode: uses company default (PH)
 	)
 	if err != nil {
 		return s.failTask(ctx, p.TaskID, fmt.Errorf("process batch: %w", err))

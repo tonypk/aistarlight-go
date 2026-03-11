@@ -53,6 +53,7 @@ func (b *Bot) registerHandlers() {
 	b.B.Handle("/start", b.handleStart)
 	b.B.Handle("/link", b.handleLink)
 	b.B.Handle("/status", b.handleStatus)
+	b.B.Handle("/export", b.handleExport)
 	b.B.Handle(tele.OnPhoto, b.handlePhoto)
 	b.B.Handle(tele.OnDocument, b.handleDocument)
 	b.B.Handle(tele.OnText, b.handleText)

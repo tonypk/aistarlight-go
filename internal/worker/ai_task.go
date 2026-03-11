@@ -55,7 +55,7 @@ func (s *Server) handleAIClassify(ctx context.Context, t *asynq.Task) error {
 	})
 
 	// Run batch classification.
-	results, err := s.svc.Classifier.ClassifyTransactions(ctx, transactions, p.CompanyID, "")
+	results, err := s.svc.Classifier.ClassifyTransactions(ctx, transactions, p.CompanyID, "", "")
 	if err != nil {
 		return s.failTask(ctx, p.TaskID, fmt.Errorf("classify transactions: %w", err))
 	}

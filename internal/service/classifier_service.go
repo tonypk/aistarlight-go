@@ -11,11 +11,10 @@ import (
 	oai "github.com/sashabaranov/go-openai"
 	"github.com/tonypk/aistarlight-go/internal/platform/openai"
 	"github.com/tonypk/aistarlight-go/internal/repository/sqlc"
+	"github.com/tonypk/aistarlight-go/pkg/jurisdiction"
 )
 
 const classificationBatchSize = 25
-
-var govtTINPrefixes = []string{"000", "001", "002"}
 
 var validVATTypes = map[string]bool{
 	"vatable": true, "exempt": true, "zero_rated": true, "government": true,
@@ -68,18 +67,22 @@ type ClassificationResult struct {
 
 // ClassifyTransactions runs a two-phase classification pipeline.
 // Phase 1: deterministic rules. Phase 2: LLM batch classification.
+// jurisdictionCode determines country-specific rules and prompts (defaults to "PH").
 func (s *ClassifierService) ClassifyTransactions(
 	ctx context.Context,
 	transactions []map[string]interface{},
 	companyID uuid.UUID,
+	jurisdictionCode string,
 	promptSupplement string,
 ) ([]ClassificationResult, error) {
+	jCfg := jurisdiction.Get(jurisdictionCode)
+
 	results := make([]ClassificationResult, len(transactions))
 	var ambiguous []int // indices needing LLM
 
 	// Phase 1: Rule-based classification
 	for i, tx := range transactions {
-		if r := applyRuleBasedClassification(tx); r != nil {
+		if r := applyRuleBasedClassification(tx, jCfg); r != nil {
 			results[i] = *r
 		} else {
 			ambiguous = append(ambiguous, i)
@@ -114,7 +117,7 @@ func (s *ClassifierService) ClassifyTransactions(
 			for i, idx := range batch {
 				items[i] = transactions[idx]
 			}
-			llmResults, err := s.classifyBatch(ctx, items, promptSupplement)
+			llmResults, err := s.classifyBatch(ctx, items, jCfg, promptSupplement)
 			if err != nil {
 				slog.Warn("LLM classification failed, using defaults", "error", err)
 				for _, idx := range batch {
@@ -137,7 +140,7 @@ func (s *ClassifierService) ClassifyTransactions(
 }
 
 // applyRuleBasedClassification applies deterministic rules without LLM.
-func applyRuleBasedClassification(tx map[string]interface{}) *ClassificationResult {
+func applyRuleBasedClassification(tx map[string]interface{}, jCfg jurisdiction.Config) *ClassificationResult {
 	desc := strings.ToLower(toString(tx["description"]))
 	tin := toString(tx["tin"])
 	sourceType := toString(tx["source_type"])
@@ -149,10 +152,22 @@ func applyRuleBasedClassification(tx map[string]interface{}) *ClassificationResu
 		salesCategory = "goods"
 	}
 
-	// Government entity detection
-	if isGovernmentEntity(desc, tin) {
+	// Government entity detection — use jurisdiction-specific keywords and TIN prefixes
+	if isGovernmentEntity(desc, tin, jCfg) {
+		govtVATType := "government"
+		// Some jurisdictions don't have a "government" VAT type
+		hasGovtType := false
+		for _, vt := range jCfg.VATTypes {
+			if vt == "government" {
+				hasGovtType = true
+				break
+			}
+		}
+		if !hasGovtType && len(jCfg.VATTypes) > 0 {
+			govtVATType = jCfg.VATTypes[0] // use standard type
+		}
 		return &ClassificationResult{
-			VATType: "government", Category: salesCategory,
+			VATType: govtVATType, Category: salesCategory,
 			Confidence: 0.95, ClassificationSource: "rule",
 		}
 	}
@@ -182,14 +197,13 @@ func applyRuleBasedClassification(tx map[string]interface{}) *ClassificationResu
 	return nil
 }
 
-func isGovernmentEntity(desc, tin string) bool {
-	govtKW := []string{"bir", "sss", "philhealth", "pag-ibig", "hdmf", "lgu", "municipality", "dti", "sec"}
-	for _, kw := range govtKW {
+func isGovernmentEntity(desc, tin string, jCfg jurisdiction.Config) bool {
+	for _, kw := range jCfg.GovtKeywords {
 		if strings.Contains(desc, kw) {
 			return true
 		}
 	}
-	for _, prefix := range govtTINPrefixes {
+	for _, prefix := range jCfg.GovtTINPrefixes {
 		if strings.HasPrefix(tin, prefix) {
 			return true
 		}
@@ -257,7 +271,7 @@ func applyLearnedRules(tx map[string]interface{}, rules []sqlc.CorrectionRule) *
 	return nil
 }
 
-func (s *ClassifierService) classifyBatch(ctx context.Context, items []map[string]interface{}, supplement string) ([]ClassificationResult, error) {
+func (s *ClassifierService) classifyBatch(ctx context.Context, items []map[string]interface{}, jCfg jurisdiction.Config, supplement string) ([]ClassificationResult, error) {
 	// Build batch input
 	var sb strings.Builder
 	sb.WriteString("[")
@@ -274,7 +288,10 @@ func (s *ClassifierService) classifyBatch(ctx context.Context, items []map[strin
 	}
 	sb.WriteString("]")
 
-	systemPrompt := classificationSystemPrompt
+	systemPrompt := jCfg.ClassPrompt
+	if systemPrompt == "" {
+		systemPrompt = classificationSystemPrompt
+	}
 	if supplement != "" {
 		systemPrompt += "\n\n" + supplement
 	}
@@ -303,17 +320,37 @@ func (s *ClassifierService) classifyBatch(ctx context.Context, items []map[strin
 		return nil, fmt.Errorf("parse LLM response: %w", err)
 	}
 
+	// Build jurisdiction-specific validation sets
+	jVATTypes := validVATTypes
+	jCategories := validCategories
+	if len(jCfg.VATTypes) > 0 {
+		jVATTypes = make(map[string]bool, len(jCfg.VATTypes))
+		for _, vt := range jCfg.VATTypes {
+			jVATTypes[vt] = true
+		}
+	}
+	if len(jCfg.Categories) > 0 {
+		jCategories = make(map[string]bool, len(jCfg.Categories))
+		for _, cat := range jCfg.Categories {
+			jCategories[cat] = true
+		}
+	}
+	defaultVATType := "vatable"
+	if len(jCfg.VATTypes) > 0 {
+		defaultVATType = jCfg.VATTypes[0]
+	}
+
 	results := make([]ClassificationResult, len(items))
 	for _, lr := range llmResults {
 		if lr.Index < 0 || lr.Index >= len(results) {
 			continue
 		}
 		vatType := lr.VATType
-		if !validVATTypes[vatType] {
-			vatType = "vatable"
+		if !jVATTypes[vatType] {
+			vatType = defaultVATType
 		}
 		category := lr.Category
-		if !validCategories[category] {
+		if !jCategories[category] {
 			category = "goods"
 		}
 		// Enforce: purchase_record transactions must never have category="sale"
@@ -334,7 +371,7 @@ func (s *ClassifierService) classifyBatch(ctx context.Context, items []map[strin
 	for i := range results {
 		if results[i].ClassificationSource == "" {
 			results[i] = ClassificationResult{
-				VATType: "vatable", Category: "goods",
+				VATType: defaultVATType, Category: "goods",
 				Confidence: 0.30, ClassificationSource: "default",
 			}
 		}

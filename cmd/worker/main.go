@@ -9,6 +9,7 @@ import (
 
 	"github.com/hibiken/asynq"
 	"github.com/tonypk/aistarlight-go/internal/config"
+	"github.com/tonypk/aistarlight-go/internal/event"
 	ocrclient "github.com/tonypk/aistarlight-go/internal/platform/ocr"
 	oai "github.com/tonypk/aistarlight-go/internal/platform/openai"
 	pg "github.com/tonypk/aistarlight-go/internal/platform/postgres"
@@ -66,20 +67,26 @@ func main() {
 	supplierSvc := service.NewSupplierService(q)
 	complianceSvc := service.NewComplianceService(q, knowledge)
 
-	svc := &worker.Services{
-		Report:       service.NewReportService(q, complianceSvc),
-		Receipt:      service.NewReceiptService(q, ocrclient.NewClient(cfg.OCR.ServiceURL), supplierSvc),
-		Classifier:   service.NewClassifierService(ai, q),
-		BankRecon:    service.NewBankReconService(q, matchAnalyzer),
-		Compliance:   complianceSvc,
-		Notification: service.NewNotificationService(q),
-	}
-
-	// Create and start worker server.
+	// Redis + event publisher (worker also publishes events on re-entrant flows)
 	redisOpt := asynq.RedisClientOpt{
 		Addr:     cfg.Redis.AsynqAddr(),
 		DB:       cfg.Redis.AsynqDB(),
 		Password: cfg.Redis.AsynqPassword(),
+	}
+	asynqClient := asynq.NewClient(redisOpt)
+	publisher := event.NewPublisher(asynqClient)
+
+	fsSvc := service.NewFinancialStatementService(q)
+
+	svc := &worker.Services{
+		Report:       service.NewReportService(q, complianceSvc),
+		Receipt:      service.NewReceiptService(q, ocrclient.NewClient(cfg.OCR.ServiceURL), supplierSvc),
+		Classifier:   service.NewClassifierService(ai, q),
+		BankRecon:    service.NewBankReconService(q, matchAnalyzer, publisher),
+		Compliance:   complianceSvc,
+		Notification: service.NewNotificationService(q),
+		Journal:      service.NewJournalService(q, pool, publisher),
+		GLTaxBridge:  service.NewGLTaxBridge(q, fsSvc),
 	}
 	srv := worker.NewServer(redisOpt, q, svc, cfg.UploadDir)
 

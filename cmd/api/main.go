@@ -18,6 +18,7 @@ import (
 
 	"github.com/tonypk/aistarlight-go/internal/config"
 	"github.com/tonypk/aistarlight-go/internal/handler"
+	"github.com/tonypk/aistarlight-go/internal/event"
 	"github.com/tonypk/aistarlight-go/internal/handler/middleware"
 	"github.com/hibiken/asynq"
 	"github.com/tonypk/aistarlight-go/internal/platform/crypto"
@@ -160,6 +161,14 @@ type services struct {
 }
 
 func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxpool.Pool) services {
+	// Event publisher for domain events (fire-and-forget via asynq)
+	asynqClient := asynq.NewClient(asynq.RedisClientOpt{
+		Addr:     cfg.Redis.AsynqAddr(),
+		DB:       cfg.Redis.AsynqDB(),
+		Password: cfg.Redis.AsynqPassword(),
+	})
+	publisher := event.NewPublisher(asynqClient)
+
 	knowledge := service.NewKnowledgeService(ai, q)
 	matchAnalyzer := service.NewMatchAnalyzer(ai)
 
@@ -182,7 +191,7 @@ func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxp
 	supplierSvc := service.NewSupplierService(q)
 	complianceSvc := service.NewComplianceService(q, knowledge)
 
-	journalSvc := service.NewJournalService(q, pool)
+	journalSvc := service.NewJournalService(q, pool, publisher)
 	fsSvc := service.NewFinancialStatementService(q)
 
 	return services{
@@ -196,7 +205,7 @@ func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxp
 		ColMapper:   service.NewColumnMapperService(ai),
 		Knowledge:   knowledge,
 		Augmenter:   service.NewPromptAugmenter(q),
-		BankRecon:   service.NewBankReconService(q, matchAnalyzer),
+		BankRecon:   service.NewBankReconService(q, matchAnalyzer, publisher),
 		Compliance:  complianceSvc,
 		Corrections: service.NewCorrectionService(q),
 		Analyzer:    service.NewCorrectionAnalyzer(q),
@@ -313,7 +322,7 @@ func newHandlers(svc services, cfg *config.Config, ai *oai.Client, q *sqlc.Queri
 		ReceiptBridge:  handler.NewReceiptBridgeHandler(svc.ReceiptBridge),
 		JournalBridge:  handler.NewJournalBridgeHandler(svc.JournalGen),
 		FinStatement:   handler.NewFinancialStatementHandler(svc.FinStatement),
-		TaxBridge:      handler.NewTaxBridgeHandler(svc.GLTaxBridge, svc.Company),
+		TaxBridge:      handler.NewTaxBridgeHandler(svc.GLTaxBridge, svc.Company, q),
 	}
 }
 

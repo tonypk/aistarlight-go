@@ -64,7 +64,7 @@ func main() {
 	classifier := service.NewClassifierService(aiClient, q)
 	bridgeSvc := service.NewReceiptBridge(q, classifier)
 
-	journalSvc := service.NewJournalService(q, pool)
+	journalSvc := service.NewJournalService(q, pool, nil)
 	journalGen := service.NewJournalGenerator(q, journalSvc)
 	knowledgeSvc := service.NewKnowledgeService(aiClient, q)
 	chatSvc := service.NewChatService(aiClient, q, knowledgeSvc)

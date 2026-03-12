@@ -467,6 +467,17 @@ type Supplier struct {
 	UpdatedAt       time.Time      `json:"updated_at"`
 }
 
+type TaxDraft struct {
+	ID          uuid.UUID          `json:"id"`
+	CompanyID   uuid.UUID          `json:"company_id"`
+	FormType    string             `json:"form_type"`
+	PeriodStart pgtype.Date        `json:"period_start"`
+	PeriodEnd   pgtype.Date        `json:"period_end"`
+	Result      []byte             `json:"result"`
+	TriggeredBy *string            `json:"triggered_by"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
 type TaxRule struct {
 	ID            uuid.UUID          `json:"id"`
 	RuleType      string             `json:"rule_type"`

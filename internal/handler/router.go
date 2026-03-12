@@ -492,6 +492,7 @@ func (rt *Router) Setup(r *gin.Engine) {
 	{
 		tax.POST("/calculate", rt.TaxBridge.Calculate)
 		tax.GET("/export", rt.TaxBridge.Export)
+		tax.GET("/drafts/latest", rt.TaxBridge.GetLatestDraft)
 	}
 
 	// QuickBooks Online routes

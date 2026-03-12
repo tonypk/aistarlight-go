@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/hibiken/asynq"
+	"github.com/tonypk/aistarlight-go/internal/event"
 	"github.com/tonypk/aistarlight-go/internal/repository/sqlc"
 	"github.com/tonypk/aistarlight-go/internal/service"
 )
@@ -26,6 +27,8 @@ type Services struct {
 	BankRecon    *service.BankReconService
 	Compliance   *service.ComplianceService
 	Notification *service.NotificationService
+	Journal      *service.JournalService
+	GLTaxBridge  *service.GLTaxBridge
 }
 
 // NewServer creates an asynq worker server.
@@ -69,6 +72,10 @@ func (s *Server) registerHandlers() {
 	s.mux.HandleFunc(TypeComplianceCheck, s.handleComplianceCheck)
 	s.mux.HandleFunc(TypeCleanupOldTasks, s.handleCleanup)
 	s.mux.HandleFunc(TypeDeadlineCheck, s.handleDeadlineCheck)
+
+	// Domain event handlers
+	s.mux.HandleFunc(event.TypeJournalPosted, s.handleJournalPosted)
+	s.mux.HandleFunc(event.TypeReconciliationCompleted, s.handleReconciliationCompleted)
 }
 
 // Run starts the asynq server (blocks until shutdown).

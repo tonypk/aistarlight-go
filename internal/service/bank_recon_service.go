@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/tonypk/aistarlight-go/internal/event"
 	"github.com/tonypk/aistarlight-go/internal/repository/sqlc"
 )
 
@@ -19,13 +20,14 @@ var (
 
 // BankReconService orchestrates the bank reconciliation pipeline.
 type BankReconService struct {
-	q        *sqlc.Queries
-	analyzer *MatchAnalyzer
+	q         *sqlc.Queries
+	analyzer  *MatchAnalyzer
+	publisher *event.Publisher
 }
 
 // NewBankReconService creates a BankReconService.
-func NewBankReconService(q *sqlc.Queries, analyzer *MatchAnalyzer) *BankReconService {
-	return &BankReconService{q: q, analyzer: analyzer}
+func NewBankReconService(q *sqlc.Queries, analyzer *MatchAnalyzer, publisher *event.Publisher) *BankReconService {
+	return &BankReconService{q: q, analyzer: analyzer, publisher: publisher}
 }
 
 // CreateBatchInput holds parameters for creating a new reconciliation batch.
@@ -236,6 +238,15 @@ func (s *BankReconService) RunReconciliation(ctx context.Context, input CreateBa
 		"ai_suggestions", len(suggestions),
 		"balance_tracked", input.OpeningBalance != nil,
 	)
+
+	// Fire-and-forget: publish domain event
+	s.publisher.Publish(ctx, event.TypeReconciliationCompleted, event.ReconciliationCompletedPayload{
+		BatchID:     batchID,
+		CompanyID:   input.CompanyID,
+		MatchCount:  len(matchResult.MatchedPairs),
+		Period:      input.Period,
+		CompletedAt: time.Now(),
+	})
 
 	return result, nil
 }

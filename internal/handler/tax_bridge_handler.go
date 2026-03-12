@@ -1,25 +1,28 @@
 package handler
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tonypk/aistarlight-go/internal/handler/middleware"
 	"github.com/tonypk/aistarlight-go/internal/handler/response"
+	"github.com/tonypk/aistarlight-go/internal/repository/sqlc"
 	"github.com/tonypk/aistarlight-go/internal/service"
 	"github.com/tonypk/aistarlight-go/pkg/ebirforms"
 )
 
 // TaxBridgeHandler handles GL-to-tax bridge API endpoints.
 type TaxBridgeHandler struct {
-	bridge *service.GLTaxBridge
+	bridge     *service.GLTaxBridge
 	companySvc *service.CompanyService
+	q          *sqlc.Queries
 }
 
 // NewTaxBridgeHandler creates a TaxBridgeHandler.
-func NewTaxBridgeHandler(bridge *service.GLTaxBridge, companySvc *service.CompanyService) *TaxBridgeHandler {
-	return &TaxBridgeHandler{bridge: bridge, companySvc: companySvc}
+func NewTaxBridgeHandler(bridge *service.GLTaxBridge, companySvc *service.CompanyService, q *sqlc.Queries) *TaxBridgeHandler {
+	return &TaxBridgeHandler{bridge: bridge, companySvc: companySvc, q: q}
 }
 
 type taxCalculateRequest struct {
@@ -110,6 +113,48 @@ func (h *TaxBridgeHandler) Export(c *gin.Context) {
 
 	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 	c.Data(200, "application/octet-stream", data)
+}
+
+// GetLatestDraft handles GET /api/v1/tax/drafts/latest?form_type=BIR_2550M
+func (h *TaxBridgeHandler) GetLatestDraft(c *gin.Context) {
+	companyID := middleware.GetCompanyID(c)
+	formType := c.Query("form_type")
+
+	if formType == "" {
+		response.BadRequest(c, "form_type query parameter required")
+		return
+	}
+
+	draft, err := h.q.GetLatestTaxDraft(c.Request.Context(), sqlc.GetLatestTaxDraftParams{
+		CompanyID: companyID,
+		FormType:  formType,
+	})
+	if err != nil {
+		// No draft found is not an error
+		response.OK(c, nil)
+		return
+	}
+
+	var result map[string]string
+	_ = json.Unmarshal(draft.Result, &result)
+
+	resp := map[string]interface{}{
+		"id":           draft.ID,
+		"form_type":    draft.FormType,
+		"triggered_by": draft.TriggeredBy,
+		"result":       result,
+	}
+	if draft.PeriodStart.Valid {
+		resp["period_start"] = draft.PeriodStart.Time.Format("2006-01-02")
+	}
+	if draft.PeriodEnd.Valid {
+		resp["period_end"] = draft.PeriodEnd.Time.Format("2006-01-02")
+	}
+	if draft.CreatedAt.Valid {
+		resp["created_at"] = draft.CreatedAt.Time
+	}
+
+	response.OK(c, resp)
 }
 
 func getStringOrDefault(s *string, def string) string {

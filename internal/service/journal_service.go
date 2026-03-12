@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shopspring/decimal"
 	"github.com/tonypk/aistarlight-go/internal/domain"
+	"github.com/tonypk/aistarlight-go/internal/event"
 	"github.com/tonypk/aistarlight-go/internal/repository/sqlc"
 	"github.com/tonypk/aistarlight-go/pkg/pagination"
 )
@@ -27,12 +28,13 @@ var (
 )
 
 type JournalService struct {
-	q    *sqlc.Queries
-	pool *pgxpool.Pool
+	q         *sqlc.Queries
+	pool      *pgxpool.Pool
+	publisher *event.Publisher
 }
 
-func NewJournalService(q *sqlc.Queries, pool *pgxpool.Pool) *JournalService {
-	return &JournalService{q: q, pool: pool}
+func NewJournalService(q *sqlc.Queries, pool *pgxpool.Pool, publisher *event.Publisher) *JournalService {
+	return &JournalService{q: q, pool: pool, publisher: publisher}
 }
 
 type CreateJournalEntryInput struct {
@@ -230,10 +232,22 @@ func (s *JournalService) Post(ctx context.Context, id uuid.UUID, postedBy uuid.U
 		}
 	}
 
-	return s.q.PostJournalEntry(ctx, sqlc.PostJournalEntryParams{
+	if err := s.q.PostJournalEntry(ctx, sqlc.PostJournalEntryParams{
 		ID:       id,
 		PostedBy: pgtype.UUID{Bytes: postedBy, Valid: true},
+	}); err != nil {
+		return err
+	}
+
+	// Fire-and-forget: publish domain event after successful post
+	s.publisher.Publish(ctx, event.TypeJournalPosted, event.JournalPostedPayload{
+		JournalEntryID: id,
+		CompanyID:      entry.CompanyID,
+		PostedBy:       postedBy,
+		PostedAt:       time.Now(),
 	})
+
+	return nil
 }
 
 // Reverse creates a reversing journal entry for a posted entry.

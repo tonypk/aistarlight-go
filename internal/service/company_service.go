@@ -230,12 +230,14 @@ func (s *CompanyService) ListMembers(ctx context.Context, companyID uuid.UUID) (
 	members := make([]domain.CompanyMember, len(rows))
 	for i, r := range rows {
 		members[i] = domain.CompanyMember{
-			CompanyID: r.CompanyID,
-			UserID:    r.UserID,
-			Role:      domain.CompanyRole(r.Role),
-			JoinedAt:  r.JoinedAt,
-			Email:     r.Email,
-			FullName:  r.FullName,
+			CompanyID:        r.CompanyID,
+			UserID:           r.UserID,
+			Role:             domain.CompanyRole(r.Role),
+			JoinedAt:         r.JoinedAt,
+			Email:            r.Email,
+			FullName:         r.FullName,
+			TelegramUsername: r.TelegramUsername,
+			TelegramLinked:   r.TelegramLinked,
 		}
 	}
 	return members, nil

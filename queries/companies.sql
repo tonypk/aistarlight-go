@@ -60,9 +60,12 @@ UPDATE company_members SET role = $3 WHERE company_id = $1 AND user_id = $2;
 SELECT role FROM company_members WHERE company_id = $1 AND user_id = $2;
 
 -- name: ListCompanyMembers :many
-SELECT cm.company_id, cm.user_id, cm.role, cm.joined_at, u.email, u.full_name
+SELECT cm.company_id, cm.user_id, cm.role, cm.joined_at, u.email, u.full_name,
+       u.telegram_username,
+       CASE WHEN tu.telegram_id IS NOT NULL THEN true ELSE false END AS telegram_linked
 FROM company_members cm
 JOIN users u ON cm.user_id = u.id
+LEFT JOIN telegram_users tu ON tu.user_id = cm.user_id AND tu.company_id = cm.company_id
 WHERE cm.company_id = $1
 ORDER BY cm.joined_at;
 

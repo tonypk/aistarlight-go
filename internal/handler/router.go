@@ -392,6 +392,7 @@ func (rt *Router) Setup(r *gin.Engine) {
 		tg.Use(authMw)
 		{
 			tg.POST("/link-token", rt.Telegram.GenerateLinkToken)
+		tg.GET("/status", rt.Telegram.GetBindingStatus)
 		}
 	}
 

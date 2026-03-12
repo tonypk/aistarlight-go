@@ -123,6 +123,7 @@ type CreateMemberInput struct {
 	FullName         string
 	TelegramUsername string
 	CompanyID        uuid.UUID
+	Role             string
 }
 
 type CreateMemberResult struct {
@@ -166,11 +167,15 @@ func (s *AuthService) CreateMember(ctx context.Context, input CreateMemberInput)
 		return nil, fmt.Errorf("create user: %w", err)
 	}
 
-	// Add as company member with role "member"
+	// Add as company member with specified role (default: member)
+	role := input.Role
+	if role == "" {
+		role = string(domain.CompanyRoleMember)
+	}
 	err = s.q.AddCompanyMember(ctx, sqlc.AddCompanyMemberParams{
 		CompanyID: input.CompanyID,
 		UserID:    userID,
-		Role:      string(domain.CompanyRoleMember),
+		Role:      role,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("add company member: %w", err)

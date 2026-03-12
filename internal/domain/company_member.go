@@ -22,6 +22,8 @@ type CompanyMember struct {
 	JoinedAt  time.Time   `json:"joined_at"`
 
 	// Joined fields
-	Email    string  `json:"email,omitempty"`
-	FullName *string `json:"full_name,omitempty"`
+	Email            string  `json:"email,omitempty"`
+	FullName         *string `json:"full_name,omitempty"`
+	TelegramUsername *string `json:"telegram_username,omitempty"`
+	TelegramLinked   bool    `json:"telegram_linked"`
 }

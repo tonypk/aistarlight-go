@@ -3,21 +3,27 @@ package handler
 import (
 	"errors"
 
+	"fmt"
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/tonypk/aistarlight-go/internal/domain"
 	"github.com/tonypk/aistarlight-go/internal/handler/middleware"
 	"github.com/tonypk/aistarlight-go/internal/handler/response"
+	"github.com/tonypk/aistarlight-go/internal/repository/sqlc"
 	"github.com/tonypk/aistarlight-go/internal/service"
 )
 
 type AuthHandler struct {
 	auth    *service.AuthService
 	company *service.CompanyService
+	q       *sqlc.Queries
+	botName string
 }
 
-func NewAuthHandler(auth *service.AuthService, company *service.CompanyService) *AuthHandler {
-	return &AuthHandler{auth: auth, company: company}
+func NewAuthHandler(auth *service.AuthService, company *service.CompanyService, q *sqlc.Queries, botName string) *AuthHandler {
+	return &AuthHandler{auth: auth, company: company, q: q, botName: botName}
 }
 
 type registerRequest struct {
@@ -224,6 +230,7 @@ type createMemberRequest struct {
 	Password         string `json:"password" binding:"required,min=8"`
 	FullName         string `json:"full_name" binding:"required"`
 	TelegramUsername string `json:"telegram_username"`
+	Role             string `json:"role"`
 }
 
 func (h *AuthHandler) CreateMember(c *gin.Context) {
@@ -231,6 +238,11 @@ func (h *AuthHandler) CreateMember(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
+	}
+
+	role := req.Role
+	if role == "" {
+		role = "member"
 	}
 
 	companyID := middleware.GetCompanyID(c)
@@ -241,6 +253,7 @@ func (h *AuthHandler) CreateMember(c *gin.Context) {
 		FullName:         req.FullName,
 		TelegramUsername: req.TelegramUsername,
 		CompanyID:        companyID,
+		Role:             role,
 	})
 	if err != nil {
 		if errors.Is(err, service.ErrEmailTaken) {
@@ -255,11 +268,29 @@ func (h *AuthHandler) CreateMember(c *gin.Context) {
 		return
 	}
 
-	response.Created(c, gin.H{
+	resp := gin.H{
 		"user":       result.User,
 		"api_key":    result.APIKey,
 		"company_id": companyID,
-	})
+	}
+
+	// Generate Telegram deep link if bot is configured
+	if h.botName != "" && h.q != nil {
+		token, err := generateToken(8)
+		if err == nil {
+			lt, err := h.q.CreateLinkToken(c.Request.Context(), sqlc.CreateLinkTokenParams{
+				UserID:    result.User.ID,
+				CompanyID: companyID,
+				Token:     token,
+				ExpiresAt: time.Now().Add(24 * time.Hour),
+			})
+			if err == nil {
+				resp["deep_link"] = fmt.Sprintf("https://t.me/%s?start=lt_%s", h.botName, lt.Token)
+			}
+		}
+	}
+
+	response.Created(c, resp)
 }
 
 type switchCompanyRequest struct {

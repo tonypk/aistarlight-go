@@ -287,7 +287,7 @@ func newAgentRuntime(ai *oai.Client, q *sqlc.Queries, chatSvc *service.ChatServi
 func newHandlers(svc services, cfg *config.Config, ai *oai.Client, q *sqlc.Queries) handlers {
 	agentRuntime := newAgentRuntime(ai, q, svc.Chat)
 	return handlers{
-		Auth:           handler.NewAuthHandler(svc.Auth, svc.Company),
+		Auth:           handler.NewAuthHandler(svc.Auth, svc.Company, q, cfg.Telegram.BotUsername),
 		Org:            handler.NewOrgHandler(svc.Org),
 		Company:        handler.NewCompanyHandler(svc.Company),
 		Report:         handler.NewReportHandler(svc.Report, svc.Company),

@@ -330,20 +330,25 @@ func (q *Queries) ListCompaniesByUser(ctx context.Context, arg ListCompaniesByUs
 }
 
 const listCompanyMembers = `-- name: ListCompanyMembers :many
-SELECT cm.company_id, cm.user_id, cm.role, cm.joined_at, u.email, u.full_name
+SELECT cm.company_id, cm.user_id, cm.role, cm.joined_at, u.email, u.full_name,
+       u.telegram_username,
+       CASE WHEN tu.telegram_id IS NOT NULL THEN true ELSE false END AS telegram_linked
 FROM company_members cm
 JOIN users u ON cm.user_id = u.id
+LEFT JOIN telegram_users tu ON tu.user_id = cm.user_id AND tu.company_id = cm.company_id
 WHERE cm.company_id = $1
 ORDER BY cm.joined_at
 `
 
 type ListCompanyMembersRow struct {
-	CompanyID uuid.UUID `json:"company_id"`
-	UserID    uuid.UUID `json:"user_id"`
-	Role      string    `json:"role"`
-	JoinedAt  time.Time `json:"joined_at"`
-	Email     string    `json:"email"`
-	FullName  *string   `json:"full_name"`
+	CompanyID        uuid.UUID `json:"company_id"`
+	UserID           uuid.UUID `json:"user_id"`
+	Role             string    `json:"role"`
+	JoinedAt         time.Time `json:"joined_at"`
+	Email            string    `json:"email"`
+	FullName         *string   `json:"full_name"`
+	TelegramUsername *string   `json:"telegram_username"`
+	TelegramLinked   bool      `json:"telegram_linked"`
 }
 
 func (q *Queries) ListCompanyMembers(ctx context.Context, companyID uuid.UUID) ([]ListCompanyMembersRow, error) {
@@ -362,6 +367,8 @@ func (q *Queries) ListCompanyMembers(ctx context.Context, companyID uuid.UUID) (
 			&i.JoinedAt,
 			&i.Email,
 			&i.FullName,
+			&i.TelegramUsername,
+			&i.TelegramLinked,
 		); err != nil {
 			return nil, err
 		}

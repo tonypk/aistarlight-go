@@ -97,6 +97,25 @@ func (q *Queries) GetTelegramUser(ctx context.Context, telegramID int64) (Telegr
 	return i, err
 }
 
+const getTelegramUserByUserID = `-- name: GetTelegramUserByUserID :one
+SELECT telegram_id, user_id, company_id, chat_id, username, full_name, created_at FROM telegram_users WHERE user_id = $1
+`
+
+func (q *Queries) GetTelegramUserByUserID(ctx context.Context, userID uuid.UUID) (TelegramUser, error) {
+	row := q.db.QueryRow(ctx, getTelegramUserByUserID, userID)
+	var i TelegramUser
+	err := row.Scan(
+		&i.TelegramID,
+		&i.UserID,
+		&i.CompanyID,
+		&i.ChatID,
+		&i.Username,
+		&i.FullName,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getTransactionStatsSince = `-- name: GetTransactionStatsSince :one
 SELECT
     COUNT(*) AS count,

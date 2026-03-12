@@ -54,6 +54,28 @@ func (h *TelegramHandler) GenerateLinkToken(c *gin.Context) {
 	})
 }
 
+// GetBindingStatus returns the current user's Telegram binding status.
+func (h *TelegramHandler) GetBindingStatus(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+
+	tu, err := h.q.GetTelegramUserByUserID(c.Request.Context(), userID)
+	if err != nil {
+		// Not linked
+		response.OK(c, gin.H{
+			"linked":   false,
+			"bot_name": h.botName,
+		})
+		return
+	}
+
+	response.OK(c, gin.H{
+		"linked":     true,
+		"username":   tu.Username,
+		"bot_name":   h.botName,
+		"linked_at":  tu.CreatedAt.Format(time.RFC3339),
+	})
+}
+
 func generateToken(nBytes int) (string, error) {
 	b := make([]byte, nBytes)
 	if _, err := rand.Read(b); err != nil {

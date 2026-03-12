@@ -25,6 +25,9 @@ WHERE company_id = $1 AND period = $2 AND status IN ('active', 'in_progress')
 ORDER BY created_at DESC
 LIMIT 1;
 
+-- name: GetTelegramUserByUserID :one
+SELECT * FROM telegram_users WHERE user_id = $1;
+
 -- name: GetTransactionStatsSince :one
 SELECT
     COUNT(*) AS count,

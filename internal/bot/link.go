@@ -149,6 +149,55 @@ func (b *Bot) handleLink(c tele.Context) error {
 	return c.Send(fmt.Sprintf("Linked to %s\n\nYou can now send receipt photos!", company.CompanyName))
 }
 
+// tryAutoLink attempts to auto-link a Telegram user by matching their username
+// against the telegram_username field set by admin via create-member.
+// Returns true if auto-link succeeded.
+func (b *Bot) tryAutoLink(c tele.Context) bool {
+	sender := c.Sender()
+	if sender.Username == "" {
+		return false
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	matched, err := b.q.GetUserByTelegramUsername(ctx, sender.Username)
+	if err != nil {
+		return false
+	}
+
+	var username, fullName *string
+	username = &sender.Username
+	name := strings.TrimSpace(sender.FirstName + " " + sender.LastName)
+	if name != "" {
+		fullName = &name
+	}
+
+	_, err = b.q.UpsertTelegramUser(ctx, sqlc.UpsertTelegramUserParams{
+		TelegramID: sender.ID,
+		UserID:     matched.ID,
+		CompanyID:  matched.CompanyID,
+		ChatID:     c.Chat().ID,
+		Username:   username,
+		FullName:   fullName,
+	})
+	if err != nil {
+		slog.Error("auto-link upsert failed", "error", err, "telegram_username", sender.Username)
+		return false
+	}
+
+	// Fetch company name for confirmation message.
+	company, err := b.q.GetCompanyByID(ctx, matched.CompanyID)
+	companyName := "your company"
+	if err == nil {
+		companyName = company.CompanyName
+	}
+
+	_ = c.Send(fmt.Sprintf("Auto-linked to %s! You can now send receipts.", companyName))
+	slog.Info("auto-linked telegram user", "telegram_username", sender.Username, "user_id", matched.ID, "company_id", matched.CompanyID)
+	return true
+}
+
 func (b *Bot) handleStatus(c tele.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

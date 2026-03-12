@@ -176,3 +176,29 @@ WHERE t.company_id = $1
   AND t.date <= $3
 ORDER BY t.date DESC, t.created_at DESC
 LIMIT 10000;
+
+-- name: ListCompanyTransactionsFiltered :many
+SELECT t.*,
+  COALESCE(NULLIF(u.full_name, ''), tu.full_name, tu.username, u.email) AS submitted_by_name,
+  rb.image_path AS receipt_image_path
+FROM transactions t
+LEFT JOIN users u ON t.submitted_by = u.id
+LEFT JOIN telegram_users tu ON tu.user_id = t.submitted_by
+LEFT JOIN receipt_batches rb ON t.source_file_id = rb.id::text AND t.source_type = 'receipt'
+WHERE t.company_id = $1
+  AND ($4::varchar = '' OR $4::varchar IS NULL OR t.source_type = $4)
+  AND ($5::varchar = '' OR $5::varchar IS NULL OR t.category = $5)
+  AND ($6::text = '' OR $6::text IS NULL OR t.description ILIKE '%' || $6 || '%')
+  AND ($7::date IS NULL OR t.date >= $7)
+  AND ($8::date IS NULL OR t.date <= $8)
+ORDER BY t.created_at DESC
+LIMIT $2 OFFSET $3;
+
+-- name: CountCompanyTransactionsFiltered :one
+SELECT COUNT(*) FROM transactions t
+WHERE t.company_id = $1
+  AND ($2::varchar = '' OR $2::varchar IS NULL OR t.source_type = $2)
+  AND ($3::varchar = '' OR $3::varchar IS NULL OR t.category = $3)
+  AND ($4::text = '' OR $4::text IS NULL OR t.description ILIKE '%' || $4 || '%')
+  AND ($5::date IS NULL OR t.date >= $5)
+  AND ($6::date IS NULL OR t.date <= $6);

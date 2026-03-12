@@ -260,6 +260,7 @@ type handlers struct {
 	Notification   *handler.NotificationHandler
 	Health         *handler.HealthHandler
 	Agent          *handler.AgentHandler
+	Transaction    *handler.TransactionHandler
 	// Pipeline bridge handlers
 	ReceiptBridge  *handler.ReceiptBridgeHandler
 	JournalBridge  *handler.JournalBridgeHandler
@@ -307,6 +308,7 @@ func newHandlers(svc services, cfg *config.Config, ai *oai.Client, q *sqlc.Queri
 		Notification:   handler.NewNotificationHandler(svc.Notification),
 		Health:         handler.NewHealthHandler(ai),
 		Agent:          handler.NewAgentHandler(agentRuntime),
+		Transaction:    handler.NewTransactionHandler(svc.Session, cfg.Telegram.BaseURL),
 		// Pipeline bridges
 		ReceiptBridge:  handler.NewReceiptBridgeHandler(svc.ReceiptBridge),
 		JournalBridge:  handler.NewJournalBridgeHandler(svc.JournalGen),
@@ -362,6 +364,7 @@ func newGinEngine(cfg *config.Config, rdb *redis.Client, svc services, h handler
 		Notification:   h.Notification,
 		Health:         h.Health,
 		Agent:          h.Agent,
+		Transaction:    h.Transaction,
 		ReceiptBridge:  h.ReceiptBridge,
 		JournalBridge:  h.JournalBridge,
 		FinStatement:   h.FinStatement,

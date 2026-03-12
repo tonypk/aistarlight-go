@@ -219,6 +219,49 @@ func (h *AuthHandler) InviteMember(c *gin.Context) {
 	})
 }
 
+type createMemberRequest struct {
+	Email            string `json:"email" binding:"required,email"`
+	Password         string `json:"password" binding:"required,min=8"`
+	FullName         string `json:"full_name" binding:"required"`
+	TelegramUsername string `json:"telegram_username"`
+}
+
+func (h *AuthHandler) CreateMember(c *gin.Context) {
+	var req createMemberRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	companyID := middleware.GetCompanyID(c)
+
+	result, err := h.auth.CreateMember(c.Request.Context(), service.CreateMemberInput{
+		Email:            req.Email,
+		Password:         req.Password,
+		FullName:         req.FullName,
+		TelegramUsername: req.TelegramUsername,
+		CompanyID:        companyID,
+	})
+	if err != nil {
+		if errors.Is(err, service.ErrEmailTaken) {
+			response.Conflict(c, "email already registered")
+			return
+		}
+		if errors.Is(err, service.ErrTelegramUsernameTaken) {
+			response.Conflict(c, "telegram username already linked to another account")
+			return
+		}
+		response.InternalError(c, "failed to create member")
+		return
+	}
+
+	response.Created(c, gin.H{
+		"user":       result.User,
+		"api_key":    result.APIKey,
+		"company_id": companyID,
+	})
+}
+
 type switchCompanyRequest struct {
 	CompanyID *uuid.UUID `json:"company_id"`
 	TenantID  *uuid.UUID `json:"tenant_id"` // backward compat

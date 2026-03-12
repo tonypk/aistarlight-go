@@ -736,6 +736,111 @@ func (s *SessionService) ListTransactions(ctx context.Context, sessionID, compan
 	return result, total, nil
 }
 
+// TransactionFilters holds query params for the company-wide transaction listing.
+type TransactionFilters struct {
+	SourceType string
+	Category   string
+	Search     string
+	DateFrom   pgtype.Date
+	DateTo     pgtype.Date
+}
+
+// ListCompanyTransactions lists all transactions for a company with filters (company-wide overview).
+func (s *SessionService) ListCompanyTransactions(ctx context.Context, companyID uuid.UUID, limit, offset int, filters TransactionFilters, baseURL string) ([]TransactionResponse, int64, error) {
+	txns, err := s.q.ListCompanyTransactionsFiltered(ctx, sqlc.ListCompanyTransactionsFilteredParams{
+		CompanyID: companyID,
+		Limit:     int32(limit),
+		Offset:    int32(offset),
+		Column4:   filters.SourceType,
+		Column5:   filters.Category,
+		Column6:   filters.Search,
+		Column7:   filters.DateFrom,
+		Column8:   filters.DateTo,
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("list company transactions: %w", err)
+	}
+
+	total, err := s.q.CountCompanyTransactionsFiltered(ctx, sqlc.CountCompanyTransactionsFilteredParams{
+		CompanyID: companyID,
+		Column2:   filters.SourceType,
+		Column3:   filters.Category,
+		Column4:   filters.Search,
+		Column5:   filters.DateFrom,
+		Column6:   filters.DateTo,
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+
+	result := make([]TransactionResponse, 0, len(txns))
+	for _, t := range txns {
+		resp := filteredTxnToResponse(t, baseURL)
+		result = append(result, resp)
+	}
+	return result, total, nil
+}
+
+// filteredTxnToResponse converts a ListCompanyTransactionsFilteredRow to TransactionResponse.
+func filteredTxnToResponse(t sqlc.ListCompanyTransactionsFilteredRow, baseURL string) TransactionResponse {
+	resp := TransactionResponse{
+		ID:                   t.ID.String(),
+		SourceType:           t.SourceType,
+		SourceFileID:         t.SourceFileID,
+		RowIndex:             int(t.RowIndex),
+		Description:          t.Description,
+		VATType:              t.VatType,
+		Category:             t.Category,
+		TIN:                  t.Tin,
+		ClassificationSource: t.ClassificationSource,
+		MatchStatus:          t.MatchStatus,
+		ATCCode:              t.AtcCode,
+		SubmittedByName:      &t.SubmittedByName,
+	}
+	if t.Date.Valid {
+		d := t.Date.Time.Format("2006-01-02")
+		resp.Date = &d
+	}
+	if f, err := t.Amount.Float64Value(); err == nil {
+		resp.Amount = f.Float64
+	}
+	if f, err := t.VatAmount.Float64Value(); err == nil {
+		resp.VATAmount = f.Float64
+	}
+	if f, err := t.Confidence.Float64Value(); err == nil {
+		resp.Confidence = f.Float64
+		resp.ConfidenceLevel = ClassifyConfidenceLevel(f.Float64)
+	}
+	if t.MatchGroupID.Valid {
+		id := uuid.UUID(t.MatchGroupID.Bytes).String()
+		resp.MatchGroupID = &id
+	}
+	if t.EwtRate.Valid {
+		if f, err := t.EwtRate.Float64Value(); err == nil {
+			resp.EWTRate = &f.Float64
+		}
+	}
+	if t.EwtAmount.Valid {
+		if f, err := t.EwtAmount.Float64Value(); err == nil {
+			resp.EWTAmount = &f.Float64
+		}
+	}
+	if t.SupplierID.Valid {
+		id := uuid.UUID(t.SupplierID.Bytes).String()
+		resp.SupplierID = &id
+	}
+	if t.SubmittedBy.Valid {
+		id := uuid.UUID(t.SubmittedBy.Bytes).String()
+		resp.SubmittedBy = &id
+	}
+	// Construct receipt image URL
+	if baseURL != "" && t.SourceType == "receipt" && t.SourceFileID != "" {
+		url := fmt.Sprintf("%s/receipts/%s/%s.jpg", baseURL, t.CompanyID.String(), t.SourceFileID)
+		resp.ReceiptImageURL = &url
+	}
+	return resp
+}
+
 // UpdateTransaction updates a transaction's classification.
 func (s *SessionService) UpdateTransaction(ctx context.Context, txnID, sessionID, companyID uuid.UUID, updates map[string]interface{}) (*TransactionResponse, error) {
 	txn, err := s.q.GetTransactionByID(ctx, txnID)

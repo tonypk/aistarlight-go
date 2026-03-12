@@ -11,6 +11,7 @@ type CompanyRole string
 const (
 	CompanyRoleAdmin      CompanyRole = "company_admin"
 	CompanyRoleAccountant CompanyRole = "accountant"
+	CompanyRoleMember     CompanyRole = "member"
 	CompanyRoleViewer     CompanyRole = "viewer"
 )
 

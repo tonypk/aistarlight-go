@@ -40,6 +40,7 @@ type Router struct {
 	Health         *HealthHandler
 	// AI Agent handler
 	Agent          *AgentHandler
+	Transaction    *TransactionHandler
 	// Pipeline bridge handlers
 	ReceiptBridge  *ReceiptBridgeHandler
 	JournalBridge  *JournalBridgeHandler
@@ -88,7 +89,8 @@ func (rt *Router) Setup(r *gin.Engine) {
 		authProtected.POST("/api-key", rt.Auth.GenerateAPIKey)
 		authProtected.GET("/companies", rt.Auth.ListCompanies)
 		authProtected.POST("/switch-company", rt.Auth.SwitchCompany)
-		authProtected.POST("/invite", rt.Auth.InviteMember) // frontend compat
+		authProtected.POST("/invite", rt.Auth.InviteMember)         // frontend compat
+		authProtected.POST("/create-member", rt.Auth.CreateMember)
 	}
 
 	// Organization routes
@@ -318,6 +320,13 @@ func (rt *Router) Setup(r *gin.Engine) {
 		receipts.POST("/upload-json", rt.Receipt.UploadJSON) // legacy: pre-saved image paths
 		receipts.GET("/batches", rt.Receipt.List)
 		receipts.GET("/batches/:id", rt.Receipt.Get)
+	}
+
+	// Transaction overview routes (company-wide)
+	transactions := api.Group("/transactions")
+	transactions.Use(authMw)
+	{
+		transactions.GET("", rt.Transaction.ListAll)
 	}
 
 	// Audit trail routes

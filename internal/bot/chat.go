@@ -43,6 +43,11 @@ func (b *Bot) handleText(c tele.Context) error {
 		return nil
 	}
 
+	// Check for pending custom category input.
+	if b.handleCustomCategoryInput(c, text) {
+		return nil
+	}
+
 	// Check for pending forex exchange input.
 	if b.handleForexInput(c, text) {
 		return nil
@@ -59,7 +64,12 @@ func (b *Bot) handleText(c tele.Context) error {
 
 	tgUser, err := b.q.GetTelegramUser(ctx, c.Sender().ID)
 	if err != nil {
-		return c.Send("Account not linked. Use /link <api_key> first.")
+		if b.tryAutoLink(c) {
+			tgUser, err = b.q.GetTelegramUser(ctx, c.Sender().ID)
+		}
+		if err != nil {
+			return c.Send("Account not linked. Use /link <api_key> first.")
+		}
 	}
 
 	company, err := b.q.GetCompanyByID(ctx, tgUser.CompanyID)

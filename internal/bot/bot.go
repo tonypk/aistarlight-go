@@ -36,6 +36,9 @@ type Bot struct {
 
 	// Smart instructions: store text instructions for upcoming photo receipt.
 	pendingInstructions sync.Map // map[int64]string — telegram user ID → instruction text
+
+	// Custom category: store pending state when user selects "Other" category.
+	pendingCustomCategory sync.Map // map[int64]*CustomCategoryPending — telegram user ID → pending state
 }
 
 // New creates and configures a new Telegram Bot.

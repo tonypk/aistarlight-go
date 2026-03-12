@@ -26,6 +26,7 @@ var (
 	ErrInvalidToken     = errors.New("invalid or expired token")
 	ErrCompanyNotFound  = errors.New("company not found")
 	ErrNoAccess         = errors.New("no access to this company")
+	ErrTelegramUsernameTaken = errors.New("telegram username already linked to another account")
 )
 
 type AuthService struct {
@@ -114,6 +115,82 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*domai
 		IsActive: dbUser.IsActive,
 	}
 	return user, nil
+}
+
+type CreateMemberInput struct {
+	Email            string
+	Password         string
+	FullName         string
+	TelegramUsername string
+	CompanyID        uuid.UUID
+}
+
+type CreateMemberResult struct {
+	User   *domain.User `json:"user"`
+	APIKey string       `json:"api_key"`
+}
+
+func (s *AuthService) CreateMember(ctx context.Context, input CreateMemberInput) (*CreateMemberResult, error) {
+	// Check email uniqueness
+	existing, _ := s.q.GetUserByEmail(ctx, input.Email)
+	if existing.ID != uuid.Nil {
+		return nil, ErrEmailTaken
+	}
+
+	// Check telegram username uniqueness if provided
+	var tgUsername *string
+	if input.TelegramUsername != "" {
+		existingTG, _ := s.q.GetUserByTelegramUsername(ctx, input.TelegramUsername)
+		if existingTG.ID != uuid.Nil {
+			return nil, ErrTelegramUsernameTaken
+		}
+		tgUsername = &input.TelegramUsername
+	}
+
+	hashed, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, fmt.Errorf("hash password: %w", err)
+	}
+
+	userID := uuid.New()
+	fullName := &input.FullName
+	dbUser, err := s.q.CreateUser(ctx, sqlc.CreateUserParams{
+		ID:               userID,
+		Email:            input.Email,
+		HashedPassword:   string(hashed),
+		FullName:         fullName,
+		IsActive:         true,
+		TelegramUsername: tgUsername,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create user: %w", err)
+	}
+
+	// Add as company member with role "member"
+	err = s.q.AddCompanyMember(ctx, sqlc.AddCompanyMemberParams{
+		CompanyID: input.CompanyID,
+		UserID:    userID,
+		Role:      string(domain.CompanyRoleMember),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("add company member: %w", err)
+	}
+
+	// Generate API key
+	apiKey, err := s.GenerateAPIKey(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("generate api key: %w", err)
+	}
+
+	return &CreateMemberResult{
+		User: &domain.User{
+			ID:       dbUser.ID,
+			Email:    dbUser.Email,
+			FullName: dbUser.FullName,
+			IsActive: dbUser.IsActive,
+		},
+		APIKey: apiKey,
+	}, nil
 }
 
 // GetByEmail returns a user by their email address.

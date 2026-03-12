@@ -525,13 +525,14 @@ type Transaction struct {
 }
 
 type User struct {
-	ID             uuid.UUID `json:"id"`
-	Email          string    `json:"email"`
-	HashedPassword string    `json:"hashed_password"`
-	FullName       *string   `json:"full_name"`
-	ApiKey         *string   `json:"api_key"`
-	IsActive       bool      `json:"is_active"`
-	CreatedAt      time.Time `json:"created_at"`
+	ID               uuid.UUID `json:"id"`
+	Email            string    `json:"email"`
+	HashedPassword   string    `json:"hashed_password"`
+	FullName         *string   `json:"full_name"`
+	ApiKey           *string   `json:"api_key"`
+	IsActive         bool      `json:"is_active"`
+	CreatedAt        time.Time `json:"created_at"`
+	TelegramUsername *string   `json:"telegram_username"`
 }
 
 type UserPreference struct {

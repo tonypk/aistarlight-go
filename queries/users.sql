@@ -1,16 +1,25 @@
 -- name: CreateUser :one
-INSERT INTO users (id, email, hashed_password, full_name, api_key, is_active, created_at)
-VALUES ($1, $2, $3, $4, $5, $6, NOW())
-RETURNING id, email, hashed_password, full_name, api_key, is_active, created_at;
+INSERT INTO users (id, email, hashed_password, full_name, api_key, is_active, telegram_username, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+RETURNING id, email, hashed_password, full_name, api_key, is_active, telegram_username, created_at;
 
 -- name: GetUserByID :one
-SELECT id, email, hashed_password, full_name, api_key, is_active, created_at FROM users WHERE id = $1;
+SELECT id, email, hashed_password, full_name, api_key, is_active, telegram_username, created_at FROM users WHERE id = $1;
 
 -- name: GetUserByEmail :one
-SELECT id, email, hashed_password, full_name, api_key, is_active, created_at FROM users WHERE email = $1;
+SELECT id, email, hashed_password, full_name, api_key, is_active, telegram_username, created_at FROM users WHERE email = $1;
 
 -- name: GetUserByAPIKey :one
-SELECT id, email, hashed_password, full_name, api_key, is_active, created_at FROM users WHERE api_key = $1 AND is_active = true;
+SELECT id, email, hashed_password, full_name, api_key, is_active, telegram_username, created_at FROM users WHERE api_key = $1 AND is_active = true;
+
+-- name: GetUserByTelegramUsername :one
+SELECT u.id, u.email, u.full_name, u.api_key, u.is_active, u.telegram_username, cm.company_id
+FROM users u
+JOIN company_members cm ON u.id = cm.user_id
+WHERE LOWER(u.telegram_username) = LOWER($1)
+  AND u.is_active = true
+ORDER BY cm.joined_at ASC
+LIMIT 1;
 
 -- name: UpdateUser :exec
 UPDATE users SET

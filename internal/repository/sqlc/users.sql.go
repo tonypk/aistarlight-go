@@ -7,26 +7,39 @@ package sqlc
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
 
 const createUser = `-- name: CreateUser :one
-INSERT INTO users (id, email, hashed_password, full_name, api_key, is_active, created_at)
-VALUES ($1, $2, $3, $4, $5, $6, NOW())
-RETURNING id, email, hashed_password, full_name, api_key, is_active, created_at
+INSERT INTO users (id, email, hashed_password, full_name, api_key, is_active, telegram_username, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+RETURNING id, email, hashed_password, full_name, api_key, is_active, telegram_username, created_at
 `
 
 type CreateUserParams struct {
-	ID             uuid.UUID `json:"id"`
-	Email          string    `json:"email"`
-	HashedPassword string    `json:"hashed_password"`
-	FullName       *string   `json:"full_name"`
-	ApiKey         *string   `json:"api_key"`
-	IsActive       bool      `json:"is_active"`
+	ID               uuid.UUID `json:"id"`
+	Email            string    `json:"email"`
+	HashedPassword   string    `json:"hashed_password"`
+	FullName         *string   `json:"full_name"`
+	ApiKey           *string   `json:"api_key"`
+	IsActive         bool      `json:"is_active"`
+	TelegramUsername *string   `json:"telegram_username"`
 }
 
-func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, error) {
+type CreateUserRow struct {
+	ID               uuid.UUID `json:"id"`
+	Email            string    `json:"email"`
+	HashedPassword   string    `json:"hashed_password"`
+	FullName         *string   `json:"full_name"`
+	ApiKey           *string   `json:"api_key"`
+	IsActive         bool      `json:"is_active"`
+	TelegramUsername *string   `json:"telegram_username"`
+	CreatedAt        time.Time `json:"created_at"`
+}
+
+func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (CreateUserRow, error) {
 	row := q.db.QueryRow(ctx, createUser,
 		arg.ID,
 		arg.Email,
@@ -34,8 +47,9 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		arg.FullName,
 		arg.ApiKey,
 		arg.IsActive,
+		arg.TelegramUsername,
 	)
-	var i User
+	var i CreateUserRow
 	err := row.Scan(
 		&i.ID,
 		&i.Email,
@@ -43,18 +57,30 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.FullName,
 		&i.ApiKey,
 		&i.IsActive,
+		&i.TelegramUsername,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const getUserByAPIKey = `-- name: GetUserByAPIKey :one
-SELECT id, email, hashed_password, full_name, api_key, is_active, created_at FROM users WHERE api_key = $1 AND is_active = true
+SELECT id, email, hashed_password, full_name, api_key, is_active, telegram_username, created_at FROM users WHERE api_key = $1 AND is_active = true
 `
 
-func (q *Queries) GetUserByAPIKey(ctx context.Context, apiKey *string) (User, error) {
+type GetUserByAPIKeyRow struct {
+	ID               uuid.UUID `json:"id"`
+	Email            string    `json:"email"`
+	HashedPassword   string    `json:"hashed_password"`
+	FullName         *string   `json:"full_name"`
+	ApiKey           *string   `json:"api_key"`
+	IsActive         bool      `json:"is_active"`
+	TelegramUsername *string   `json:"telegram_username"`
+	CreatedAt        time.Time `json:"created_at"`
+}
+
+func (q *Queries) GetUserByAPIKey(ctx context.Context, apiKey *string) (GetUserByAPIKeyRow, error) {
 	row := q.db.QueryRow(ctx, getUserByAPIKey, apiKey)
-	var i User
+	var i GetUserByAPIKeyRow
 	err := row.Scan(
 		&i.ID,
 		&i.Email,
@@ -62,18 +88,30 @@ func (q *Queries) GetUserByAPIKey(ctx context.Context, apiKey *string) (User, er
 		&i.FullName,
 		&i.ApiKey,
 		&i.IsActive,
+		&i.TelegramUsername,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, hashed_password, full_name, api_key, is_active, created_at FROM users WHERE email = $1
+SELECT id, email, hashed_password, full_name, api_key, is_active, telegram_username, created_at FROM users WHERE email = $1
 `
 
-func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
+type GetUserByEmailRow struct {
+	ID               uuid.UUID `json:"id"`
+	Email            string    `json:"email"`
+	HashedPassword   string    `json:"hashed_password"`
+	FullName         *string   `json:"full_name"`
+	ApiKey           *string   `json:"api_key"`
+	IsActive         bool      `json:"is_active"`
+	TelegramUsername *string   `json:"telegram_username"`
+	CreatedAt        time.Time `json:"created_at"`
+}
+
+func (q *Queries) GetUserByEmail(ctx context.Context, email string) (GetUserByEmailRow, error) {
 	row := q.db.QueryRow(ctx, getUserByEmail, email)
-	var i User
+	var i GetUserByEmailRow
 	err := row.Scan(
 		&i.ID,
 		&i.Email,
@@ -81,18 +119,30 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.FullName,
 		&i.ApiKey,
 		&i.IsActive,
+		&i.TelegramUsername,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, email, hashed_password, full_name, api_key, is_active, created_at FROM users WHERE id = $1
+SELECT id, email, hashed_password, full_name, api_key, is_active, telegram_username, created_at FROM users WHERE id = $1
 `
 
-func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
+type GetUserByIDRow struct {
+	ID               uuid.UUID `json:"id"`
+	Email            string    `json:"email"`
+	HashedPassword   string    `json:"hashed_password"`
+	FullName         *string   `json:"full_name"`
+	ApiKey           *string   `json:"api_key"`
+	IsActive         bool      `json:"is_active"`
+	TelegramUsername *string   `json:"telegram_username"`
+	CreatedAt        time.Time `json:"created_at"`
+}
+
+func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (GetUserByIDRow, error) {
 	row := q.db.QueryRow(ctx, getUserByID, id)
-	var i User
+	var i GetUserByIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.Email,
@@ -100,7 +150,43 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.FullName,
 		&i.ApiKey,
 		&i.IsActive,
+		&i.TelegramUsername,
 		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getUserByTelegramUsername = `-- name: GetUserByTelegramUsername :one
+SELECT u.id, u.email, u.full_name, u.api_key, u.is_active, u.telegram_username, cm.company_id
+FROM users u
+JOIN company_members cm ON u.id = cm.user_id
+WHERE LOWER(u.telegram_username) = LOWER($1)
+  AND u.is_active = true
+ORDER BY cm.joined_at ASC
+LIMIT 1
+`
+
+type GetUserByTelegramUsernameRow struct {
+	ID               uuid.UUID `json:"id"`
+	Email            string    `json:"email"`
+	FullName         *string   `json:"full_name"`
+	ApiKey           *string   `json:"api_key"`
+	IsActive         bool      `json:"is_active"`
+	TelegramUsername *string   `json:"telegram_username"`
+	CompanyID        uuid.UUID `json:"company_id"`
+}
+
+func (q *Queries) GetUserByTelegramUsername(ctx context.Context, lower string) (GetUserByTelegramUsernameRow, error) {
+	row := q.db.QueryRow(ctx, getUserByTelegramUsername, lower)
+	var i GetUserByTelegramUsernameRow
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.FullName,
+		&i.ApiKey,
+		&i.IsActive,
+		&i.TelegramUsername,
+		&i.CompanyID,
 	)
 	return i, err
 }

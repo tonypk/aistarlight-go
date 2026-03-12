@@ -82,7 +82,12 @@ func (b *Bot) processReceipt(c tele.Context, fileID string, instruction string) 
 
 	tgUser, err := b.q.GetTelegramUser(ctx, c.Sender().ID)
 	if err != nil {
-		return c.Send("Account not linked. Use /link <api_key> first.")
+		if b.tryAutoLink(c) {
+			tgUser, err = b.q.GetTelegramUser(ctx, c.Sender().ID)
+		}
+		if err != nil {
+			return c.Send("Account not linked. Use /link <api_key> first.")
+		}
 	}
 
 	// Look up company to get jurisdiction

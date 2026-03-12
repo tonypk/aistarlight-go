@@ -38,6 +38,39 @@ func (q *Queries) BulkUpdateTransactionClassification(ctx context.Context, arg B
 	return err
 }
 
+const countCompanyTransactionsFiltered = `-- name: CountCompanyTransactionsFiltered :one
+SELECT COUNT(*) FROM transactions t
+WHERE t.company_id = $1
+  AND ($2::varchar = '' OR $2::varchar IS NULL OR t.source_type = $2)
+  AND ($3::varchar = '' OR $3::varchar IS NULL OR t.category = $3)
+  AND ($4::text = '' OR $4::text IS NULL OR t.description ILIKE '%' || $4 || '%')
+  AND ($5::date IS NULL OR t.date >= $5)
+  AND ($6::date IS NULL OR t.date <= $6)
+`
+
+type CountCompanyTransactionsFilteredParams struct {
+	CompanyID uuid.UUID   `json:"company_id"`
+	Column2   string      `json:"column_2"`
+	Column3   string      `json:"column_3"`
+	Column4   string      `json:"column_4"`
+	Column5   pgtype.Date `json:"column_5"`
+	Column6   pgtype.Date `json:"column_6"`
+}
+
+func (q *Queries) CountCompanyTransactionsFiltered(ctx context.Context, arg CountCompanyTransactionsFilteredParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countCompanyTransactionsFiltered,
+		arg.CompanyID,
+		arg.Column2,
+		arg.Column3,
+		arg.Column4,
+		arg.Column5,
+		arg.Column6,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countTransactionsByCompany = `-- name: CountTransactionsByCompany :one
 SELECT COUNT(*) FROM transactions WHERE company_id = $1
 `
@@ -652,6 +685,134 @@ func (q *Queries) ListAllTransactionsBySession(ctx context.Context, sessionID uu
 			&i.ExchangeRate,
 			&i.FromAmount,
 			&i.SubmittedBy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCompanyTransactionsFiltered = `-- name: ListCompanyTransactionsFiltered :many
+SELECT t.id, t.company_id, t.session_id, t.source_type, t.source_file_id, t.row_index, t.date, t.description, t.amount, t.vat_amount, t.vat_type, t.category, t.tin, t.confidence, t.classification_source, t.raw_data, t.match_group_id, t.match_status, t.ewt_rate, t.ewt_amount, t.atc_code, t.supplier_id, t.created_at, t.updated_at, t.journal_entry_id, t.project_tag, t.from_currency, t.to_currency, t.exchange_rate, t.from_amount, t.submitted_by,
+  COALESCE(NULLIF(u.full_name, ''), tu.full_name, tu.username, u.email) AS submitted_by_name,
+  rb.image_path AS receipt_image_path
+FROM transactions t
+LEFT JOIN users u ON t.submitted_by = u.id
+LEFT JOIN telegram_users tu ON tu.user_id = t.submitted_by
+LEFT JOIN receipt_batches rb ON t.source_file_id = rb.id::text AND t.source_type = 'receipt'
+WHERE t.company_id = $1
+  AND ($4::varchar = '' OR $4::varchar IS NULL OR t.source_type = $4)
+  AND ($5::varchar = '' OR $5::varchar IS NULL OR t.category = $5)
+  AND ($6::text = '' OR $6::text IS NULL OR t.description ILIKE '%' || $6 || '%')
+  AND ($7::date IS NULL OR t.date >= $7)
+  AND ($8::date IS NULL OR t.date <= $8)
+ORDER BY t.created_at DESC
+LIMIT $2 OFFSET $3
+`
+
+type ListCompanyTransactionsFilteredParams struct {
+	CompanyID uuid.UUID   `json:"company_id"`
+	Limit     int32       `json:"limit"`
+	Offset    int32       `json:"offset"`
+	Column4   string      `json:"column_4"`
+	Column5   string      `json:"column_5"`
+	Column6   string      `json:"column_6"`
+	Column7   pgtype.Date `json:"column_7"`
+	Column8   pgtype.Date `json:"column_8"`
+}
+
+type ListCompanyTransactionsFilteredRow struct {
+	ID                   uuid.UUID      `json:"id"`
+	CompanyID            uuid.UUID      `json:"company_id"`
+	SessionID            uuid.UUID      `json:"session_id"`
+	SourceType           string         `json:"source_type"`
+	SourceFileID         string         `json:"source_file_id"`
+	RowIndex             int32          `json:"row_index"`
+	Date                 pgtype.Date    `json:"date"`
+	Description          *string        `json:"description"`
+	Amount               pgtype.Numeric `json:"amount"`
+	VatAmount            pgtype.Numeric `json:"vat_amount"`
+	VatType              string         `json:"vat_type"`
+	Category             string         `json:"category"`
+	Tin                  *string        `json:"tin"`
+	Confidence           pgtype.Numeric `json:"confidence"`
+	ClassificationSource string         `json:"classification_source"`
+	RawData              []byte         `json:"raw_data"`
+	MatchGroupID         pgtype.UUID    `json:"match_group_id"`
+	MatchStatus          string         `json:"match_status"`
+	EwtRate              pgtype.Numeric `json:"ewt_rate"`
+	EwtAmount            pgtype.Numeric `json:"ewt_amount"`
+	AtcCode              *string        `json:"atc_code"`
+	SupplierID           pgtype.UUID    `json:"supplier_id"`
+	CreatedAt            time.Time      `json:"created_at"`
+	UpdatedAt            time.Time      `json:"updated_at"`
+	JournalEntryID       pgtype.UUID    `json:"journal_entry_id"`
+	ProjectTag           *string        `json:"project_tag"`
+	FromCurrency         *string        `json:"from_currency"`
+	ToCurrency           *string        `json:"to_currency"`
+	ExchangeRate         pgtype.Numeric `json:"exchange_rate"`
+	FromAmount           pgtype.Numeric `json:"from_amount"`
+	SubmittedBy          pgtype.UUID    `json:"submitted_by"`
+	SubmittedByName      string         `json:"submitted_by_name"`
+	ReceiptImagePath     *string        `json:"receipt_image_path"`
+}
+
+func (q *Queries) ListCompanyTransactionsFiltered(ctx context.Context, arg ListCompanyTransactionsFilteredParams) ([]ListCompanyTransactionsFilteredRow, error) {
+	rows, err := q.db.Query(ctx, listCompanyTransactionsFiltered,
+		arg.CompanyID,
+		arg.Limit,
+		arg.Offset,
+		arg.Column4,
+		arg.Column5,
+		arg.Column6,
+		arg.Column7,
+		arg.Column8,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListCompanyTransactionsFilteredRow{}
+	for rows.Next() {
+		var i ListCompanyTransactionsFilteredRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.CompanyID,
+			&i.SessionID,
+			&i.SourceType,
+			&i.SourceFileID,
+			&i.RowIndex,
+			&i.Date,
+			&i.Description,
+			&i.Amount,
+			&i.VatAmount,
+			&i.VatType,
+			&i.Category,
+			&i.Tin,
+			&i.Confidence,
+			&i.ClassificationSource,
+			&i.RawData,
+			&i.MatchGroupID,
+			&i.MatchStatus,
+			&i.EwtRate,
+			&i.EwtAmount,
+			&i.AtcCode,
+			&i.SupplierID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.JournalEntryID,
+			&i.ProjectTag,
+			&i.FromCurrency,
+			&i.ToCurrency,
+			&i.ExchangeRate,
+			&i.FromAmount,
+			&i.SubmittedBy,
+			&i.SubmittedByName,
+			&i.ReceiptImagePath,
 		); err != nil {
 			return nil, err
 		}

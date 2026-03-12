@@ -30,12 +30,18 @@ var (
 )
 
 // Default expense categories for receipt classification.
-var receiptCategories = []string{"goods", "services", "capital", "imports"}
+var receiptCategories = []string{"goods", "services", "capital", "imports", "other"}
 
 const confirmationTimeout = 5 * time.Minute
 
 // ReceiptPendingNote tracks the state when waiting for a user note on a receipt.
 type ReceiptPendingNote struct {
+	BatchID    uuid.UUID
+	ProjectTag string
+}
+
+// CustomCategoryPending tracks the state when waiting for a user to type a custom category.
+type CustomCategoryPending struct {
 	BatchID    uuid.UUID
 	ProjectTag string
 }
@@ -237,6 +243,17 @@ func (b *Bot) handleCategorySelect(c tele.Context) error {
 	batchID, projectTag, category, err := parseCategoryCallbackData(c.Data())
 	if err != nil || category == "" {
 		return c.Respond(&tele.CallbackResponse{Text: "Invalid data."})
+	}
+
+	// "Other" category: prompt user to type a custom category name.
+	if category == "other" {
+		_ = c.Respond(&tele.CallbackResponse{Text: "Type your category"})
+		b.pendingCustomCategory.Store(c.Sender().ID, &CustomCategoryPending{
+			BatchID:    batchID,
+			ProjectTag: projectTag,
+		})
+		_, _ = b.B.Edit(c.Message(), "Please type your custom category name:")
+		return nil
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
@@ -775,6 +792,75 @@ func (b *Bot) handleReceiptNoteInput(c tele.Context, text string) bool {
 
 	markup := categorySelectionMarkup(pending.BatchID, pending.ProjectTag, receiptCategories)
 	_ = c.Send(preview, markup)
+	return true
+}
+
+// handleCustomCategoryInput processes user text when they selected "Other" category.
+// Returns true if the message was consumed.
+func (b *Bot) handleCustomCategoryInput(c tele.Context, text string) bool {
+	raw, ok := b.pendingCustomCategory.LoadAndDelete(c.Sender().ID)
+	if !ok {
+		return false
+	}
+	pending, ok := raw.(*CustomCategoryPending)
+	if !ok {
+		return false
+	}
+
+	category := strings.TrimSpace(text)
+	if category == "" {
+		_ = c.Send("Category cannot be empty. Please type a category name:")
+		b.pendingCustomCategory.Store(c.Sender().ID, pending)
+		return true
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	batch, err := b.q.GetReceiptBatchByID(ctx, pending.BatchID)
+	if err != nil {
+		_ = c.Send("Batch not found. Please send a new receipt.")
+		return true
+	}
+
+	tgUser, err := b.q.GetTelegramUser(ctx, c.Sender().ID)
+	if err != nil || tgUser.CompanyID != batch.CompanyID {
+		_ = c.Send("Unauthorized.")
+		return true
+	}
+
+	if batch.Status != "pending_confirmation" {
+		_ = c.Send("This receipt has already been processed.")
+		return true
+	}
+
+	_ = c.Send("Recording transaction...")
+
+	company, compErr := b.q.GetCompanyByID(ctx, tgUser.CompanyID)
+	jurisdictionCode := "PH"
+	if compErr == nil {
+		jurisdictionCode = company.Jurisdiction
+	}
+	jCfg := jurisdiction.Get(jurisdictionCode)
+
+	var projPtr *string
+	if pending.ProjectTag != "" {
+		projPtr = &pending.ProjectTag
+	}
+
+	var note string
+	if rawNote, ok := b.receiptNotes.LoadAndDelete(pending.BatchID); ok {
+		note, _ = rawNote.(string)
+	}
+
+	reply, err := b.confirmAndProcess(ctx, batch, tgUser, jCfg, projPtr, note, category)
+	if err != nil {
+		slog.Error("confirm processing failed", "batch_id", pending.BatchID, "error", err)
+		_ = c.Send("Failed to record transaction.")
+		return true
+	}
+
+	_ = c.Send(reply)
 	return true
 }
 

@@ -121,6 +121,7 @@ func (b *Bot) registerHandlers() {
 	b.B.Handle("/link", b.handleLink)
 	b.B.Handle("/status", b.handleStatus)
 	b.B.Handle("/export", b.handleExport)
+	b.B.Handle("/audit", b.handleAudit)
 	b.B.Handle("/exchange", b.handleExchange)
 	b.B.Handle(tele.OnPhoto, b.handlePhoto)
 	b.B.Handle(tele.OnDocument, b.handleDocument)
@@ -157,6 +158,7 @@ func (b *Bot) Start() {
 		{Text: "link", Description: "Link account: /link <api_key>"},
 		{Text: "status", Description: "View monthly stats & breakdown"},
 		{Text: "export", Description: "Export bookkeeping: /export [YYYY-MM]"},
+		{Text: "audit", Description: "Check duplicate expenses"},
 		{Text: "exchange", Description: "Record a P2P forex exchange"},
 	}
 	if err := b.B.SetCommands(commands); err != nil {

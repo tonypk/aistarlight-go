@@ -10,4 +10,5 @@ func RegisterAll(r *agent.Registry) {
 	r.Register(Journal())
 	r.Register(Compliance())
 	r.Register(Classifier())
+	r.Register(Audit())
 }

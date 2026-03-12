@@ -660,6 +660,12 @@ func (s *ChatService) executeTool(ctx context.Context, name, argsJSON string, co
 		return s.executeUpdateTransaction(ctx, args, companyID)
 	case "delete_transaction":
 		return s.executeDeleteTransaction(ctx, args, companyID)
+	case "scan_duplicates":
+		return s.executeScanDuplicates(ctx, args, companyID)
+	case "scan_missing_receipts":
+		return s.executeScanMissingReceipts(ctx, args, companyID)
+	case "scan_classification_issues":
+		return s.executeScanClassificationIssues(ctx, args, companyID)
 	default:
 		return jsonError(fmt.Sprintf("unknown tool: %s", name))
 	}

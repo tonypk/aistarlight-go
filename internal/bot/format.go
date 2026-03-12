@@ -24,9 +24,11 @@ func formatReceiptReply(result service.ReceiptResult, txnCount int, classResults
 		}
 	}
 
-	// Category
+	// Category: prefer classification result (user-selected) over OCR-parsed.
 	category := "Goods"
-	if parsed.Category.Value != nil {
+	if len(classResults) > 0 && classResults[0].Category != "" {
+		category = capitalize(classResults[0].Category)
+	} else if parsed.Category.Value != nil {
 		if v, ok := parsed.Category.Value.(string); ok && v != "" {
 			category = capitalize(v)
 		}

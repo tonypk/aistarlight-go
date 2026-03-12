@@ -34,12 +34,6 @@ var receiptCategories = []string{"goods", "services", "capital", "imports", "oth
 
 const confirmationTimeout = 5 * time.Minute
 
-// ReceiptPendingNote tracks the state when waiting for a user note on a receipt.
-type ReceiptPendingNote struct {
-	BatchID    uuid.UUID
-	ProjectTag string
-}
-
 // CustomCategoryPending tracks the state when waiting for a user to type a custom category.
 type CustomCategoryPending struct {
 	BatchID    uuid.UUID
@@ -88,6 +82,19 @@ func parseCategoryCallbackData(data string) (uuid.UUID, string, string, error) {
 	return batchID, projectTag, category, nil
 }
 
+// storeReplyMapping stores the mapping from a bot message to transaction data
+// so reply-to corrections can identify the transactions.
+func (b *Bot) storeReplyMapping(chatID int64, msg *tele.Message, txnIDs []uuid.UUID, refNumbers []int32) {
+	if msg == nil || len(txnIDs) == 0 {
+		return
+	}
+	key := fmt.Sprintf("%d:%d", chatID, msg.ID)
+	b.replyTxnMap.Store(key, &ReplyTxnData{
+		TxnIDs:     txnIDs,
+		RefNumbers: refNumbers,
+	})
+}
+
 // projectSelectionMarkup builds inline keyboard with project buttons for selection.
 func projectSelectionMarkup(batchID uuid.UUID, projects []string) *tele.ReplyMarkup {
 	markup := &tele.ReplyMarkup{}
@@ -100,8 +107,9 @@ func projectSelectionMarkup(batchID uuid.UUID, projects []string) *tele.ReplyMar
 		})
 	}
 	rows := []tele.Row{markup.Row(btns...)}
-	// Also add cancel button.
+	// Add Edit and Cancel buttons.
 	rows = append(rows, markup.Row(
+		tele.Btn{Unique: btnEdit.Unique, Text: "Edit", Data: batchID.String()},
 		tele.Btn{Unique: btnCancel.Unique, Text: "Cancel", Data: batchID.String()},
 	))
 	markup.Inline(rows...)
@@ -147,6 +155,7 @@ func categorySelectionMarkup(batchID uuid.UUID, projectTag string, categories []
 }
 
 // handleProjectSelect handles the Project button click — user selected a project.
+// Goes directly to category selection (skipping note step).
 func (b *Bot) handleProjectSelect(c tele.Context) error {
 	batchID, projectTag, err := parseCallbackData(c.Data())
 	if err != nil {
@@ -172,13 +181,26 @@ func (b *Bot) handleProjectSelect(c tele.Context) error {
 
 	_ = c.Respond(&tele.CallbackResponse{Text: "Project: " + projectTag})
 
-	// Prompt for note before showing confirmation.
-	b.pendingNotes.Store(c.Sender().ID, &ReceiptPendingNote{
-		BatchID:    batchID,
-		ProjectTag: projectTag,
-	})
+	// Show receipt preview with category selection.
+	var results []service.ReceiptResult
+	if err := json.Unmarshal(batch.Results, &results); err != nil || len(results) == 0 {
+		_, _ = b.B.Edit(c.Message(), "Failed to load receipt data.")
+		return nil
+	}
 
-	_, _ = b.B.Edit(c.Message(), fmt.Sprintf("Project: %s\n\nAdd a note/description (type '-' to skip):", projectTag))
+	company, compErr := b.q.GetCompanyByID(ctx, tgUser.CompanyID)
+	jurisdictionCode := "PH"
+	if compErr == nil {
+		jurisdictionCode = company.Jurisdiction
+	}
+	jCfg := jurisdiction.Get(jurisdictionCode)
+
+	uploaderName := senderDisplayName(c.Sender())
+	preview := formatReceiptPreview(results[0], jCfg.CurrencySymbol, uploaderName, projectTag)
+	preview += "\n\nSelect a category:"
+
+	markup := categorySelectionMarkup(batchID, projectTag, receiptCategories)
+	_, _ = b.B.Edit(c.Message(), preview, markup)
 	return nil
 }
 
@@ -227,14 +249,18 @@ func (b *Bot) handleReceiptConfirm(c tele.Context) error {
 		note, _ = rawNote.(string)
 	}
 
-	reply, err := b.confirmAndProcess(ctx, batch, tgUser, jCfg, projPtr, note, "")
+	reply, txnIDs, refNumbers, err := b.confirmAndProcess(ctx, batch, tgUser, jCfg, projPtr, note, "")
 	if err != nil {
 		slog.Error("confirm processing failed", "batch_id", batchID, "error", err)
 		_, _ = b.B.Edit(c.Message(), "Failed to record transaction.")
 		return nil
 	}
 
-	_, _ = b.B.Edit(c.Message(), reply)
+	msg, editErr := b.B.Edit(c.Message(), reply)
+	if editErr != nil {
+		slog.Warn("failed to edit confirmation message", "error", editErr)
+	}
+	b.storeReplyMapping(c.Chat().ID, msg, txnIDs, refNumbers)
 	return nil
 }
 
@@ -293,14 +319,18 @@ func (b *Bot) handleCategorySelect(c tele.Context) error {
 		note, _ = rawNote.(string)
 	}
 
-	reply, err := b.confirmAndProcess(ctx, batch, tgUser, jCfg, projPtr, note, category)
+	reply, txnIDs, refNumbers, err := b.confirmAndProcess(ctx, batch, tgUser, jCfg, projPtr, note, category)
 	if err != nil {
 		slog.Error("confirm processing failed", "batch_id", batchID, "error", err)
 		_, _ = b.B.Edit(c.Message(), "Failed to record transaction.")
 		return nil
 	}
 
-	_, _ = b.B.Edit(c.Message(), reply)
+	msg, editErr := b.B.Edit(c.Message(), reply)
+	if editErr != nil {
+		slog.Warn("failed to edit confirmation message", "error", editErr)
+	}
+	b.storeReplyMapping(c.Chat().ID, msg, txnIDs, refNumbers)
 	return nil
 }
 
@@ -463,20 +493,21 @@ func (b *Bot) handleReceiptEditReply(c tele.Context, batchID uuid.UUID, text str
 	uploaderName := senderDisplayName(c.Sender())
 	preview := formatReceiptPreview(results[0], jCfg.CurrencySymbol, uploaderName, "")
 
-	// After edit, show project selection again if projects are configured.
+	// After edit, show project selection or category selection.
 	if len(b.projects) > 0 {
 		markup := projectSelectionMarkup(batch.ID, b.projects)
 		return c.Send(preview+"\n\nPlease select a project:", markup)
 	}
 
-	// No projects — prompt for note directly.
-	b.pendingNotes.Store(c.Sender().ID, &ReceiptPendingNote{BatchID: batch.ID})
-	return c.Send(preview + "\n\nAdd a note/description (type '-' to skip):")
+	// No projects — show category selection directly.
+	markup := categorySelectionMarkup(batch.ID, "", receiptCategories)
+	return c.Send(preview+"\n\nSelect a category:", markup)
 }
 
 // confirmAndProcess executes Phase 2: create transactions, classify, generate journal.
 // userCategory overrides AI classification when non-empty (user selected a category button).
-func (b *Bot) confirmAndProcess(ctx context.Context, batch sqlc.ReceiptBatch, tgUser sqlc.TelegramUser, jCfg jurisdiction.Config, projectTag *string, note string, userCategory string) (string, error) {
+// Returns the reply string, transaction IDs, ref numbers, and error.
+func (b *Bot) confirmAndProcess(ctx context.Context, batch sqlc.ReceiptBatch, tgUser sqlc.TelegramUser, jCfg jurisdiction.Config, projectTag *string, note string, userCategory string) (string, []uuid.UUID, []int32, error) {
 	jurisdictionCode := jCfg.Code
 	if jurisdictionCode == "" {
 		jurisdictionCode = "PH"
@@ -490,12 +521,12 @@ func (b *Bot) confirmAndProcess(ctx context.Context, batch sqlc.ReceiptBatch, tg
 	period := time.Now().UTC().Format("2006-01")
 	sessionID, err := b.getOrCreateSession(ctx, tgUser.CompanyID, tgUser.UserID, period)
 	if err != nil {
-		return "", fmt.Errorf("create session: %w", err)
+		return "", nil, nil, fmt.Errorf("create session: %w", err)
 	}
 
 	txns, err := b.bridge.ConvertReceiptToTransactions(ctx, tgUser.CompanyID, batch.ID, sessionID, projectTag, tgUser.UserID)
 	if err != nil {
-		return "", fmt.Errorf("convert receipt: %w", err)
+		return "", nil, nil, fmt.Errorf("convert receipt: %w", err)
 	}
 
 	// Append user note to transaction descriptions.
@@ -589,13 +620,21 @@ func (b *Bot) confirmAndProcess(ctx context.Context, batch sqlc.ReceiptBatch, tg
 		b.recordReceiptCorrections(ctx, batch.ID, tgUser.CompanyID, tgUser.UserID, txns[0].ID)
 	}
 
+	// Extract transaction IDs and ref numbers for reply mapping.
+	txnIDs := make([]uuid.UUID, len(txns))
+	refNumbers := make([]int32, len(txns))
+	for i, txn := range txns {
+		txnIDs[i] = txn.ID
+		refNumbers[i] = txn.RefNumber
+	}
+
 	var results []service.ReceiptResult
 	_ = json.Unmarshal(batch.Results, &results)
 	if len(results) == 0 {
-		return "Transaction recorded.", nil
+		return "Transaction recorded.", txnIDs, refNumbers, nil
 	}
 
-	reply := formatReceiptReply(results[0], len(txns), classResults, journalEntries, jCfg.CurrencySymbol)
+	reply := formatReceiptReply(results[0], len(txns), classResults, journalEntries, jCfg.CurrencySymbol, refNumbers)
 
 	// Append project tag and note to reply.
 	if projectTag != nil && *projectTag != "" {
@@ -605,7 +644,7 @@ func (b *Bot) confirmAndProcess(ctx context.Context, batch sqlc.ReceiptBatch, tg
 		reply += fmt.Sprintf("\nNote: %s", note)
 	}
 
-	return reply, nil
+	return reply, txnIDs, refNumbers, nil
 }
 
 // amountSelectionMarkup builds inline keyboard with amount buttons for user to pick.
@@ -697,13 +736,13 @@ func (b *Bot) handleAmountSelect(c tele.Context) error {
 	uploaderName := senderDisplayName(c.Sender())
 	preview := formatReceiptPreview(results[0], jCfg.CurrencySymbol, uploaderName, "")
 
-	// Proceed to project selection or note input.
+	// Proceed to project selection or category selection (skip note step).
 	if len(b.projects) > 0 {
 		markup := projectSelectionMarkup(batch.ID, b.projects)
 		_, _ = b.B.Edit(c.Message(), preview+"\n\nPlease select a project:", markup)
 	} else {
-		b.pendingNotes.Store(c.Sender().ID, &ReceiptPendingNote{BatchID: batch.ID})
-		_, _ = b.B.Edit(c.Message(), preview+"\n\nAdd a note/description (type '-' to skip):")
+		markup := categorySelectionMarkup(batch.ID, "", receiptCategories)
+		_, _ = b.B.Edit(c.Message(), preview+"\n\nSelect a category:", markup)
 	}
 
 	return nil
@@ -732,67 +771,6 @@ func (b *Bot) receiptTimeout(chatID int64, msgID int, batchID uuid.UUID) {
 
 	msg := &tele.Message{ID: msgID, Chat: &tele.Chat{ID: chatID}}
 	_, _ = b.B.Edit(msg, "Receipt expired (5 min timeout). Please send the photo again.")
-}
-
-// handleReceiptNoteInput processes a user's text note for a pending receipt.
-// Returns true if the message was consumed.
-func (b *Bot) handleReceiptNoteInput(c tele.Context, text string) bool {
-	raw, ok := b.pendingNotes.LoadAndDelete(c.Sender().ID)
-	if !ok {
-		return false
-	}
-	pending, ok := raw.(*ReceiptPendingNote)
-	if !ok {
-		return false
-	}
-
-	note := strings.TrimSpace(text)
-	if note == "-" || strings.EqualFold(note, "skip") {
-		note = ""
-	}
-
-	if note != "" {
-		b.receiptNotes.Store(pending.BatchID, note)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	batch, err := b.q.GetReceiptBatchByID(ctx, pending.BatchID)
-	if err != nil {
-		_ = c.Send("Batch not found. Please send a new receipt.")
-		return true
-	}
-
-	var results []service.ReceiptResult
-	if err := json.Unmarshal(batch.Results, &results); err != nil || len(results) == 0 {
-		_ = c.Send("Failed to load receipt data.")
-		return true
-	}
-
-	tgUser, err := b.q.GetTelegramUser(ctx, c.Sender().ID)
-	if err != nil {
-		_ = c.Send("Account not linked.")
-		return true
-	}
-
-	company, compErr := b.q.GetCompanyByID(ctx, tgUser.CompanyID)
-	jurisdictionCode := "PH"
-	if compErr == nil {
-		jurisdictionCode = company.Jurisdiction
-	}
-	jCfg := jurisdiction.Get(jurisdictionCode)
-
-	uploaderName := senderDisplayName(c.Sender())
-	preview := formatReceiptPreview(results[0], jCfg.CurrencySymbol, uploaderName, pending.ProjectTag)
-	if note != "" {
-		preview += fmt.Sprintf("\nNote: %s", note)
-	}
-	preview += "\n\nSelect a category to confirm:"
-
-	markup := categorySelectionMarkup(pending.BatchID, pending.ProjectTag, receiptCategories)
-	_ = c.Send(preview, markup)
-	return true
 }
 
 // handleCustomCategoryInput processes user text when they selected "Other" category.
@@ -853,14 +831,15 @@ func (b *Bot) handleCustomCategoryInput(c tele.Context, text string) bool {
 		note, _ = rawNote.(string)
 	}
 
-	reply, err := b.confirmAndProcess(ctx, batch, tgUser, jCfg, projPtr, note, category)
+	reply, txnIDs, refNumbers, err := b.confirmAndProcess(ctx, batch, tgUser, jCfg, projPtr, note, category)
 	if err != nil {
 		slog.Error("confirm processing failed", "batch_id", pending.BatchID, "error", err)
 		_ = c.Send("Failed to record transaction.")
 		return true
 	}
 
-	_ = c.Send(reply)
+	sent, _ := b.B.Send(c.Chat(), reply)
+	b.storeReplyMapping(c.Chat().ID, sent, txnIDs, refNumbers)
 	return true
 }
 

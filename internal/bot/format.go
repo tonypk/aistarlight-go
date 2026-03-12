@@ -10,7 +10,7 @@ import (
 	"github.com/tonypk/aistarlight-go/internal/service"
 )
 
-func formatReceiptReply(result service.ReceiptResult, txnCount int, classResults []service.ClassificationResult, journalEntries []*domain.JournalEntry, currencySymbol string) string {
+func formatReceiptReply(result service.ReceiptResult, txnCount int, classResults []service.ClassificationResult, journalEntries []*domain.JournalEntry, currencySymbol string, refNumbers []int32) string {
 	parsed := result.Parsed
 
 	// Amount
@@ -32,9 +32,21 @@ func formatReceiptReply(result service.ReceiptResult, txnCount int, classResults
 		}
 	}
 
+	// Build ref number label.
+	refLabel := ""
+	if len(refNumbers) == 1 {
+		refLabel = fmt.Sprintf(" #TXN-%d", refNumbers[0])
+	} else if len(refNumbers) > 1 {
+		refs := make([]string, len(refNumbers))
+		for i, r := range refNumbers {
+			refs[i] = fmt.Sprintf("#TXN-%d", r)
+		}
+		refLabel = fmt.Sprintf(" (%s)", strings.Join(refs, ", "))
+	}
+
 	var lines []string
 	line1Parts := []string{
-		fmt.Sprintf("Receipt Recorded\n%s%s %s", currencySymbol, addCommas(amount.StringFixed(2)), category),
+		fmt.Sprintf("Receipt Recorded%s\n%s%s %s", refLabel, currencySymbol, addCommas(amount.StringFixed(2)), category),
 	}
 
 	// Date
@@ -94,7 +106,13 @@ func formatReceiptReply(result service.ReceiptResult, txnCount int, classResults
 		}
 	}
 
-	if txnCount > 1 {
+	if txnCount > 1 && len(refNumbers) > 1 {
+		refs := make([]string, len(refNumbers))
+		for i, r := range refNumbers {
+			refs[i] = fmt.Sprintf("#TXN-%d", r)
+		}
+		lines = append(lines, fmt.Sprintf("\n(%d transactions: %s)", txnCount, strings.Join(refs, ", ")))
+	} else if txnCount > 1 {
 		lines = append(lines, fmt.Sprintf("\n(%d transactions recorded)", txnCount))
 	}
 

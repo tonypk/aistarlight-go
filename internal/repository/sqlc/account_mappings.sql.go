@@ -45,7 +45,7 @@ func (q *Queries) GetAccountBySubType(ctx context.Context, arg GetAccountBySubTy
 }
 
 const getMatchedTransactionsWithoutJournal = `-- name: GetMatchedTransactionsWithoutJournal :many
-SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag, from_currency, to_currency, exchange_rate, from_amount, submitted_by FROM transactions
+SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag, from_currency, to_currency, exchange_rate, from_amount, submitted_by, ref_number FROM transactions
 WHERE company_id = $1
   AND match_status IN ('matched', 'split_matched')
   AND journal_entry_id IS NULL
@@ -93,6 +93,7 @@ func (q *Queries) GetMatchedTransactionsWithoutJournal(ctx context.Context, comp
 			&i.ExchangeRate,
 			&i.FromAmount,
 			&i.SubmittedBy,
+			&i.RefNumber,
 		); err != nil {
 			return nil, err
 		}

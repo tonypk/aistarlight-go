@@ -7,11 +7,19 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	tele "gopkg.in/telebot.v3"
 
 	"github.com/tonypk/aistarlight-go/internal/repository/sqlc"
 	"github.com/tonypk/aistarlight-go/internal/service"
 )
+
+// ReplyTxnData stores transaction info linked to a bot success message,
+// enabling reply-to correction.
+type ReplyTxnData struct {
+	TxnIDs     []uuid.UUID
+	RefNumbers []int32
+}
 
 // Bot wraps the Telegram bot and its dependencies.
 type Bot struct {
@@ -28,7 +36,6 @@ type Bot struct {
 	projects     []string // configurable project tags (from BOT_PROJECTS env)
 	pendingEdits sync.Map // map[int64]uuid.UUID — telegram user ID → batch ID awaiting edit
 	pendingForex sync.Map // map[int64]*ForexPending — telegram user ID → forex exchange state
-	pendingNotes sync.Map // map[int64]*ReceiptPendingNote — telegram user ID → awaiting note input
 	receiptNotes sync.Map // map[uuid.UUID]string — batch ID → user note
 
 	// Auto-learning: store original OCR results before user edits.
@@ -39,6 +46,9 @@ type Bot struct {
 
 	// Custom category: store pending state when user selects "Other" category.
 	pendingCustomCategory sync.Map // map[int64]*CustomCategoryPending — telegram user ID → pending state
+
+	// Reply-to correction: maps "chatID:msgID" → ReplyTxnData for reply-based editing.
+	replyTxnMap sync.Map // map[string]*ReplyTxnData
 }
 
 // New creates and configures a new Telegram Bot.

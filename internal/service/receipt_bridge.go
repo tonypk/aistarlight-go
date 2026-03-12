@@ -205,6 +205,11 @@ func (b *ReceiptBridge) createTransactionFromReceipt(ctx context.Context, compan
 		return nil, fmt.Errorf("create transaction: %w", err)
 	}
 
+	var refNum int32
+	if dbTxn.RefNumber != nil {
+		refNum = *dbTxn.RefNumber
+	}
+
 	txn := &domain.Transaction{
 		ID:                   dbTxn.ID,
 		CompanyID:            dbTxn.CompanyID,
@@ -221,6 +226,7 @@ func (b *ReceiptBridge) createTransactionFromReceipt(ctx context.Context, compan
 		ClassificationSource: dbTxn.ClassificationSource,
 		MatchStatus:          dbTxn.MatchStatus,
 		Description:          &desc,
+		RefNumber:            refNum,
 		CreatedAt:            dbTxn.CreatedAt,
 		UpdatedAt:            dbTxn.UpdatedAt,
 	}

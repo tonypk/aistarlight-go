@@ -268,7 +268,7 @@ func (b *Bot) handleForexConfirm(c tele.Context) error {
 
 	submittedByPg := pgtype.UUID{Bytes: tgUser.UserID, Valid: true}
 
-	_, err = b.q.CreateTransaction(ctx, sqlc.CreateTransactionParams{
+	dbTxn, err := b.q.CreateTransaction(ctx, sqlc.CreateTransactionParams{
 		ID:                   uuid.New(),
 		CompanyID:            tgUser.CompanyID,
 		SessionID:            sessionID,
@@ -297,8 +297,14 @@ func (b *Bot) handleForexConfirm(c tele.Context) error {
 		return nil
 	}
 
-	reply := formatForexReply(pending, jCfg.CurrencySymbol, projectTag)
-	_, _ = b.B.Edit(c.Message(), reply)
+	var refNum int32
+	if dbTxn.RefNumber != nil {
+		refNum = *dbTxn.RefNumber
+	}
+
+	reply := formatForexReply(pending, jCfg.CurrencySymbol, projectTag, refNum)
+	msg, _ := b.B.Edit(c.Message(), reply)
+	b.storeReplyMapping(c.Chat().ID, msg, []uuid.UUID{dbTxn.ID}, []int32{refNum})
 	return nil
 }
 
@@ -383,9 +389,13 @@ func formatForexPreview(p *ForexPending, currencySymbol, projectTag string) stri
 }
 
 // formatForexReply builds the final "Exchange Recorded" message.
-func formatForexReply(p *ForexPending, currencySymbol, projectTag string) string {
+func formatForexReply(p *ForexPending, currencySymbol, projectTag string, refNumber int32) string {
 	var lines []string
-	lines = append(lines, "Exchange Recorded")
+	if refNumber > 0 {
+		lines = append(lines, fmt.Sprintf("Exchange Recorded #TXN-%d", refNumber))
+	} else {
+		lines = append(lines, "Exchange Recorded")
+	}
 	lines = append(lines, fmt.Sprintf("%s USDT → %s%s",
 		addCommas(p.FromAmount.StringFixed(2)),
 		currencySymbol,

@@ -35,6 +35,7 @@ type Transaction struct {
 	ExchangeRate         *decimal.Decimal `json:"exchange_rate,omitempty"`
 	FromAmount           *decimal.Decimal `json:"from_amount,omitempty"`
 	SubmittedBy          *uuid.UUID       `json:"submitted_by,omitempty"`
+	RefNumber            int32            `json:"ref_number"`
 	CreatedAt            time.Time        `json:"created_at"`
 	UpdatedAt            time.Time        `json:"updated_at"`
 }

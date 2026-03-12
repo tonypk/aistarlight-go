@@ -533,6 +533,7 @@ type Transaction struct {
 	ExchangeRate         pgtype.Numeric `json:"exchange_rate"`
 	FromAmount           pgtype.Numeric `json:"from_amount"`
 	SubmittedBy          pgtype.UUID    `json:"submitted_by"`
+	RefNumber            *int32         `json:"ref_number"`
 }
 
 type User struct {

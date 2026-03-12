@@ -606,9 +606,13 @@ func (s *ChatService) buildMessages(history []domain.ChatMessage, userMessage st
 	// History is in DESC order from DB, reverse it
 	for i := len(history) - 1; i >= start; i-- {
 		msg := history[i]
+		content := msg.Content
+		if content == "" {
+			content = " " // OpenAI rejects null/empty content
+		}
 		messages = append(messages, oai.ChatCompletionMessage{
 			Role:    msg.Role,
-			Content: msg.Content,
+			Content: content,
 		})
 	}
 

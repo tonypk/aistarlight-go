@@ -2,6 +2,7 @@ package bot
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -31,16 +32,20 @@ func (b *Bot) handleText(c tele.Context) error {
 		return nil
 	}
 
+	// Check for reply-to correction (user replies to a "Receipt Recorded" message).
+	if c.Message().ReplyTo != nil {
+		key := fmt.Sprintf("%d:%d", c.Chat().ID, c.Message().ReplyTo.ID)
+		if raw, ok := b.replyTxnMap.LoadAndDelete(key); ok {
+			b.pendingEdits.Delete(c.Sender().ID) // clear any stale pending edit
+			return b.handleTransactionCorrection(c, raw.(*ReplyTxnData), text)
+		}
+	}
+
 	// Check for pending receipt edit reply.
 	if rawBatchID, ok := b.pendingEdits.LoadAndDelete(c.Sender().ID); ok {
 		if batchID, ok := rawBatchID.(uuid.UUID); ok {
 			return b.handleReceiptEditReply(c, batchID, text)
 		}
-	}
-
-	// Check for pending receipt note input.
-	if b.handleReceiptNoteInput(c, text) {
-		return nil
 	}
 
 	// Check for pending custom category input.

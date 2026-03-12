@@ -194,13 +194,13 @@ func (b *Bot) processReceipt(c tele.Context, fileID string, instruction string) 
 
 	preview := formatReceiptPreview(results[0], jCfg.CurrencySymbol, uploaderName, "")
 
-	// If projects are configured, show project selection first; otherwise prompt for note.
+	// Show project selection or category selection directly (skip note step).
 	if len(b.projects) > 0 {
 		markup := projectSelectionMarkup(batch.ID, b.projects)
 		_, _ = b.B.Edit(processing, preview+"\n\nPlease select a project:", markup)
 	} else {
-		b.pendingNotes.Store(c.Sender().ID, &ReceiptPendingNote{BatchID: batch.ID})
-		_, _ = b.B.Edit(processing, preview+"\n\nAdd a note/description (type '-' to skip):")
+		markup := categorySelectionMarkup(batch.ID, "", receiptCategories)
+		_, _ = b.B.Edit(processing, preview+"\n\nSelect a category:", markup)
 	}
 
 	// Start timeout goroutine.

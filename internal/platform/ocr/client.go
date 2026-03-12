@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/tonypk/aistarlight-go/internal/service"
@@ -31,8 +33,47 @@ func NewClient(baseURL string) *Client {
 	}
 }
 
+// isRetryableError returns true for errors caused by OCR service restart (EOF, connection refused).
+func isRetryableError(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "EOF") ||
+		strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "connection reset")
+}
+
 // ExtractText sends an image to the OCR service and returns parsed text.
+// Retries up to 3 times on transient errors (EOF / connection refused) to handle OCR restarts.
 func (c *Client) ExtractText(ctx context.Context, imagePath string) (*service.OCRResult, error) {
+	const maxRetries = 3
+
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			// Wait for OCR service to come back up after OOM restart.
+			delay := time.Duration(attempt*5) * time.Second
+			slog.Info("retrying OCR request", "attempt", attempt, "delay", delay, "last_error", lastErr)
+			select {
+			case <-time.After(delay):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+
+		result, err := c.doExtractText(ctx, imagePath)
+		if err == nil {
+			return result, nil
+		}
+		lastErr = err
+
+		if !isRetryableError(err) {
+			return nil, err
+		}
+	}
+	return nil, lastErr
+}
+
+// doExtractText performs a single OCR request.
+func (c *Client) doExtractText(ctx context.Context, imagePath string) (*service.OCRResult, error) {
 	f, err := os.Open(imagePath)
 	if err != nil {
 		return nil, fmt.Errorf("open image: %w", err)

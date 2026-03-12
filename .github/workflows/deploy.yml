@@ -1,0 +1,33 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GCE via SSH
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.GCE_HOST }}
+          username: ${{ secrets.GCE_USER }}
+          key: ${{ secrets.GCE_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            COMPOSE="sudo docker compose --project-directory /home/anna/aistarlight-go -p aistarlight -f /home/anna/aistarlight-go/docker-compose.prod.yml"
+
+            # Pull latest backend code
+            sudo -u anna bash -c 'cd /home/anna/aistarlight-go && git pull origin main'
+
+            # Run migrations
+            $COMPOSE run --rm migrate
+
+            # Rebuild and restart services
+            $COMPOSE up -d --build api worker bot
+
+            # Restart nginx to pick up new container IPs
+            $COMPOSE restart nginx
+
+            echo "Backend deploy complete: $(date)"

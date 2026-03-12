@@ -16,18 +16,18 @@ jobs:
           key: ${{ secrets.GCE_SSH_KEY }}
           script: |
             set -euo pipefail
-            COMPOSE="sudo docker compose --project-directory /home/anna/aistarlight-go -p aistarlight -f /home/anna/aistarlight-go/docker-compose.prod.yml"
+            cd /home/anna/aistarlight-go
 
             # Pull latest backend code
-            sudo -u anna bash -c 'cd /home/anna/aistarlight-go && git pull origin main'
+            sudo -u anna git pull origin main
 
             # Run migrations
-            $COMPOSE run --rm migrate
+            sudo docker compose -f docker-compose.prod.yml run --rm migrate
 
             # Rebuild and restart services
-            $COMPOSE up -d --build api worker bot
+            sudo docker compose -f docker-compose.prod.yml up -d --build api worker bot
 
             # Restart nginx to pick up new container IPs
-            $COMPOSE restart nginx
+            sudo docker compose -f docker-compose.prod.yml restart nginx
 
             echo "Backend deploy complete: $(date)"

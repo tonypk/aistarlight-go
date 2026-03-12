@@ -47,6 +47,9 @@ type Bot struct {
 	// Custom category: store pending state when user selects "Other" category.
 	pendingCustomCategory sync.Map // map[int64]*CustomCategoryPending — telegram user ID → pending state
 
+	// Custom amount: store pending state when user clicks "Other amount" in amount picker.
+	pendingCustomAmount sync.Map // map[int64]*CustomAmountPending — telegram user ID → pending state
+
 	// Reply-to correction: maps "chatID:msgID" → ReplyTxnData for reply-based editing.
 	replyTxnMap sync.Map // map[string]*ReplyTxnData
 }
@@ -129,6 +132,7 @@ func (b *Bot) registerHandlers() {
 	b.B.Handle(&btnCancel, b.handleReceiptCancel)
 	b.B.Handle(&btnProject, b.handleProjectSelect)
 	b.B.Handle(&btnAmountSelect, b.handleAmountSelect)
+	b.B.Handle(&btnAmountCustom, b.handleAmountCustom)
 	b.B.Handle(&btnCategory, b.handleCategorySelect)
 
 	// Forex exchange callback handlers.

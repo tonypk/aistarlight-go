@@ -25,8 +25,9 @@ var (
 	btnEdit         = tele.Btn{Unique: "rcpt_ed", Text: "Edit"}
 	btnCancel       = tele.Btn{Unique: "rcpt_no", Text: "Cancel"}
 	btnProject      = tele.Btn{Unique: "rcpt_pj", Text: "Project"}
-	btnAmountSelect = tele.Btn{Unique: "rcpt_am", Text: "Amount"}
-	btnCategory     = tele.Btn{Unique: "rcpt_ct", Text: "Category"}
+	btnAmountSelect       = tele.Btn{Unique: "rcpt_am", Text: "Amount"}
+	btnAmountCustom       = tele.Btn{Unique: "rcpt_ac", Text: "Other amount"}
+	btnCategory           = tele.Btn{Unique: "rcpt_ct", Text: "Category"}
 )
 
 // Default expense categories for receipt classification.
@@ -38,6 +39,11 @@ const confirmationTimeout = 5 * time.Minute
 type CustomCategoryPending struct {
 	BatchID    uuid.UUID
 	ProjectTag string
+}
+
+// CustomAmountPending tracks the state when waiting for a user to type a custom amount.
+type CustomAmountPending struct {
+	BatchID uuid.UUID
 }
 
 // callbackData encodes batchID + optional projectTag into callback data.
@@ -660,7 +666,10 @@ func amountSelectionMarkup(batchID uuid.UUID, amounts []service.DetectedAmount, 
 			Data:   fmt.Sprintf("%s|%d", batchID.String(), i),
 		}))
 	}
-	// Add cancel button.
+	// Add "Other amount" and Cancel buttons.
+	rows = append(rows, markup.Row(
+		tele.Btn{Unique: btnAmountCustom.Unique, Text: "Other amount / 自定义金额", Data: batchID.String()},
+	))
 	rows = append(rows, markup.Row(
 		tele.Btn{Unique: btnCancel.Unique, Text: "Cancel", Data: batchID.String()},
 	))
@@ -746,6 +755,108 @@ func (b *Bot) handleAmountSelect(c tele.Context) error {
 	}
 
 	return nil
+}
+
+// handleAmountCustom handles the "Other amount" button click in the amount selection keyboard.
+// It prompts the user to type a custom amount.
+func (b *Bot) handleAmountCustom(c tele.Context) error {
+	batchID, err := uuid.Parse(c.Data())
+	if err != nil {
+		return c.Respond(&tele.CallbackResponse{Text: "Invalid batch ID."})
+	}
+
+	_ = c.Respond(&tele.CallbackResponse{Text: "Enter custom amount"})
+
+	b.pendingCustomAmount.Store(c.Sender().ID, &CustomAmountPending{BatchID: batchID})
+
+	_, _ = b.B.Edit(c.Message(), c.Message().Text+"\n\nPlease type the amount (e.g. 1500.00 or 1500):\n请输入金额（例如 1500.00）：")
+	return nil
+}
+
+// handleCustomAmountInput processes user text when they clicked "Other amount".
+// Returns true if the message was consumed.
+func (b *Bot) handleCustomAmountInput(c tele.Context, text string) bool {
+	raw, ok := b.pendingCustomAmount.LoadAndDelete(c.Sender().ID)
+	if !ok {
+		return false
+	}
+	pending, ok := raw.(*CustomAmountPending)
+	if !ok {
+		return false
+	}
+
+	// Parse the amount from user input (strip currency symbols, commas, spaces).
+	cleaned := strings.NewReplacer(
+		"₱", "", "PHP", "", "P", "",
+		"S$", "", "SGD", "",
+		"Rs", "", "LKR", "",
+		",", "", " ", "",
+	).Replace(strings.TrimSpace(text))
+
+	amount, err := strconv.ParseFloat(cleaned, 64)
+	if err != nil || amount <= 0 {
+		_ = c.Send("Invalid amount. Please type a number (e.g. 1500.00):\n金额无效，请输入数字（例如 1500.00）：")
+		b.pendingCustomAmount.Store(c.Sender().ID, pending) // re-store for retry
+		return true
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	batch, err := b.q.GetReceiptBatchByID(ctx, pending.BatchID)
+	if err != nil {
+		_ = c.Send("Batch not found. Please send a new receipt.")
+		return true
+	}
+
+	tgUser, err := b.q.GetTelegramUser(ctx, c.Sender().ID)
+	if err != nil || tgUser.CompanyID != batch.CompanyID {
+		_ = c.Send("Unauthorized.")
+		return true
+	}
+
+	if batch.Status != "pending_confirmation" {
+		_ = c.Send("This receipt has already been processed.")
+		return true
+	}
+
+	var results []service.ReceiptResult
+	if err := json.Unmarshal(batch.Results, &results); err != nil || len(results) == 0 {
+		_ = c.Send("Failed to load receipt data.")
+		return true
+	}
+
+	// Apply custom amount.
+	results[0].Parsed.TotalAmount = service.ParsedField{Value: amount, Confidence: 1.0}
+	results[0].OverallConfidence = service.AverageConfidence(results[0].Parsed)
+
+	resultsJSON, _ := json.Marshal(results)
+	_ = b.q.UpdateReceiptBatch(ctx, sqlc.UpdateReceiptBatchParams{
+		ID:      batch.ID,
+		Status:  "pending_confirmation",
+		Results: resultsJSON,
+	})
+
+	company, compErr := b.q.GetCompanyByID(ctx, tgUser.CompanyID)
+	jurisdictionCode := "PH"
+	if compErr == nil {
+		jurisdictionCode = company.Jurisdiction
+	}
+	jCfg := jurisdiction.Get(jurisdictionCode)
+
+	uploaderName := senderDisplayName(c.Sender())
+	preview := formatReceiptPreview(results[0], jCfg.CurrencySymbol, uploaderName, "")
+
+	// Proceed to project selection or category selection.
+	if len(b.projects) > 0 {
+		markup := projectSelectionMarkup(batch.ID, b.projects)
+		_ = c.Send(preview+"\n\nPlease select a project:", markup)
+	} else {
+		markup := categorySelectionMarkup(batch.ID, "", receiptCategories)
+		_ = c.Send(preview+"\n\nSelect a category:", markup)
+	}
+
+	return true
 }
 
 // receiptTimeout cancels a pending receipt after the timeout duration.

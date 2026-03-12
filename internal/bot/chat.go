@@ -53,6 +53,11 @@ func (b *Bot) handleText(c tele.Context) error {
 		return nil
 	}
 
+	// Check for pending custom amount input.
+	if b.handleCustomAmountInput(c, text) {
+		return nil
+	}
+
 	// Check for pending forex exchange input.
 	if b.handleForexInput(c, text) {
 		return nil

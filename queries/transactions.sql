@@ -180,11 +180,13 @@ LIMIT 10000;
 -- name: ListCompanyTransactionsFiltered :many
 SELECT t.*,
   COALESCE(NULLIF(u.full_name, ''), tu.full_name, tu.username, u.email) AS submitted_by_name,
-  rb.image_path AS receipt_image_path
+  rb.image_path AS receipt_image_path,
+  je.entry_number AS journal_entry_number
 FROM transactions t
 LEFT JOIN users u ON t.submitted_by = u.id
 LEFT JOIN telegram_users tu ON tu.user_id = t.submitted_by
 LEFT JOIN receipt_batches rb ON t.source_file_id = rb.id::text AND t.source_type = 'receipt'
+LEFT JOIN journal_entries je ON t.journal_entry_id = je.id
 WHERE t.company_id = $1
   AND ($4::varchar = '' OR $4::varchar IS NULL OR t.source_type = $4)
   AND ($5::varchar = '' OR $5::varchar IS NULL OR t.category = $5)

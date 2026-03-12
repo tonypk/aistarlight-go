@@ -68,6 +68,8 @@ type TransactionResponse struct {
 	SubmittedBy          *string  `json:"submitted_by,omitempty"`
 	SubmittedByName      *string  `json:"submitted_by_name,omitempty"`
 	ReceiptImageURL      *string  `json:"receipt_image_url,omitempty"`
+	JournalEntryID       *string  `json:"journal_entry_id,omitempty"`
+	JournalEntryNum      *int32   `json:"journal_entry_num,omitempty"`
 }
 
 // AnomalyResponse is the API response for an anomaly.
@@ -837,6 +839,14 @@ func filteredTxnToResponse(t sqlc.ListCompanyTransactionsFilteredRow, baseURL st
 	if baseURL != "" && t.SourceType == "receipt" && t.SourceFileID != "" {
 		url := fmt.Sprintf("%s/receipts/%s/%s.jpg", baseURL, t.CompanyID.String(), t.SourceFileID)
 		resp.ReceiptImageURL = &url
+	}
+	// Journal entry link
+	if t.JournalEntryID.Valid {
+		id := uuid.UUID(t.JournalEntryID.Bytes).String()
+		resp.JournalEntryID = &id
+	}
+	if t.JournalEntryNumber != nil {
+		resp.JournalEntryNum = t.JournalEntryNumber
 	}
 	return resp
 }

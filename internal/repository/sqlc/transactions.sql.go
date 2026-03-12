@@ -699,11 +699,13 @@ func (q *Queries) ListAllTransactionsBySession(ctx context.Context, sessionID uu
 const listCompanyTransactionsFiltered = `-- name: ListCompanyTransactionsFiltered :many
 SELECT t.id, t.company_id, t.session_id, t.source_type, t.source_file_id, t.row_index, t.date, t.description, t.amount, t.vat_amount, t.vat_type, t.category, t.tin, t.confidence, t.classification_source, t.raw_data, t.match_group_id, t.match_status, t.ewt_rate, t.ewt_amount, t.atc_code, t.supplier_id, t.created_at, t.updated_at, t.journal_entry_id, t.project_tag, t.from_currency, t.to_currency, t.exchange_rate, t.from_amount, t.submitted_by,
   COALESCE(NULLIF(u.full_name, ''), tu.full_name, tu.username, u.email) AS submitted_by_name,
-  rb.image_path AS receipt_image_path
+  rb.image_path AS receipt_image_path,
+  je.entry_number AS journal_entry_number
 FROM transactions t
 LEFT JOIN users u ON t.submitted_by = u.id
 LEFT JOIN telegram_users tu ON tu.user_id = t.submitted_by
 LEFT JOIN receipt_batches rb ON t.source_file_id = rb.id::text AND t.source_type = 'receipt'
+LEFT JOIN journal_entries je ON t.journal_entry_id = je.id
 WHERE t.company_id = $1
   AND ($4::varchar = '' OR $4::varchar IS NULL OR t.source_type = $4)
   AND ($5::varchar = '' OR $5::varchar IS NULL OR t.category = $5)
@@ -759,6 +761,7 @@ type ListCompanyTransactionsFilteredRow struct {
 	SubmittedBy          pgtype.UUID    `json:"submitted_by"`
 	SubmittedByName      string         `json:"submitted_by_name"`
 	ReceiptImagePath     *string        `json:"receipt_image_path"`
+	JournalEntryNumber   *int32         `json:"journal_entry_number"`
 }
 
 func (q *Queries) ListCompanyTransactionsFiltered(ctx context.Context, arg ListCompanyTransactionsFilteredParams) ([]ListCompanyTransactionsFilteredRow, error) {
@@ -813,6 +816,7 @@ func (q *Queries) ListCompanyTransactionsFiltered(ctx context.Context, arg ListC
 			&i.SubmittedBy,
 			&i.SubmittedByName,
 			&i.ReceiptImagePath,
+			&i.JournalEntryNumber,
 		); err != nil {
 			return nil, err
 		}

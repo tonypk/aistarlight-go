@@ -360,14 +360,25 @@ var nonTotalPrefixes = []string{
 	"SUBTOTAL", "SUB TOTAL", "SUB-TOTAL",
 	"DISCOUNT", "CASH", "CHANGE", "TENDERED",
 	"NO. OF ITEMS", "NUMBER OF ITEMS", "QTY",
+	// Chinese non-total terms (cashier / change / received).
+	"实收", "找零", "已收", "收银", "找赎",
 }
 
 // isNonTotalLine returns true when the line contains a label like "TOTAL" but is
 // actually a non-total line (e.g. "SERVICE CHARGE TOTAL").
+// genericTotalLabels are labels that are short / generic enough to warrant
+// non-total prefix exclusion (e.g. a line "实收 TOTAL 500" should be rejected).
+var genericTotalLabels = map[string]bool{
+	"TOTAL": true, "NET AMOUNT": true,
+	// Chinese generic labels (short, easily confused).
+	"支付": true, "付款": true, "应付": true,
+	"合计": true, "总计": true, "消费": true,
+}
+
 func isNonTotalLine(upper, matchedLabel string) bool {
 	// Only apply the exclusion when the matched label is generic (e.g. "TOTAL").
 	// Specific labels like "GRAND TOTAL" or "TOTAL AMOUNT" are safe.
-	if matchedLabel != "TOTAL" && matchedLabel != "NET AMOUNT" {
+	if !genericTotalLabels[matchedLabel] {
 		return false
 	}
 	for _, prefix := range nonTotalPrefixes {
@@ -413,9 +424,10 @@ func extractLabeledAmount(lines []string, labels []string, confidence float64, a
 // allAmountLabels defines all possible receipt amount labels across jurisdictions.
 // The order defines priority: earlier entries are more likely to be the "correct" total.
 var allAmountLabels = []struct {
-	Label        string
+	Label         string
 	IsLikelyTotal bool
 }{
+	// English total labels (high priority).
 	{"NET TOTAL", true},
 	{"NET AMOUNT", true},
 	{"TOTAL AMOUNT", true},
@@ -428,6 +440,16 @@ var allAmountLabels = []struct {
 	{"TOTAL (SGD)", true},
 	{"TOTAL (LKR)", true},
 	{"TOTAL", true},
+	// Chinese total labels — payment / total terms.
+	{"总金额", true},
+	{"总数", true},
+	{"支付", true},
+	{"付款", true},
+	{"应付", true},
+	{"合计", true},
+	{"总计", true},
+	{"消费", true},
+	// English non-total labels.
 	{"SUBTOTAL", false},
 	{"SUB TOTAL", false},
 	{"SUB-TOTAL", false},
@@ -446,6 +468,13 @@ var allAmountLabels = []struct {
 	{"18% VAT", false},
 	{"SERVICE CHARGE", false},
 	{"DELIVERY FEE", false},
+	// Chinese non-total labels — received / change / subtotal.
+	{"实收", false},
+	{"找零", false},
+	{"已收", false},
+	{"小计", false},
+	{"折扣", false},
+	{"找赎", false},
 }
 
 // containsLabelWord checks if text contains label as a word (not as a substring of another word).

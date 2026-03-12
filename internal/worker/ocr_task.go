@@ -27,6 +27,7 @@ func (s *Server) handleOCRProcess(ctx context.Context, t *asynq.Task) error {
 		ctx, p.CompanyID, p.UserID,
 		p.ImagePaths, p.Period, p.ReportType,
 		"", // jurisdictionCode: uses company default (PH)
+		"", // hint: no user caption in async worker
 	)
 	if err != nil {
 		return s.failTask(ctx, p.TaskID, fmt.Errorf("process batch: %w", err))

@@ -77,7 +77,8 @@ type ReceiptResult struct {
 
 // ProcessBatch processes a batch of receipt images.
 // jurisdictionCode determines country-specific parsing rules (defaults to "PH").
-func (s *ReceiptService) ProcessBatch(ctx context.Context, companyID, userID uuid.UUID, imagePaths []string, period, reportType, jurisdictionCode string) (*sqlc.ReceiptBatch, []ReceiptResult, error) {
+// hint is an optional user instruction/caption that can trigger app screenshot detection.
+func (s *ReceiptService) ProcessBatch(ctx context.Context, companyID, userID uuid.UUID, imagePaths []string, period, reportType, jurisdictionCode, hint string) (*sqlc.ReceiptBatch, []ReceiptResult, error) {
 	jCfg := jurisdiction.Get(jurisdictionCode)
 	if reportType == "" {
 		reportType = jCfg.DefaultReport
@@ -103,7 +104,7 @@ func (s *ReceiptService) ProcessBatch(ctx context.Context, companyID, userID uui
 	processedCount := 0
 
 	for _, path := range imagePaths {
-		imageResults := s.processOneImage(ctx, path, jCfg)
+		imageResults := s.processOneImage(ctx, path, jCfg, hint)
 		results = append(results, imageResults...)
 		for _, r := range imageResults {
 			if r.Error == "" {
@@ -177,7 +178,7 @@ func (s *ReceiptService) ListBatches(ctx context.Context, companyID uuid.UUID, l
 	return batches, total, nil
 }
 
-func (s *ReceiptService) processOneImage(ctx context.Context, imagePath string, jCfg jurisdiction.Config) []ReceiptResult {
+func (s *ReceiptService) processOneImage(ctx context.Context, imagePath string, jCfg jurisdiction.Config, hint string) []ReceiptResult {
 	if s.ocr == nil {
 		return []ReceiptResult{{Filename: imagePath, Error: "OCR service not configured"}}
 	}
@@ -188,7 +189,7 @@ func (s *ReceiptService) processOneImage(ctx context.Context, imagePath string, 
 	}
 
 	// Check for ride-hailing app screenshot (Uber/Grab multi-trip).
-	if appType := isAppScreenshot(ocrResult.Text); appType != "" {
+	if appType := isAppScreenshot(ocrResult.Text, hint); appType != "" {
 		trips := parseAppTrips(ocrResult.Lines, appType, jCfg)
 		if len(trips) > 0 {
 			// Set filename on all trip results.

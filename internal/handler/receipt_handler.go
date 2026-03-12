@@ -128,6 +128,7 @@ func (h *ReceiptHandler) Upload(c *gin.Context) {
 		period,
 		reportType,
 		jurisdictionCode,
+		"", // hint: not available from API
 	)
 	if err != nil {
 		slog.Error("process receipt batch", "error", err)
@@ -222,6 +223,7 @@ func (h *ReceiptHandler) UploadJSON(c *gin.Context) {
 		req.Period,
 		req.ReportType,
 		jCode,
+		"", // hint: not available from API
 	)
 	if err != nil {
 		slog.Error("process receipt batch", "error", err)

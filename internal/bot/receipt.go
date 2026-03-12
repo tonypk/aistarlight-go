@@ -119,7 +119,7 @@ func (b *Bot) processReceipt(c tele.Context, fileID string, instruction string) 
 	period := time.Now().UTC().Format("2006-01")
 
 	// Phase 1: OCR only
-	batch, results, err := b.receipt.ProcessBatch(ctx, tgUser.CompanyID, tgUser.UserID, []string{localPath}, period, jCfg.DefaultReport, jurisdictionCode)
+	batch, results, err := b.receipt.ProcessBatch(ctx, tgUser.CompanyID, tgUser.UserID, []string{localPath}, period, jCfg.DefaultReport, jurisdictionCode, instruction)
 	if err != nil {
 		_ = os.Remove(localPath)
 		slog.Error("receipt processing failed", "error", err)

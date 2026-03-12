@@ -9,11 +9,33 @@ import (
 
 // isAppScreenshot detects whether OCR text is from a ride-hailing app screenshot.
 // Returns "uber", "grab", or "" (not a ride-hailing screenshot).
-func isAppScreenshot(text string) string {
+// hint is an optional user-provided caption/instruction (e.g., "uber", "打车").
+func isAppScreenshot(text string, hint string) string {
 	lower := strings.ToLower(text)
+	hintLower := strings.ToLower(hint)
 
-	uberKeywords := []string{"uber", "uberx", "uber comfort", "uber black", "trip fare", "uber pool", "uber xl"}
-	grabKeywords := []string{"grabcar", "justgrab", "grabpay", "grab car", "grab ride", "grabbike"}
+	// User explicitly said "uber" or "grab" in caption — trust them.
+	if strings.Contains(hintLower, "uber") || strings.Contains(hintLower, "打车") {
+		return "uber"
+	}
+	if strings.Contains(hintLower, "grab") {
+		return "grab"
+	}
+
+	// Uber keywords: English app text + Chinese localized UI.
+	uberKeywords := []string{
+		"uber", "uberx", "uber comfort", "uber black", "trip fare",
+		"uber pool", "uber xl", "uber moto",
+		// Chinese Uber app UI elements.
+		"重新预约", // "Rebook" button (very Uber-specific)
+		"行程费用",  // "Trip fare"
+	}
+
+	// Grab keywords.
+	grabKeywords := []string{
+		"grabcar", "justgrab", "grabpay", "grab car", "grab ride",
+		"grabbike", "grabfood",
+	}
 
 	uberScore := 0
 	for _, kw := range uberKeywords {
@@ -21,7 +43,6 @@ func isAppScreenshot(text string) string {
 			uberScore++
 		}
 	}
-
 	grabScore := 0
 	for _, kw := range grabKeywords {
 		if strings.Contains(lower, kw) {
@@ -29,16 +50,24 @@ func isAppScreenshot(text string) string {
 		}
 	}
 
-	// Also check the bare "grab" and "uber" names, but only score +1
-	// to avoid false positives from random text containing these words.
-	if strings.Contains(lower, "grab") {
-		grabScore++
-	}
+	// Bare name check (+1 each).
 	if strings.Contains(lower, "uber") {
 		uberScore++
 	}
+	if strings.Contains(lower, "grab") {
+		grabScore++
+	}
 
-	// Need at least 2 keyword hits to be confident it's a ride-hailing screenshot.
+	// Chinese activity page heuristic: "活动" (Activity tab) + "重新预约" is strong Uber signal.
+	// Also match pattern: "活动" header + multiple LKR/₱ amounts = trip list.
+	if strings.Contains(lower, "活动") {
+		// "活动" alone is generic, but combined with ride-hailing UI elements it's strong.
+		if strings.Contains(lower, "重新预约") || strings.Contains(lower, "主页") {
+			uberScore += 2
+		}
+	}
+
+	// Need at least 2 keyword hits to be confident.
 	if uberScore >= 2 && uberScore >= grabScore {
 		return "uber"
 	}
@@ -49,21 +78,23 @@ func isAppScreenshot(text string) string {
 	return ""
 }
 
-// reAmount matches currency amounts like "₱234.00", "P1,500.00", "234.00", "1,500".
-var reAmount = regexp.MustCompile(`(?i)(?:₱|PHP|PhP|Php|P|S\$|SGD|Rs\.?|LKR|රු)?\s*([\d,]+(?:\.\d{2})?)`)
-
-// reDateLine matches common date patterns in trip history.
-var reDateLine = regexp.MustCompile(`(?i)(?:` +
+// reDateTrip matches date patterns common in ride-hailing trip history.
+// Supports: ISO, slash, text month, and Chinese date formats like "2月5日".
+var reDateTrip = regexp.MustCompile(`(?i)(?:` +
 	`\d{4}-\d{2}-\d{2}` + // ISO: 2025-03-12
-	`|\d{1,2}/\d{1,2}/\d{2,4}` + // Slash: 3/12/2025 or 03/12/25
-	`|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*(?:\s+\d{2,4})?` + // 12 Mar 2025, 12 March
+	`|\d{1,2}/\d{1,2}/\d{2,4}` + // Slash: 3/12/2025
+	`|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*(?:\s+\d{2,4})?` + // 12 Mar 2025
 	`|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+\d{1,2}(?:,?\s+\d{2,4})?` + // Mar 12, 2025
+	`|\d{1,2}月\d{1,2}日` + // Chinese: 2月5日
 	`)`)
 
+// reAmountWithCurrency matches currency-prefixed amounts (LKR660.35, ₱234.00, etc.).
+var reAmountWithCurrency = regexp.MustCompile(`(?i)(?:LKR|₱|PHP|P|S\$|SGD|Rs\.?|රු)\s*[\d,]+(?:\.\d{2})?`)
+
 // parseAppTrips parses multiple trip entries from a ride-hailing app screenshot.
-// It scans OCR lines for amount anchors and extracts date + route description for each.
+// It scans OCR lines for currency-amount anchors and extracts date + route for each.
 func parseAppTrips(lines []string, appType string, jCfg jurisdiction.Config) []ReceiptResult {
-	// Build amount regex from jurisdiction config, with fallback to generic pattern.
+	// Build amount regex from jurisdiction config.
 	var amtRe *regexp.Regexp
 	if len(jCfg.AmountPatterns) > 0 {
 		amtRe = regexp.MustCompile(jCfg.AmountPatterns[0])
@@ -76,13 +107,17 @@ func parseAppTrips(lines []string, appType string, jCfg jurisdiction.Config) []R
 		amount  float64
 	}
 
-	// Phase 1: find all amount-bearing lines.
+	// Phase 1: find all amount-bearing lines (must have currency prefix to avoid noise).
 	var anchors []tripAnchor
 	for i, line := range lines {
-		amt := extractAmountFromLine(line, amtRe)
+		trimmed := strings.TrimSpace(line)
+		// Require currency-prefixed amount to filter out random numbers (times, battery %).
+		if !reAmountWithCurrency.MatchString(trimmed) {
+			continue
+		}
+		amt := extractAmountFromLine(trimmed, amtRe)
 		if amt <= 0 {
-			// Try generic pattern.
-			amt = extractAmountFromLine(line, nil)
+			amt = extractAmountFromLine(trimmed, nil)
 		}
 		if amt > 0 {
 			anchors = append(anchors, tripAnchor{lineIdx: i, amount: amt})
@@ -96,7 +131,6 @@ func parseAppTrips(lines []string, appType string, jCfg jurisdiction.Config) []R
 	// Phase 2: for each anchor, look backward for date and route description.
 	var results []ReceiptResult
 	for idx, anchor := range anchors {
-		// Determine search window: from previous anchor (or start) to current anchor.
 		startLine := 0
 		if idx > 0 {
 			startLine = anchors[idx-1].lineIdx + 1
@@ -109,17 +143,20 @@ func parseAppTrips(lines []string, appType string, jCfg jurisdiction.Config) []R
 			if line == "" {
 				continue
 			}
-			// Try to extract a date.
+			// Skip UI noise (navigation labels, buttons).
+			if isUINoiseTrip(line) {
+				continue
+			}
+			// Try to extract a date (including Chinese format "2月5日").
 			if date == "" {
-				if m := reDateLine.FindString(line); m != "" {
+				if m := reDateTrip.FindString(line); m != "" {
 					date = m
 					continue
 				}
 			}
-			// Non-amount, non-date lines before the anchor are route descriptions.
+			// Non-amount, non-date lines above the anchor = route/destination.
 			if route == "" && j != anchor.lineIdx {
-				// Skip lines that are just amounts or very short.
-				if len(line) > 3 && extractAmountFromLine(line, amtRe) <= 0 {
+				if len(line) > 3 && !reAmountWithCurrency.MatchString(line) {
 					route = line
 				}
 			}
@@ -135,7 +172,6 @@ func parseAppTrips(lines []string, appType string, jCfg jurisdiction.Config) []R
 			parsed.Date = ParsedField{Value: date, Confidence: 0.85}
 		}
 		if route != "" {
-			// Use route as a description hint — store in vendor name suffix.
 			parsed.VendorName = ParsedField{
 				Value:      vendor + " — " + route,
 				Confidence: 0.90,
@@ -149,6 +185,22 @@ func parseAppTrips(lines []string, appType string, jCfg jurisdiction.Config) []R
 	}
 
 	return results
+}
+
+// isUINoiseTrip returns true for ride-hailing app UI chrome that should be ignored.
+var uiNoisePatterns = []string{
+	"重新预约", "rebook", "主页", "服务", "活动", "账号",
+	"home", "services", "activity", "account",
+}
+
+func isUINoiseTrip(line string) bool {
+	lower := strings.ToLower(strings.TrimSpace(line))
+	for _, p := range uiNoisePatterns {
+		if lower == p || lower == strings.ToLower(p) {
+			return true
+		}
+	}
+	return false
 }
 
 // defaultVATType returns the first VAT type from jurisdiction config.

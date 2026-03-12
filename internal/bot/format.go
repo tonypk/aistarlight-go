@@ -241,6 +241,124 @@ func formatAmountSelectionPreview(result service.ReceiptResult, currencySymbol, 
 	return strings.Join(lines, "\n")
 }
 
+// formatMultiTripPreview formats a preview for multiple trips detected from a single screenshot.
+func formatMultiTripPreview(results []service.ReceiptResult, currencySymbol, uploaderName string) string {
+	if len(results) == 0 {
+		return "No trips detected."
+	}
+
+	// Detect app name from vendor of first result.
+	appName := "Ride"
+	if v, ok := results[0].Parsed.VendorName.Value.(string); ok && v != "" {
+		if strings.Contains(strings.ToLower(v), "uber") {
+			appName = "Uber"
+		} else if strings.Contains(strings.ToLower(v), "grab") {
+			appName = "Grab"
+		}
+	}
+
+	var lines []string
+	lines = append(lines, fmt.Sprintf("Receipt Preview — %d %s trips\n", len(results), appName))
+
+	total := decimal.Zero
+	for i, r := range results {
+		amount := decimal.Zero
+		if r.Parsed.TotalAmount.Value != nil {
+			switch v := r.Parsed.TotalAmount.Value.(type) {
+			case float64:
+				amount = decimal.NewFromFloat(v)
+			case string:
+				amount, _ = decimal.NewFromString(v)
+			}
+		}
+		total = total.Add(amount)
+
+		dateStr := ""
+		if r.Parsed.Date.Value != nil {
+			if v, ok := r.Parsed.Date.Value.(string); ok && v != "" {
+				dateStr = v
+			}
+		}
+
+		// Extract route from vendor name (format: "Uber — BGC to Makati").
+		route := ""
+		if v, ok := r.Parsed.VendorName.Value.(string); ok {
+			if idx := strings.Index(v, " — "); idx >= 0 {
+				route = v[idx+len(" — "):]
+			}
+		}
+
+		entry := fmt.Sprintf("%d. %s%s", i+1, currencySymbol, addCommas(amount.StringFixed(2)))
+		if dateStr != "" {
+			entry += " | " + dateStr
+		}
+		if route != "" {
+			entry += " | " + route
+		}
+		lines = append(lines, entry)
+	}
+
+	lines = append(lines, fmt.Sprintf("\nTotal: %s%s", currencySymbol, addCommas(total.StringFixed(2))))
+	lines = append(lines, fmt.Sprintf("Uploaded by: %s", uploaderName))
+
+	return strings.Join(lines, "\n")
+}
+
+// formatMultiTripReply formats the confirmation reply for multiple trips.
+func formatMultiTripReply(results []service.ReceiptResult, currencySymbol string, refNumbers []int32) string {
+	if len(results) == 0 {
+		return "No trips recorded."
+	}
+
+	appName := "Ride"
+	if v, ok := results[0].Parsed.VendorName.Value.(string); ok && v != "" {
+		if strings.Contains(strings.ToLower(v), "uber") {
+			appName = "Uber"
+		} else if strings.Contains(strings.ToLower(v), "grab") {
+			appName = "Grab"
+		}
+	}
+
+	var lines []string
+	total := decimal.Zero
+
+	refs := make([]string, 0, len(refNumbers))
+	for _, r := range refNumbers {
+		refs = append(refs, fmt.Sprintf("#TXN-%d", r))
+	}
+	refLabel := ""
+	if len(refs) > 0 {
+		refLabel = " (" + strings.Join(refs, ", ") + ")"
+	}
+
+	lines = append(lines, fmt.Sprintf("%d %s Trips Recorded%s\n", len(results), appName, refLabel))
+
+	for i, r := range results {
+		amount := decimal.Zero
+		if r.Parsed.TotalAmount.Value != nil {
+			switch v := r.Parsed.TotalAmount.Value.(type) {
+			case float64:
+				amount = decimal.NewFromFloat(v)
+			case string:
+				amount, _ = decimal.NewFromString(v)
+			}
+		}
+		total = total.Add(amount)
+
+		ref := ""
+		if i < len(refNumbers) {
+			ref = fmt.Sprintf(" #TXN-%d", refNumbers[i])
+		}
+
+		entry := fmt.Sprintf("%d. %s%s%s", i+1, currencySymbol, addCommas(amount.StringFixed(2)), ref)
+		lines = append(lines, entry)
+	}
+
+	lines = append(lines, fmt.Sprintf("\nTotal: %s%s", currencySymbol, addCommas(total.StringFixed(2))))
+
+	return strings.Join(lines, "\n")
+}
+
 // addCommas adds thousands separators to a decimal string like "5200.00" -> "5,200.00".
 func addCommas(s string) string {
 	parts := strings.SplitN(s, ".", 2)

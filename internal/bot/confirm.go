@@ -202,7 +202,13 @@ func (b *Bot) handleProjectSelect(c tele.Context) error {
 	jCfg := jurisdiction.Get(jurisdictionCode)
 
 	uploaderName := senderDisplayName(c.Sender())
-	preview := formatReceiptPreview(results[0], jCfg.CurrencySymbol, uploaderName, projectTag)
+	var preview string
+	if len(results) > 1 {
+		preview = formatMultiTripPreview(results, jCfg.CurrencySymbol, uploaderName)
+		preview += fmt.Sprintf("\nProject: %s", projectTag)
+	} else {
+		preview = formatReceiptPreview(results[0], jCfg.CurrencySymbol, uploaderName, projectTag)
+	}
 	preview += "\n\nSelect a category:"
 
 	markup := categorySelectionMarkup(batchID, projectTag, receiptCategories)
@@ -640,7 +646,13 @@ func (b *Bot) confirmAndProcess(ctx context.Context, batch sqlc.ReceiptBatch, tg
 		return "Transaction recorded.", txnIDs, refNumbers, nil
 	}
 
-	reply := formatReceiptReply(results[0], len(txns), classResults, journalEntries, jCfg.CurrencySymbol, refNumbers)
+	// Multi-trip reply for app screenshots (Uber/Grab).
+	var reply string
+	if len(results) > 1 {
+		reply = formatMultiTripReply(results, jCfg.CurrencySymbol, refNumbers)
+	} else {
+		reply = formatReceiptReply(results[0], len(txns), classResults, journalEntries, jCfg.CurrencySymbol, refNumbers)
+	}
 
 	// Append project tag and note to reply.
 	if projectTag != nil && *projectTag != "" {

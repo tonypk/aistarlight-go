@@ -146,6 +146,36 @@ func (b *Bot) processReceipt(c tele.Context, fileID string, instruction string) 
 		_ = os.Remove(localPath)
 	}
 
+	// Multi-trip screenshot (Uber/Grab): skip amount selection, show multi-trip preview.
+	if len(results) > 1 {
+		resultsJSON, _ := json.Marshal(results)
+		_ = b.q.UpdateReceiptBatch(ctx, sqlc.UpdateReceiptBatchParams{
+			ID:        batch.ID,
+			Status:    "pending_confirmation",
+			Results:   resultsJSON,
+			ImagePath: ptrStr(imagePath),
+		})
+
+		if instruction != "" {
+			b.receiptNotes.Store(batch.ID, instruction)
+		}
+
+		uploaderName := senderDisplayName(c.Sender())
+		preview := formatMultiTripPreview(results, jCfg.CurrencySymbol, uploaderName)
+
+		if len(b.projects) > 0 {
+			markup := projectSelectionMarkup(batch.ID, b.projects)
+			_, _ = b.B.Edit(processing, preview+"\n\nPlease select a project:", markup)
+		} else {
+			markup := categorySelectionMarkup(batch.ID, "", receiptCategories)
+			_, _ = b.B.Edit(processing, preview+"\n\nSelect a category:", markup)
+		}
+
+		go b.receiptTimeout(c.Chat().ID, processing.ID, batch.ID)
+		return nil
+	}
+
+	// Single receipt flow.
 	// Apply user instruction to OCR results (e.g., "use net total", "amount: 1500").
 	if instruction != "" && len(results) > 0 {
 		applyInstruction(&results[0], instruction)

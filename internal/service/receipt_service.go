@@ -103,10 +103,12 @@ func (s *ReceiptService) ProcessBatch(ctx context.Context, companyID, userID uui
 	processedCount := 0
 
 	for _, path := range imagePaths {
-		result := s.processOneReceipt(ctx, path, jCfg)
-		results = append(results, result)
-		if result.Error == "" {
-			processedCount++
+		imageResults := s.processOneImage(ctx, path, jCfg)
+		results = append(results, imageResults...)
+		for _, r := range imageResults {
+			if r.Error == "" {
+				processedCount++
+			}
 		}
 	}
 
@@ -175,25 +177,40 @@ func (s *ReceiptService) ListBatches(ctx context.Context, companyID uuid.UUID, l
 	return batches, total, nil
 }
 
-func (s *ReceiptService) processOneReceipt(ctx context.Context, imagePath string, jCfg jurisdiction.Config) ReceiptResult {
-	result := ReceiptResult{Filename: imagePath}
-
+func (s *ReceiptService) processOneImage(ctx context.Context, imagePath string, jCfg jurisdiction.Config) []ReceiptResult {
 	if s.ocr == nil {
-		result.Error = "OCR service not configured"
-		return result
+		return []ReceiptResult{{Filename: imagePath, Error: "OCR service not configured"}}
 	}
 
 	ocrResult, err := s.ocr.ExtractText(ctx, imagePath)
 	if err != nil {
-		result.Error = fmt.Sprintf("OCR failed: %v", err)
-		return result
+		return []ReceiptResult{{Filename: imagePath, Error: fmt.Sprintf("OCR failed: %v", err)}}
 	}
 
-	parsed := parseReceipt(ocrResult.Text, ocrResult.Lines, jCfg)
-	result.Parsed = parsed
-	result.OverallConfidence = AverageConfidence(parsed)
+	// Check for ride-hailing app screenshot (Uber/Grab multi-trip).
+	if appType := isAppScreenshot(ocrResult.Text); appType != "" {
+		trips := parseAppTrips(ocrResult.Lines, appType, jCfg)
+		if len(trips) > 0 {
+			// Set filename on all trip results.
+			for i := range trips {
+				trips[i].Filename = imagePath
+			}
+			slog.Info("app screenshot detected",
+				"app", appType,
+				"trips", len(trips),
+				"image", imagePath,
+			)
+			return trips
+		}
+	}
 
-	return result
+	// Normal receipt processing.
+	parsed := parseReceipt(ocrResult.Text, ocrResult.Lines, jCfg)
+	return []ReceiptResult{{
+		Filename:          imagePath,
+		Parsed:            parsed,
+		OverallConfidence: AverageConfidence(parsed),
+	}}
 }
 
 // Receipt parsing — rule-based extraction

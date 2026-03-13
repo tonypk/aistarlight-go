@@ -33,6 +33,7 @@ type Bot struct {
 	corrections  *service.CorrectionService
 	vendorMemory *service.VendorMemoryService
 	docQuality   *service.DocumentQualityService
+	approvals    *service.ApprovalService
 	uploadDir    string
 	baseURL      string   // public base URL for receipt image links
 	projects     []string // configurable project tags (from BOT_PROJECTS env)
@@ -59,7 +60,7 @@ type Bot struct {
 // New creates and configures a new Telegram Bot.
 // projects is an optional list of project tags for receipt classification.
 // baseURL is the public URL prefix for receipt image links (e.g. https://tax.clawpapa.win).
-func New(token string, q *sqlc.Queries, receipt *service.ReceiptService, bridge *service.ReceiptBridge, journalGen *service.JournalGenerator, classifier *service.ClassifierService, chat *service.ChatService, corrections *service.CorrectionService, vendorMemory *service.VendorMemoryService, docQuality *service.DocumentQualityService, uploadDir string, projects []string, baseURL string) (*Bot, error) {
+func New(token string, q *sqlc.Queries, receipt *service.ReceiptService, bridge *service.ReceiptBridge, journalGen *service.JournalGenerator, classifier *service.ClassifierService, chat *service.ChatService, corrections *service.CorrectionService, vendorMemory *service.VendorMemoryService, docQuality *service.DocumentQualityService, approvals *service.ApprovalService, uploadDir string, projects []string, baseURL string) (*Bot, error) {
 	pref := tele.Settings{
 		Token:  token,
 		Poller: &tele.LongPoller{Timeout: 10 * time.Second},
@@ -81,6 +82,7 @@ func New(token string, q *sqlc.Queries, receipt *service.ReceiptService, bridge 
 		corrections:  corrections,
 		vendorMemory: vendorMemory,
 		docQuality:   docQuality,
+		approvals:    approvals,
 		uploadDir:    uploadDir,
 		baseURL:      baseURL,
 		projects:     projects,
@@ -139,6 +141,10 @@ func (b *Bot) registerHandlers() {
 	b.B.Handle(&btnAmountSelect, b.handleAmountSelect)
 	b.B.Handle(&btnAmountCustom, b.handleAmountCustom)
 	b.B.Handle(&btnCategory, b.handleCategorySelect)
+
+	// Approval callback handlers.
+	b.B.Handle(&btnApprove, b.handleApproveReceipt)
+	b.B.Handle(&btnReject, b.handleRejectReceipt)
 
 	// Forex exchange callback handlers.
 	b.B.Handle(&btnFxConfirm, b.handleForexConfirm)

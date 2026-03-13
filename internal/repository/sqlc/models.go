@@ -179,6 +179,18 @@ type Company struct {
 	Jurisdiction      string      `json:"jurisdiction"`
 }
 
+type CompanyApprovalSetting struct {
+	ID                       uuid.UUID      `json:"id"`
+	CompanyID                uuid.UUID      `json:"company_id"`
+	IsEnabled                bool           `json:"is_enabled"`
+	AmountThreshold          pgtype.Numeric `json:"amount_threshold"`
+	NewVendorReceipts        *int32         `json:"new_vendor_receipts"`
+	RiskFlagsRequireApproval bool           `json:"risk_flags_require_approval"`
+	ApproverUserID           pgtype.UUID    `json:"approver_user_id"`
+	CreatedAt                time.Time      `json:"created_at"`
+	UpdatedAt                time.Time      `json:"updated_at"`
+}
+
 type CompanyMember struct {
 	CompanyID uuid.UUID `json:"company_id"`
 	UserID    uuid.UUID `json:"user_id"`
@@ -374,6 +386,19 @@ type QboSyncLog struct {
 	Status        string             `json:"status"`
 }
 
+type ReceiptApproval struct {
+	ID            uuid.UUID   `json:"id"`
+	BatchID       uuid.UUID   `json:"batch_id"`
+	CompanyID     uuid.UUID   `json:"company_id"`
+	Status        string      `json:"status"`
+	TriggerReason string      `json:"trigger_reason"`
+	RequestedBy   pgtype.UUID `json:"requested_by"`
+	ApprovedBy    pgtype.UUID `json:"approved_by"`
+	Notes         *string     `json:"notes"`
+	CreatedAt     time.Time   `json:"created_at"`
+	UpdatedAt     time.Time   `json:"updated_at"`
+}
+
 type ReceiptBatch struct {
 	ID             uuid.UUID   `json:"id"`
 	CompanyID      uuid.UUID   `json:"company_id"`
@@ -392,6 +417,7 @@ type ReceiptBatch struct {
 	TransactionIds []uuid.UUID `json:"transaction_ids"`
 	ImagePath      *string     `json:"image_path"`
 	ImageHash      *string     `json:"image_hash"`
+	ApprovalStatus *string     `json:"approval_status"`
 }
 
 type ReconciliationSession struct {

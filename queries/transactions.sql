@@ -204,3 +204,25 @@ WHERE t.company_id = $1
   AND ($4::text = '' OR $4::text IS NULL OR t.description ILIKE '%' || $4 || '%')
   AND ($5::date IS NULL OR t.date >= $5)
   AND ($6::date IS NULL OR t.date <= $6);
+
+-- name: GetSpendingSummaryByVendor :many
+SELECT
+  COALESCE(NULLIF(description, ''), 'Unknown')::text AS vendor,
+  COUNT(*) AS count,
+  COALESCE(SUM(amount), 0)::text AS total
+FROM transactions
+WHERE company_id = $1 AND date >= $2 AND date <= $3
+GROUP BY COALESCE(NULLIF(description, ''), 'Unknown')::text
+ORDER BY SUM(amount) DESC NULLS LAST
+LIMIT 20;
+
+-- name: GetTopVendorsByCount :many
+SELECT
+  COALESCE(NULLIF(description, ''), 'Unknown')::text AS vendor,
+  COUNT(*) AS count,
+  COALESCE(SUM(amount), 0)::text AS total
+FROM transactions
+WHERE company_id = $1 AND date >= $2 AND date <= $3
+GROUP BY COALESCE(NULLIF(description, ''), 'Unknown')::text
+ORDER BY count DESC
+LIMIT 10;

@@ -280,6 +280,8 @@ type handlers struct {
 	FinStatement   *handler.FinancialStatementHandler
 	TaxBridge      *handler.TaxBridgeHandler
 	VendorPolicy   *handler.VendorPolicyHandler
+	Approval       *handler.ApprovalHandler
+	Spending       *handler.SpendingHandler
 }
 
 func newAgentRuntime(ai *oai.Client, q *sqlc.Queries, chatSvc *service.ChatService) *agent.Runtime {
@@ -329,6 +331,8 @@ func newHandlers(svc services, cfg *config.Config, ai *oai.Client, q *sqlc.Queri
 		FinStatement:   handler.NewFinancialStatementHandler(svc.FinStatement),
 		TaxBridge:      handler.NewTaxBridgeHandler(svc.GLTaxBridge, svc.Company, q),
 		VendorPolicy:   handler.NewVendorPolicyHandler(svc.VendorMemory),
+		Approval:       handler.NewApprovalHandler(service.NewApprovalService(q), q),
+		Spending:       handler.NewSpendingHandler(service.NewSpendingAnalyticsService(q)),
 	}
 }
 
@@ -385,6 +389,8 @@ func newGinEngine(cfg *config.Config, rdb *redis.Client, svc services, h handler
 		FinStatement:   h.FinStatement,
 		TaxBridge:      h.TaxBridge,
 		VendorPolicy:   h.VendorPolicy,
+		Approval:       h.Approval,
+		Spending:       h.Spending,
 		AuthSvc:        svc.Auth,
 		OrgSvc:         svc.Org,
 		CompanySvc:     svc.Company,

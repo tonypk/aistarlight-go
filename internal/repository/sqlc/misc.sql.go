@@ -109,7 +109,7 @@ const createReceiptBatch = `-- name: CreateReceiptBatch :one
 
 INSERT INTO receipt_batches (id, company_id, user_id, status, total_images, processed_count, session_id, report_id, report_type, period, results, image_path, created_at, updated_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())
-RETURNING id, company_id, user_id, status, total_images, processed_count, session_id, report_id, report_type, period, results, error_message, created_at, updated_at, transaction_ids, image_path, image_hash
+RETURNING id, company_id, user_id, status, total_images, processed_count, session_id, report_id, report_type, period, results, error_message, created_at, updated_at, transaction_ids, image_path, image_hash, approval_status
 `
 
 type CreateReceiptBatchParams struct {
@@ -162,6 +162,7 @@ func (q *Queries) CreateReceiptBatch(ctx context.Context, arg CreateReceiptBatch
 		&i.TransactionIds,
 		&i.ImagePath,
 		&i.ImageHash,
+		&i.ApprovalStatus,
 	)
 	return i, err
 }
@@ -264,7 +265,7 @@ func (q *Queries) GetBankReconBatchByID(ctx context.Context, id uuid.UUID) (Bank
 }
 
 const getReceiptBatchByID = `-- name: GetReceiptBatchByID :one
-SELECT id, company_id, user_id, status, total_images, processed_count, session_id, report_id, report_type, period, results, error_message, created_at, updated_at, transaction_ids, image_path, image_hash FROM receipt_batches WHERE id = $1
+SELECT id, company_id, user_id, status, total_images, processed_count, session_id, report_id, report_type, period, results, error_message, created_at, updated_at, transaction_ids, image_path, image_hash, approval_status FROM receipt_batches WHERE id = $1
 `
 
 func (q *Queries) GetReceiptBatchByID(ctx context.Context, id uuid.UUID) (ReceiptBatch, error) {
@@ -288,6 +289,7 @@ func (q *Queries) GetReceiptBatchByID(ctx context.Context, id uuid.UUID) (Receip
 		&i.TransactionIds,
 		&i.ImagePath,
 		&i.ImageHash,
+		&i.ApprovalStatus,
 	)
 	return i, err
 }
@@ -397,7 +399,7 @@ func (q *Queries) ListBankReconBatchesByCompany(ctx context.Context, arg ListBan
 }
 
 const listReceiptBatchesByCompany = `-- name: ListReceiptBatchesByCompany :many
-SELECT id, company_id, user_id, status, total_images, processed_count, session_id, report_id, report_type, period, results, error_message, created_at, updated_at, transaction_ids, image_path, image_hash FROM receipt_batches WHERE company_id = $1
+SELECT id, company_id, user_id, status, total_images, processed_count, session_id, report_id, report_type, period, results, error_message, created_at, updated_at, transaction_ids, image_path, image_hash, approval_status FROM receipt_batches WHERE company_id = $1
 ORDER BY created_at DESC LIMIT $2 OFFSET $3
 `
 
@@ -434,6 +436,7 @@ func (q *Queries) ListReceiptBatchesByCompany(ctx context.Context, arg ListRecei
 			&i.TransactionIds,
 			&i.ImagePath,
 			&i.ImageHash,
+			&i.ApprovalStatus,
 		); err != nil {
 			return nil, err
 		}

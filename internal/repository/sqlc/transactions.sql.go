@@ -463,6 +463,94 @@ func (q *Queries) GetSpendingSummaryByMonth(ctx context.Context, arg GetSpending
 	return items, nil
 }
 
+const getSpendingSummaryByVendor = `-- name: GetSpendingSummaryByVendor :many
+SELECT
+  COALESCE(NULLIF(description, ''), 'Unknown')::text AS vendor,
+  COUNT(*) AS count,
+  COALESCE(SUM(amount), 0)::text AS total
+FROM transactions
+WHERE company_id = $1 AND date >= $2 AND date <= $3
+GROUP BY COALESCE(NULLIF(description, ''), 'Unknown')::text
+ORDER BY SUM(amount) DESC NULLS LAST
+LIMIT 20
+`
+
+type GetSpendingSummaryByVendorParams struct {
+	CompanyID uuid.UUID   `json:"company_id"`
+	Date      pgtype.Date `json:"date"`
+	Date_2    pgtype.Date `json:"date_2"`
+}
+
+type GetSpendingSummaryByVendorRow struct {
+	Vendor string `json:"vendor"`
+	Count  int64  `json:"count"`
+	Total  string `json:"total"`
+}
+
+func (q *Queries) GetSpendingSummaryByVendor(ctx context.Context, arg GetSpendingSummaryByVendorParams) ([]GetSpendingSummaryByVendorRow, error) {
+	rows, err := q.db.Query(ctx, getSpendingSummaryByVendor, arg.CompanyID, arg.Date, arg.Date_2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetSpendingSummaryByVendorRow{}
+	for rows.Next() {
+		var i GetSpendingSummaryByVendorRow
+		if err := rows.Scan(&i.Vendor, &i.Count, &i.Total); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getTopVendorsByCount = `-- name: GetTopVendorsByCount :many
+SELECT
+  COALESCE(NULLIF(description, ''), 'Unknown')::text AS vendor,
+  COUNT(*) AS count,
+  COALESCE(SUM(amount), 0)::text AS total
+FROM transactions
+WHERE company_id = $1 AND date >= $2 AND date <= $3
+GROUP BY COALESCE(NULLIF(description, ''), 'Unknown')::text
+ORDER BY count DESC
+LIMIT 10
+`
+
+type GetTopVendorsByCountParams struct {
+	CompanyID uuid.UUID   `json:"company_id"`
+	Date      pgtype.Date `json:"date"`
+	Date_2    pgtype.Date `json:"date_2"`
+}
+
+type GetTopVendorsByCountRow struct {
+	Vendor string `json:"vendor"`
+	Count  int64  `json:"count"`
+	Total  string `json:"total"`
+}
+
+func (q *Queries) GetTopVendorsByCount(ctx context.Context, arg GetTopVendorsByCountParams) ([]GetTopVendorsByCountRow, error) {
+	rows, err := q.db.Query(ctx, getTopVendorsByCount, arg.CompanyID, arg.Date, arg.Date_2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetTopVendorsByCountRow{}
+	for rows.Next() {
+		var i GetTopVendorsByCountRow
+		if err := rows.Scan(&i.Vendor, &i.Count, &i.Total); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getTransactionByID = `-- name: GetTransactionByID :one
 SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag, from_currency, to_currency, exchange_rate, from_amount, submitted_by, ref_number, account_code, tax_code, department, project FROM transactions WHERE id = $1
 `

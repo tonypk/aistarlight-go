@@ -47,6 +47,8 @@ type Router struct {
 	FinStatement   *FinancialStatementHandler
 	TaxBridge      *TaxBridgeHandler
 	VendorPolicy   *VendorPolicyHandler
+	Approval       *ApprovalHandler
+	Spending       *SpendingHandler
 
 	AuthSvc    *service.AuthService
 	OrgSvc     *service.OrgService
@@ -508,6 +510,29 @@ func (rt *Router) Setup(r *gin.Engine) {
 			vendorPolicies.PUT("/:id", rt.VendorPolicy.Update)
 			vendorPolicies.DELETE("/:id", rt.VendorPolicy.Delete)
 			vendorPolicies.POST("/:id/promote", rt.VendorPolicy.Promote)
+		}
+	}
+
+	// Receipt approval routes
+	if rt.Approval != nil {
+		approvals := api.Group("/approvals")
+		approvals.Use(authMw)
+		{
+			approvals.GET("", rt.Approval.List)
+			approvals.GET("/pending", rt.Approval.ListPending)
+			approvals.GET("/settings", rt.Approval.GetSettings)
+			approvals.PUT("/settings", rt.Approval.UpdateSettings)
+			approvals.POST("/:id/approve", rt.Approval.Approve)
+			approvals.POST("/:id/reject", rt.Approval.Reject)
+		}
+	}
+
+	// Spending analytics routes
+	if rt.Spending != nil {
+		spending := api.Group("/spending")
+		spending.Use(authMw)
+		{
+			spending.GET("/dashboard", rt.Spending.Dashboard)
 		}
 	}
 

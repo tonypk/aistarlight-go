@@ -72,9 +72,10 @@ func main() {
 	chatSvc := service.NewChatService(aiClient, q, knowledgeSvc)
 	correctionSvc := service.NewCorrectionService(q)
 	docQualitySvc := service.NewDocumentQualityService(q)
+	approvalSvc := service.NewApprovalService(q)
 
 	// Bot.
-	b, err := bot.New(cfg.Telegram.BotToken, q, receiptSvc, bridgeSvc, journalGen, classifier, chatSvc, correctionSvc, vendorMemorySvc, docQualitySvc, cfg.UploadDir, cfg.Telegram.Projects, cfg.Telegram.BaseURL)
+	b, err := bot.New(cfg.Telegram.BotToken, q, receiptSvc, bridgeSvc, journalGen, classifier, chatSvc, correctionSvc, vendorMemorySvc, docQualitySvc, approvalSvc, cfg.UploadDir, cfg.Telegram.Projects, cfg.Telegram.BaseURL)
 	if err != nil {
 		slog.Error("failed to create bot", "error", err)
 		os.Exit(1)

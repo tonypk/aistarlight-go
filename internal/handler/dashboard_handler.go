@@ -64,6 +64,34 @@ func (h *DashboardHandler) Compare(c *gin.Context) {
 	response.OK(c, result)
 }
 
+// Trends handles GET /api/v1/dashboard/trends.
+func (h *DashboardHandler) Trends(c *gin.Context) {
+	companyID := middleware.GetCompanyID(c)
+	months, _ := strconv.Atoi(c.DefaultQuery("months", "6"))
+
+	data, err := h.svc.GetTrends(c.Request.Context(), companyID, months)
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	response.OK(c, data)
+}
+
+// Activity handles GET /api/v1/dashboard/activity.
+func (h *DashboardHandler) Activity(c *gin.Context) {
+	companyID := middleware.GetCompanyID(c)
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+
+	data, err := h.svc.GetRecentActivity(c.Request.Context(), companyID, limit)
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	response.OK(c, data)
+}
+
 // CompanySettings handles GET /api/v1/dashboard/company.
 func (h *DashboardHandler) CompanySettings(c *gin.Context) {
 	companyID := middleware.GetCompanyID(c)

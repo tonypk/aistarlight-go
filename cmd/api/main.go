@@ -348,6 +348,7 @@ func newGinEngine(cfg *config.Config, rdb *redis.Client, svc services, h handler
 		middleware.Recovery(),
 		middleware.Logger(),
 		middleware.CORS(cfg.CORS.Origins),
+		middleware.SecurityHeaders(),
 	)
 
 	// Health check (no auth)

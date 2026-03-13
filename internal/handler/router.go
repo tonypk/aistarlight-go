@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 	"github.com/tonypk/aistarlight-go/internal/config"
@@ -69,6 +71,7 @@ func adaptReportIDParam(h gin.HandlerFunc) gin.HandlerFunc {
 
 func (rt *Router) Setup(r *gin.Engine) {
 	api := r.Group("/api/v1")
+	api.Use(middleware.Timeout(30 * time.Second))
 
 	// AI health check (no auth)
 	api.GET("/health/ai", rt.Health.AIHealth)
@@ -149,12 +152,12 @@ func (rt *Router) Setup(r *gin.Engine) {
 		reportByID := reports.Group("/:id")
 		{
 			reportByID.GET("", rt.Report.Get)
-			reportByID.GET("/download", rt.Report.DownloadPDF)   // frontend compat (was /pdf)
-			reportByID.GET("/pdf", rt.Report.DownloadPDF)        // keep original
-			reportByID.GET("/excel", rt.Report.DownloadExcel)
-			reportByID.GET("/export-excel", rt.Report.DownloadExcel) // frontend compat
-			reportByID.GET("/export-csv", rt.Report.DownloadCSV)    // frontend compat (was /csv)
-			reportByID.GET("/csv", rt.Report.DownloadCSV)        // keep original
+			reportByID.GET("/download", middleware.Timeout(120*time.Second), rt.Report.DownloadPDF)
+			reportByID.GET("/pdf", middleware.Timeout(120*time.Second), rt.Report.DownloadPDF)
+			reportByID.GET("/excel", middleware.Timeout(120*time.Second), rt.Report.DownloadExcel)
+			reportByID.GET("/export-excel", middleware.Timeout(120*time.Second), rt.Report.DownloadExcel)
+			reportByID.GET("/export-csv", middleware.Timeout(120*time.Second), rt.Report.DownloadCSV)
+			reportByID.GET("/csv", middleware.Timeout(120*time.Second), rt.Report.DownloadCSV)
 			reportByID.DELETE("", rt.Report.Delete)
 			reportByID.PATCH("/status", rt.Report.UpdateStatus)
 			reportByID.PATCH("/confirm", rt.Report.Confirm)       // frontend compat
@@ -314,6 +317,8 @@ func (rt *Router) Setup(r *gin.Engine) {
 		dashboard.GET("/calendar", rt.Dashboard.Calendar)
 		dashboard.GET("/compare", rt.Dashboard.Compare)
 		dashboard.GET("/company", rt.Dashboard.CompanySettings)
+		dashboard.GET("/trends", rt.Dashboard.Trends)
+		dashboard.GET("/activity", rt.Dashboard.Activity)
 	}
 
 	// Receipt routes

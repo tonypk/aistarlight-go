@@ -197,6 +197,75 @@ func comparisonFieldsForType(reportType string) []string {
 	}
 }
 
+// MonthlyTrendPoint is a single month's report stats.
+type MonthlyTrendPoint struct {
+	Month        string `json:"month"`
+	TotalReports int64  `json:"total_reports"`
+	FiledCount   int64  `json:"filed_count"`
+	DraftCount   int64  `json:"draft_count"`
+}
+
+// GetTrends returns monthly report counts for the last N months.
+func (s *DashboardService) GetTrends(ctx context.Context, companyID uuid.UUID, months int) ([]MonthlyTrendPoint, error) {
+	if months <= 0 {
+		months = 6
+	}
+
+	rows, err := s.q.ListReportsByCompanyGroupedByMonth(ctx, sqlc.ListReportsByCompanyGroupedByMonthParams{
+		CompanyID: companyID,
+		Column2:   int32(months),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("query trends: %w", err)
+	}
+
+	result := make([]MonthlyTrendPoint, 0, len(rows))
+	for _, r := range rows {
+		result = append(result, MonthlyTrendPoint{
+			Month:        r.Month,
+			TotalReports: r.TotalReports,
+			FiledCount:   r.FiledCount,
+			DraftCount:   r.DraftCount,
+		})
+	}
+	return result, nil
+}
+
+// ActivityItem represents a recent activity entry.
+type ActivityItem struct {
+	ID          uuid.UUID `json:"id"`
+	Type        string    `json:"type"`
+	Description string    `json:"description"`
+	CreatedAt   string    `json:"created_at"`
+}
+
+// GetRecentActivity returns the most recent report activity.
+func (s *DashboardService) GetRecentActivity(ctx context.Context, companyID uuid.UUID, limit int) ([]ActivityItem, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+
+	rows, err := s.q.ListRecentActivityByCompany(ctx, sqlc.ListRecentActivityByCompanyParams{
+		CompanyID: companyID,
+		Limit:     int32(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("query activity: %w", err)
+	}
+
+	result := make([]ActivityItem, 0, len(rows))
+	for _, r := range rows {
+		desc, _ := r.Description.(string)
+		result = append(result, ActivityItem{
+			ID:          r.ID,
+			Type:        r.Type,
+			Description: desc,
+			CreatedAt:   r.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		})
+	}
+	return result, nil
+}
+
 // GetCompanyForDashboard returns company details from the company_members relationship.
 func (s *DashboardService) GetCompanyForDashboard(ctx context.Context, companyID uuid.UUID) (map[string]interface{}, error) {
 	company, err := s.q.GetCompanyByID(ctx, companyID)

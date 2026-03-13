@@ -7,6 +7,7 @@ package sqlc
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -283,6 +284,55 @@ func (q *Queries) ListAmendmentChain(ctx context.Context, id uuid.UUID) ([]Repor
 	return items, nil
 }
 
+const listRecentActivityByCompany = `-- name: ListRecentActivityByCompany :many
+SELECT
+    id,
+    report_type AS type,
+    'Report ' || report_type || ' (' || period || ') — ' || status AS description,
+    created_at
+FROM reports
+WHERE company_id = $1
+ORDER BY created_at DESC
+LIMIT $2
+`
+
+type ListRecentActivityByCompanyParams struct {
+	CompanyID uuid.UUID `json:"company_id"`
+	Limit     int32     `json:"limit"`
+}
+
+type ListRecentActivityByCompanyRow struct {
+	ID          uuid.UUID   `json:"id"`
+	Type        string      `json:"type"`
+	Description interface{} `json:"description"`
+	CreatedAt   time.Time   `json:"created_at"`
+}
+
+func (q *Queries) ListRecentActivityByCompany(ctx context.Context, arg ListRecentActivityByCompanyParams) ([]ListRecentActivityByCompanyRow, error) {
+	rows, err := q.db.Query(ctx, listRecentActivityByCompany, arg.CompanyID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRecentActivityByCompanyRow{}
+	for rows.Next() {
+		var i ListRecentActivityByCompanyRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Type,
+			&i.Description,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listReportsByCompany = `-- name: ListReportsByCompany :many
 SELECT id, company_id, report_type, period, status, input_data, calculated_data, file_path, created_at, confirmed_at, created_by, updated_by, updated_at, version, overrides, original_calculated_data, notes, compliance_score, amendment_number, original_report_id FROM reports
 WHERE company_id = $1
@@ -386,6 +436,56 @@ func (q *Queries) ListReportsByCompanyAndType(ctx context.Context, arg ListRepor
 			&i.ComplianceScore,
 			&i.AmendmentNumber,
 			&i.OriginalReportID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listReportsByCompanyGroupedByMonth = `-- name: ListReportsByCompanyGroupedByMonth :many
+SELECT
+    to_char(created_at, 'YYYY-MM') AS month,
+    COUNT(*) AS total_reports,
+    COUNT(*) FILTER (WHERE status IN ('filed', 'approved', 'confirmed')) AS filed_count,
+    COUNT(*) FILTER (WHERE status = 'draft') AS draft_count
+FROM reports
+WHERE company_id = $1
+  AND created_at >= NOW() - ($2::int || ' months')::interval
+GROUP BY to_char(created_at, 'YYYY-MM')
+ORDER BY month
+`
+
+type ListReportsByCompanyGroupedByMonthParams struct {
+	CompanyID uuid.UUID `json:"company_id"`
+	Column2   int32     `json:"column_2"`
+}
+
+type ListReportsByCompanyGroupedByMonthRow struct {
+	Month        string `json:"month"`
+	TotalReports int64  `json:"total_reports"`
+	FiledCount   int64  `json:"filed_count"`
+	DraftCount   int64  `json:"draft_count"`
+}
+
+func (q *Queries) ListReportsByCompanyGroupedByMonth(ctx context.Context, arg ListReportsByCompanyGroupedByMonthParams) ([]ListReportsByCompanyGroupedByMonthRow, error) {
+	rows, err := q.db.Query(ctx, listReportsByCompanyGroupedByMonth, arg.CompanyID, arg.Column2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListReportsByCompanyGroupedByMonthRow{}
+	for rows.Next() {
+		var i ListReportsByCompanyGroupedByMonthRow
+		if err := rows.Scan(
+			&i.Month,
+			&i.TotalReports,
+			&i.FiledCount,
+			&i.DraftCount,
 		); err != nil {
 			return nil, err
 		}

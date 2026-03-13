@@ -57,6 +57,29 @@ SELECT COALESCE(MAX(amendment_number), 0)::int AS max_amendment
 FROM reports
 WHERE original_report_id = $1 OR id = $1;
 
+-- name: ListReportsByCompanyGroupedByMonth :many
+SELECT
+    to_char(created_at, 'YYYY-MM') AS month,
+    COUNT(*) AS total_reports,
+    COUNT(*) FILTER (WHERE status IN ('filed', 'approved', 'confirmed')) AS filed_count,
+    COUNT(*) FILTER (WHERE status = 'draft') AS draft_count
+FROM reports
+WHERE company_id = $1
+  AND created_at >= NOW() - ($2::int || ' months')::interval
+GROUP BY to_char(created_at, 'YYYY-MM')
+ORDER BY month;
+
+-- name: ListRecentActivityByCompany :many
+SELECT
+    id,
+    report_type AS type,
+    'Report ' || report_type || ' (' || period || ') — ' || status AS description,
+    created_at
+FROM reports
+WHERE company_id = $1
+ORDER BY created_at DESC
+LIMIT $2;
+
 -- name: ArchiveDuplicateReports :exec
 -- Archives all draft/rejected reports for the same company+type+period except the given report ID.
 UPDATE reports SET status = 'archived', updated_at = NOW()

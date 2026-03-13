@@ -216,6 +216,13 @@ func TestCheckDuplicateReport(t *testing.T) {
 	if !result.Passed {
 		t.Errorf("Expected pass when second report is archived: %s", result.Message)
 	}
+
+	// Rejected reports don't count
+	existing[1]["status"] = "rejected"
+	result = checkDuplicateReport(data, birforms.FormBIR2550M, existing)
+	if !result.Passed {
+		t.Errorf("Expected pass when second report is rejected: %s", result.Message)
+	}
 }
 
 func TestCheckCapitalGoodsThreshold(t *testing.T) {

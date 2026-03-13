@@ -313,7 +313,7 @@ func checkDuplicateReport(data map[string]interface{}, reportType string, existi
 	for _, r := range existingReports {
 		if toString(r["report_type"]) == reportType && toString(r["period"]) == period {
 			status := toString(r["status"])
-			if status != "archived" {
+			if status != "archived" && status != "rejected" {
 				count++
 			}
 		}

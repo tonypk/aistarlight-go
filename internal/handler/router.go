@@ -46,6 +46,7 @@ type Router struct {
 	JournalBridge  *JournalBridgeHandler
 	FinStatement   *FinancialStatementHandler
 	TaxBridge      *TaxBridgeHandler
+	VendorPolicy   *VendorPolicyHandler
 
 	AuthSvc    *service.AuthService
 	OrgSvc     *service.OrgService
@@ -494,6 +495,20 @@ func (rt *Router) Setup(r *gin.Engine) {
 		tax.POST("/calculate", rt.TaxBridge.Calculate)
 		tax.GET("/export", rt.TaxBridge.Export)
 		tax.GET("/drafts/latest", rt.TaxBridge.GetLatestDraft)
+	}
+
+	// Vendor posting policy routes
+	if rt.VendorPolicy != nil {
+		vendorPolicies := api.Group("/vendor-policies")
+		vendorPolicies.Use(authMw)
+		{
+			vendorPolicies.GET("", rt.VendorPolicy.List)
+			vendorPolicies.GET("/suggestions", rt.VendorPolicy.Suggestions)
+			vendorPolicies.GET("/:id", rt.VendorPolicy.Get)
+			vendorPolicies.PUT("/:id", rt.VendorPolicy.Update)
+			vendorPolicies.DELETE("/:id", rt.VendorPolicy.Delete)
+			vendorPolicies.POST("/:id/promote", rt.VendorPolicy.Promote)
+		}
 	}
 
 	// QuickBooks Online routes

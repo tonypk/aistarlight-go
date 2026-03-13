@@ -48,13 +48,19 @@ Respond ONLY with valid JSON array: [{"index": 0, "vat_type": "...", "category":
 
 // ClassifierService handles transaction classification (rules + LLM).
 type ClassifierService struct {
-	ai *openai.Client
-	q  *sqlc.Queries
+	ai           *openai.Client
+	q            *sqlc.Queries
+	vendorMemory *VendorMemoryService
 }
 
 // NewClassifierService creates a classifier.
 func NewClassifierService(ai *openai.Client, q *sqlc.Queries) *ClassifierService {
 	return &ClassifierService{ai: ai, q: q}
+}
+
+// SetVendorMemory attaches a VendorMemoryService for vendor-based classification.
+func (s *ClassifierService) SetVendorMemory(vm *VendorMemoryService) {
+	s.vendorMemory = vm
 }
 
 // ClassificationResult holds the output for a single transaction.
@@ -63,6 +69,10 @@ type ClassificationResult struct {
 	Category             string  `json:"category"`
 	Confidence           float64 `json:"confidence"`
 	ClassificationSource string  `json:"classification_source"`
+	AccountCode          string  `json:"account_code,omitempty"`
+	TaxCode              string  `json:"tax_code,omitempty"`
+	Department           string  `json:"department,omitempty"`
+	Project              string  `json:"project,omitempty"`
 }
 
 // ClassifyTransactions runs a two-phase classification pipeline.
@@ -99,6 +109,42 @@ func (s *ClassifierService) ClassifyTransactions(
 			} else {
 				stillAmbiguous = append(stillAmbiguous, idx)
 			}
+		}
+		ambiguous = stillAmbiguous
+	}
+
+	// Phase 1.75: Vendor memory lookup
+	if s.vendorMemory != nil && len(ambiguous) > 0 {
+		var stillAmbiguous []int
+		for _, idx := range ambiguous {
+			desc := toString(transactions[idx]["description"])
+			if desc == "" {
+				stillAmbiguous = append(stillAmbiguous, idx)
+				continue
+			}
+			policy, err := s.vendorMemory.MatchVendor(ctx, companyID, desc)
+			if err != nil || policy == nil {
+				stillAmbiguous = append(stillAmbiguous, idx)
+				continue
+			}
+			r := ClassificationResult{
+				VATType:              toString(transactions[idx]["vat_type"]),
+				Category:             policy.DefaultCategory,
+				AccountCode:          policy.AccountCode,
+				TaxCode:              policy.TaxCode,
+				Department:           policy.Department,
+				Project:              policy.Project,
+				Confidence:           policy.ConfidenceScore,
+				ClassificationSource: "vendor_memory",
+			}
+			if r.VATType == "" {
+				r.VATType = "vatable"
+			}
+			if r.Category == "" {
+				stillAmbiguous = append(stillAmbiguous, idx)
+				continue
+			}
+			results[idx] = r
 		}
 		ambiguous = stillAmbiguous
 	}

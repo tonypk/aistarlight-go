@@ -62,6 +62,20 @@ ORDER BY created_at DESC LIMIT $2 OFFSET $3;
 -- name: CountReceiptBatchesByCompany :one
 SELECT COUNT(*) FROM receipt_batches WHERE company_id = $1;
 
+-- name: UpdateReceiptBatchImageHash :exec
+UPDATE receipt_batches SET
+    image_hash = $2,
+    updated_at = NOW()
+WHERE id = $1;
+
+-- name: FindReceiptBatchByImageHash :one
+SELECT id, status, created_at FROM receipt_batches
+WHERE company_id = $1
+  AND image_hash = $2
+  AND status NOT IN ('cancelled', 'failed')
+ORDER BY created_at DESC
+LIMIT 1;
+
 -- ---- Bank Reconciliation Batches ----
 
 -- name: CreateBankReconBatch :one

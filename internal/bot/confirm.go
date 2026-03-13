@@ -642,6 +642,44 @@ func (b *Bot) confirmAndProcess(ctx context.Context, batch sqlc.ReceiptBatch, tg
 
 	var results []service.ReceiptResult
 	_ = json.Unmarshal(batch.Results, &results)
+
+	// Vendor memory learning: record acceptance or correction for vendor-based predictions.
+	if b.vendorMemory != nil && len(txns) > 0 && len(results) > 0 {
+		vendorName := ""
+		if v, ok := results[0].Parsed.VendorName.Value.(string); ok {
+			vendorName = v
+		}
+		if vendorName != "" {
+			finalCategory := userCategory
+			if finalCategory == "" && len(classResults) > 0 {
+				finalCategory = classResults[0].Category
+			}
+			accountCode := ""
+			taxCode := ""
+			if len(classResults) > 0 {
+				accountCode = classResults[0].AccountCode
+				taxCode = classResults[0].TaxCode
+			}
+			department := ""
+			project := ""
+			if projectTag != nil {
+				project = *projectTag
+			}
+
+			// If user explicitly chose a category different from AI suggestion, record as correction.
+			if userCategory != "" && len(classResults) > 0 && classResults[0].Category != userCategory && classResults[0].ClassificationSource != "default" {
+				if err := b.vendorMemory.RecordCorrection(ctx, tgUser.CompanyID, vendorName, userCategory, accountCode, taxCode); err != nil {
+					slog.Warn("vendor memory correction failed", "vendor", vendorName, "error", err)
+				}
+			} else {
+				// Record as acceptance.
+				if err := b.vendorMemory.RecordAcceptance(ctx, tgUser.CompanyID, vendorName, finalCategory, accountCode, taxCode, department, project); err != nil {
+					slog.Warn("vendor memory acceptance failed", "vendor", vendorName, "error", err)
+				}
+			}
+		}
+	}
+
 	if len(results) == 0 {
 		return "Transaction recorded.", txnIDs, refNumbers, nil
 	}

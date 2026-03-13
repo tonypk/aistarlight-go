@@ -109,7 +109,7 @@ const createReceiptBatch = `-- name: CreateReceiptBatch :one
 
 INSERT INTO receipt_batches (id, company_id, user_id, status, total_images, processed_count, session_id, report_id, report_type, period, results, image_path, created_at, updated_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())
-RETURNING id, company_id, user_id, status, total_images, processed_count, session_id, report_id, report_type, period, results, error_message, created_at, updated_at, transaction_ids, image_path
+RETURNING id, company_id, user_id, status, total_images, processed_count, session_id, report_id, report_type, period, results, error_message, created_at, updated_at, transaction_ids, image_path, image_hash
 `
 
 type CreateReceiptBatchParams struct {
@@ -161,6 +161,7 @@ func (q *Queries) CreateReceiptBatch(ctx context.Context, arg CreateReceiptBatch
 		&i.UpdatedAt,
 		&i.TransactionIds,
 		&i.ImagePath,
+		&i.ImageHash,
 	)
 	return i, err
 }
@@ -206,6 +207,33 @@ func (q *Queries) DeleteUserPreference(ctx context.Context, arg DeleteUserPrefer
 	return err
 }
 
+const findReceiptBatchByImageHash = `-- name: FindReceiptBatchByImageHash :one
+SELECT id, status, created_at FROM receipt_batches
+WHERE company_id = $1
+  AND image_hash = $2
+  AND status NOT IN ('cancelled', 'failed')
+ORDER BY created_at DESC
+LIMIT 1
+`
+
+type FindReceiptBatchByImageHashParams struct {
+	CompanyID uuid.UUID `json:"company_id"`
+	ImageHash *string   `json:"image_hash"`
+}
+
+type FindReceiptBatchByImageHashRow struct {
+	ID        uuid.UUID `json:"id"`
+	Status    string    `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func (q *Queries) FindReceiptBatchByImageHash(ctx context.Context, arg FindReceiptBatchByImageHashParams) (FindReceiptBatchByImageHashRow, error) {
+	row := q.db.QueryRow(ctx, findReceiptBatchByImageHash, arg.CompanyID, arg.ImageHash)
+	var i FindReceiptBatchByImageHashRow
+	err := row.Scan(&i.ID, &i.Status, &i.CreatedAt)
+	return i, err
+}
+
 const getBankReconBatchByID = `-- name: GetBankReconBatchByID :one
 SELECT id, company_id, created_by, session_id, status, source_files, total_entries, parse_summary, match_result, ai_suggestions, ai_explanations, amount_tolerance, date_tolerance_days, period, error_message, created_at, updated_at FROM bank_reconciliation_batches WHERE id = $1
 `
@@ -236,7 +264,7 @@ func (q *Queries) GetBankReconBatchByID(ctx context.Context, id uuid.UUID) (Bank
 }
 
 const getReceiptBatchByID = `-- name: GetReceiptBatchByID :one
-SELECT id, company_id, user_id, status, total_images, processed_count, session_id, report_id, report_type, period, results, error_message, created_at, updated_at, transaction_ids, image_path FROM receipt_batches WHERE id = $1
+SELECT id, company_id, user_id, status, total_images, processed_count, session_id, report_id, report_type, period, results, error_message, created_at, updated_at, transaction_ids, image_path, image_hash FROM receipt_batches WHERE id = $1
 `
 
 func (q *Queries) GetReceiptBatchByID(ctx context.Context, id uuid.UUID) (ReceiptBatch, error) {
@@ -259,6 +287,7 @@ func (q *Queries) GetReceiptBatchByID(ctx context.Context, id uuid.UUID) (Receip
 		&i.UpdatedAt,
 		&i.TransactionIds,
 		&i.ImagePath,
+		&i.ImageHash,
 	)
 	return i, err
 }
@@ -368,7 +397,7 @@ func (q *Queries) ListBankReconBatchesByCompany(ctx context.Context, arg ListBan
 }
 
 const listReceiptBatchesByCompany = `-- name: ListReceiptBatchesByCompany :many
-SELECT id, company_id, user_id, status, total_images, processed_count, session_id, report_id, report_type, period, results, error_message, created_at, updated_at, transaction_ids, image_path FROM receipt_batches WHERE company_id = $1
+SELECT id, company_id, user_id, status, total_images, processed_count, session_id, report_id, report_type, period, results, error_message, created_at, updated_at, transaction_ids, image_path, image_hash FROM receipt_batches WHERE company_id = $1
 ORDER BY created_at DESC LIMIT $2 OFFSET $3
 `
 
@@ -404,6 +433,7 @@ func (q *Queries) ListReceiptBatchesByCompany(ctx context.Context, arg ListRecei
 			&i.UpdatedAt,
 			&i.TransactionIds,
 			&i.ImagePath,
+			&i.ImageHash,
 		); err != nil {
 			return nil, err
 		}
@@ -516,6 +546,23 @@ func (q *Queries) UpdateReceiptBatch(ctx context.Context, arg UpdateReceiptBatch
 		arg.ErrorMessage,
 		arg.ImagePath,
 	)
+	return err
+}
+
+const updateReceiptBatchImageHash = `-- name: UpdateReceiptBatchImageHash :exec
+UPDATE receipt_batches SET
+    image_hash = $2,
+    updated_at = NOW()
+WHERE id = $1
+`
+
+type UpdateReceiptBatchImageHashParams struct {
+	ID        uuid.UUID `json:"id"`
+	ImageHash *string   `json:"image_hash"`
+}
+
+func (q *Queries) UpdateReceiptBatchImageHash(ctx context.Context, arg UpdateReceiptBatchImageHashParams) error {
+	_, err := q.db.Exec(ctx, updateReceiptBatchImageHash, arg.ID, arg.ImageHash)
 	return err
 }
 

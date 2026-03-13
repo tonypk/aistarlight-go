@@ -158,6 +158,7 @@ type services struct {
 	JournalGen     *service.JournalGenerator
 	FinStatement   *service.FinancialStatementService
 	GLTaxBridge    *service.GLTaxBridge
+	VendorMemory   *service.VendorMemoryService
 }
 
 func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxpool.Pool) services {
@@ -187,7 +188,9 @@ func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxp
 		}
 	}
 
+	vendorMemorySvc := service.NewVendorMemoryService(q)
 	classifierSvc := service.NewClassifierService(ai, q)
+	classifierSvc.SetVendorMemory(vendorMemorySvc)
 	supplierSvc := service.NewSupplierService(q)
 	complianceSvc := service.NewComplianceService(q, knowledge)
 
@@ -235,6 +238,7 @@ func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxp
 		JournalGen:    service.NewJournalGenerator(q, journalSvc),
 		FinStatement:  fsSvc,
 		GLTaxBridge:   service.NewGLTaxBridge(q, fsSvc),
+		VendorMemory:  vendorMemorySvc,
 	}
 }
 
@@ -275,6 +279,7 @@ type handlers struct {
 	JournalBridge  *handler.JournalBridgeHandler
 	FinStatement   *handler.FinancialStatementHandler
 	TaxBridge      *handler.TaxBridgeHandler
+	VendorPolicy   *handler.VendorPolicyHandler
 }
 
 func newAgentRuntime(ai *oai.Client, q *sqlc.Queries, chatSvc *service.ChatService) *agent.Runtime {
@@ -295,7 +300,7 @@ func newHandlers(svc services, cfg *config.Config, ai *oai.Client, q *sqlc.Queri
 		Reconciliation: handler.NewReconciliationHandler(svc.BankRecon),
 		Session:        handler.NewSessionHandler(svc.Session, svc.Report, ai, cfg),
 		Compliance:     handler.NewComplianceHandler(svc.Compliance, svc.Report, ai, svc.RuleResolver),
-		Correction:     handler.NewCorrectionHandler(svc.Corrections, svc.Analyzer),
+		Correction:     handler.NewCorrectionHandler(svc.Corrections, svc.Analyzer, svc.VendorMemory, q),
 		Withholding:    handler.NewWithholdingHandler(svc.Withholding, svc.Supplier),
 		Dashboard:      handler.NewDashboardHandler(svc.Dashboard),
 		Receipt:        handler.NewReceiptHandler(svc.Receipt, cfg, q),
@@ -323,6 +328,7 @@ func newHandlers(svc services, cfg *config.Config, ai *oai.Client, q *sqlc.Queri
 		JournalBridge:  handler.NewJournalBridgeHandler(svc.JournalGen),
 		FinStatement:   handler.NewFinancialStatementHandler(svc.FinStatement),
 		TaxBridge:      handler.NewTaxBridgeHandler(svc.GLTaxBridge, svc.Company, q),
+		VendorPolicy:   handler.NewVendorPolicyHandler(svc.VendorMemory),
 	}
 }
 
@@ -378,6 +384,7 @@ func newGinEngine(cfg *config.Config, rdb *redis.Client, svc services, h handler
 		JournalBridge:  h.JournalBridge,
 		FinStatement:   h.FinStatement,
 		TaxBridge:      h.TaxBridge,
+		VendorPolicy:   h.VendorPolicy,
 		AuthSvc:        svc.Auth,
 		OrgSvc:         svc.Org,
 		CompanySvc:     svc.Company,

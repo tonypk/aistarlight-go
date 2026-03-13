@@ -391,6 +391,7 @@ type ReceiptBatch struct {
 	UpdatedAt      time.Time   `json:"updated_at"`
 	TransactionIds []uuid.UUID `json:"transaction_ids"`
 	ImagePath      *string     `json:"image_path"`
+	ImageHash      *string     `json:"image_hash"`
 }
 
 type ReconciliationSession struct {
@@ -534,6 +535,10 @@ type Transaction struct {
 	FromAmount           pgtype.Numeric `json:"from_amount"`
 	SubmittedBy          pgtype.UUID    `json:"submitted_by"`
 	RefNumber            *int32         `json:"ref_number"`
+	AccountCode          *string        `json:"account_code"`
+	TaxCode              *string        `json:"tax_code"`
+	Department           *string        `json:"department"`
+	Project              *string        `json:"project"`
 }
 
 type User struct {
@@ -565,6 +570,25 @@ type ValidationResult struct {
 	CheckResults []byte    `json:"check_results"`
 	RagFindings  []byte    `json:"rag_findings"`
 	ValidatedAt  time.Time `json:"validated_at"`
+}
+
+type VendorPostingPolicy struct {
+	ID                 uuid.UUID          `json:"id"`
+	CompanyID          uuid.UUID          `json:"company_id"`
+	VendorNormalized   string             `json:"vendor_normalized"`
+	Aliases            []byte             `json:"aliases"`
+	DefaultCategory    *string            `json:"default_category"`
+	DefaultAccountCode *string            `json:"default_account_code"`
+	DefaultTaxCode     *string            `json:"default_tax_code"`
+	DefaultDepartment  *string            `json:"default_department"`
+	DefaultProject     *string            `json:"default_project"`
+	UsageCount         int32              `json:"usage_count"`
+	AcceptCount        int32              `json:"accept_count"`
+	CorrectionCount    int32              `json:"correction_count"`
+	ConfidenceScore    pgtype.Numeric     `json:"confidence_score"`
+	LastSeenAt         pgtype.Timestamptz `json:"last_seen_at"`
+	CreatedAt          time.Time          `json:"created_at"`
+	UpdatedAt          time.Time          `json:"updated_at"`
 }
 
 type WithholdingCertificate struct {

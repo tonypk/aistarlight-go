@@ -116,6 +116,31 @@ func (b *Bot) processReceipt(c tele.Context, fileID string, instruction string) 
 		return editError("Failed to download image.")
 	}
 
+	// Document quality check before OCR.
+	if b.docQuality != nil {
+		qr, qErr := b.docQuality.AssessFile(ctx, localPath, tgUser.CompanyID)
+		if qErr != nil {
+			slog.Warn("quality check failed, proceeding anyway", "error", qErr)
+		} else {
+			slog.Info("document quality assessed",
+				"quality", qr.QualityScore,
+				"blurry", qr.IsBlurry,
+				"duplicate", qr.IsDuplicate,
+				"action", qr.SuggestedAction,
+				"hash", qr.FileHash[:8])
+
+			if qr.SuggestedAction == "request_reupload" {
+				_ = os.Remove(localPath)
+				return editError("Image quality is too low for OCR. Please send a clearer, larger photo.")
+			}
+			if qr.IsDuplicate {
+				_, _ = b.B.Edit(processing, "This image may be a duplicate of a previously processed receipt. Processing anyway...")
+			} else if qr.IsBlurry {
+				_, _ = b.B.Edit(processing, "Image appears blurry. Processing anyway, but OCR accuracy may be lower...")
+			}
+		}
+	}
+
 	period := time.Now().UTC().Format("2006-01")
 
 	// Phase 1: OCR only
@@ -144,6 +169,20 @@ func (b *Bot) processReceipt(c tele.Context, fileID string, instruction string) 
 	} else {
 		// Clean up temp file since we saved a persistent copy.
 		_ = os.Remove(localPath)
+	}
+
+	// Store image hash for future duplicate detection.
+	if b.docQuality != nil {
+		hashPath := imagePath
+		if hashPath == "" {
+			hashPath = localPath
+		}
+		if hash, hErr := service.HashFile(hashPath); hErr == nil {
+			_ = b.q.UpdateReceiptBatchImageHash(ctx, sqlc.UpdateReceiptBatchImageHashParams{
+				ID:        batch.ID,
+				ImageHash: &hash,
+			})
+		}
 	}
 
 	// Multi-trip screenshot (Uber/Grab): skip amount selection, show multi-trip preview.

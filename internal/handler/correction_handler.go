@@ -1,23 +1,28 @@
 package handler
 
 import (
+	"log/slog"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/tonypk/aistarlight-go/internal/handler/middleware"
 	"github.com/tonypk/aistarlight-go/internal/handler/response"
+	"github.com/tonypk/aistarlight-go/internal/repository/sqlc"
 	"github.com/tonypk/aistarlight-go/internal/service"
 	"github.com/tonypk/aistarlight-go/pkg/pagination"
 )
 
 // CorrectionHandler handles correction endpoints.
 type CorrectionHandler struct {
-	corrections *service.CorrectionService
-	analyzer    *service.CorrectionAnalyzer
+	corrections  *service.CorrectionService
+	analyzer     *service.CorrectionAnalyzer
+	vendorMemory *service.VendorMemoryService
+	q            *sqlc.Queries
 }
 
 // NewCorrectionHandler creates a correction handler.
-func NewCorrectionHandler(corrections *service.CorrectionService, analyzer *service.CorrectionAnalyzer) *CorrectionHandler {
-	return &CorrectionHandler{corrections: corrections, analyzer: analyzer}
+func NewCorrectionHandler(corrections *service.CorrectionService, analyzer *service.CorrectionAnalyzer, vendorMemory *service.VendorMemoryService, q *sqlc.Queries) *CorrectionHandler {
+	return &CorrectionHandler{corrections: corrections, analyzer: analyzer, vendorMemory: vendorMemory, q: q}
 }
 
 type recordCorrectionRequest struct {
@@ -59,6 +64,31 @@ func (h *CorrectionHandler) Record(c *gin.Context) {
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return
+	}
+
+	// Feed category/vat_type corrections into vendor memory for learning.
+	if h.vendorMemory != nil && h.q != nil && req.EntityType == "transaction" {
+		if req.FieldName == "category" || req.FieldName == "vat_type" {
+			go func() {
+				ctx := c.Request.Context()
+				txn, txnErr := h.q.GetTransactionByID(ctx, entityID)
+				if txnErr != nil {
+					return
+				}
+				desc := ""
+				if txn.Description != nil {
+					desc = *txn.Description
+				}
+				if desc == "" {
+					return
+				}
+				if req.FieldName == "category" {
+					if vmErr := h.vendorMemory.RecordCorrection(ctx, companyID, desc, req.NewValue, "", ""); vmErr != nil {
+						slog.Warn("vendor memory correction from web failed", "error", vmErr)
+					}
+				}
+			}()
+		}
 	}
 
 	response.Created(c, result)

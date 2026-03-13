@@ -319,9 +319,9 @@ func checkDuplicateReport(data map[string]interface{}, reportType string, existi
 		}
 	}
 
-	if count > 1 {
+	if count > 0 {
 		return newCheck("duplicate", "Duplicate Report", "medium", false,
-			fmt.Sprintf("Found %d active reports for %s period %s", count, reportType, period))
+			fmt.Sprintf("Found %d other active reports for %s period %s", count, reportType, period))
 	}
 	return newCheck("duplicate", "Duplicate Report", "medium", true, "No duplicate reports found")
 }

@@ -52,8 +52,14 @@ func (s *ComplianceService) ValidateReport(ctx context.Context, reportID, compan
 	// 2. Load prior period data
 	priorData := s.getPriorPeriodData(ctx, companyID, report.ReportType, report.Period)
 
-	// 3. Load existing reports for duplicate check
-	existingReports := s.getExistingReports(ctx, companyID, report.ReportType)
+	// 3. Load existing reports for duplicate check (exclude current report)
+	allReports := s.getExistingReports(ctx, companyID, report.ReportType)
+	existingReports := make([]map[string]interface{}, 0, len(allReports))
+	for _, r := range allReports {
+		if toString(r["id"]) != reportID.String() {
+			existingReports = append(existingReports, r)
+		}
+	}
 
 	// 4. Run deterministic rules
 	checks := RunAllChecks(calcData, report.ReportType, priorData, existingReports)
@@ -182,6 +188,7 @@ func (s *ComplianceService) getExistingReports(ctx context.Context, companyID uu
 	result := make([]map[string]interface{}, len(reports))
 	for i, r := range reports {
 		result[i] = map[string]interface{}{
+			"id":          r.ID.String(),
 			"report_type": r.ReportType,
 			"period":      r.Period,
 			"status":      r.Status,

@@ -200,28 +200,51 @@ func TestCheckPeriodOverPeriodAnomaly(t *testing.T) {
 
 func TestCheckDuplicateReport(t *testing.T) {
 	data := map[string]interface{}{"period": "2024-01"}
+
+	// Current report is excluded before passing to this function,
+	// so existingReports only contains OTHER reports.
+
+	// One other active report = duplicate
 	existing := []map[string]interface{}{
+		{"report_type": birforms.FormBIR2550M, "period": "2024-01", "status": "draft"},
+	}
+	result := checkDuplicateReport(data, birforms.FormBIR2550M, existing)
+	if result.Passed {
+		t.Error("Expected fail when another active report exists")
+	}
+
+	// Two other active reports = duplicate
+	existing = []map[string]interface{}{
 		{"report_type": birforms.FormBIR2550M, "period": "2024-01", "status": "draft"},
 		{"report_type": birforms.FormBIR2550M, "period": "2024-01", "status": "review"},
 	}
-
-	result := checkDuplicateReport(data, birforms.FormBIR2550M, existing)
+	result = checkDuplicateReport(data, birforms.FormBIR2550M, existing)
 	if result.Passed {
-		t.Error("Expected fail for duplicate reports")
+		t.Error("Expected fail for multiple other active reports")
 	}
 
 	// Archived reports don't count
-	existing[1]["status"] = "archived"
+	existing = []map[string]interface{}{
+		{"report_type": birforms.FormBIR2550M, "period": "2024-01", "status": "archived"},
+	}
 	result = checkDuplicateReport(data, birforms.FormBIR2550M, existing)
 	if !result.Passed {
-		t.Errorf("Expected pass when second report is archived: %s", result.Message)
+		t.Errorf("Expected pass when other report is archived: %s", result.Message)
 	}
 
 	// Rejected reports don't count
-	existing[1]["status"] = "rejected"
+	existing = []map[string]interface{}{
+		{"report_type": birforms.FormBIR2550M, "period": "2024-01", "status": "rejected"},
+	}
 	result = checkDuplicateReport(data, birforms.FormBIR2550M, existing)
 	if !result.Passed {
-		t.Errorf("Expected pass when second report is rejected: %s", result.Message)
+		t.Errorf("Expected pass when other report is rejected: %s", result.Message)
+	}
+
+	// No existing reports = pass
+	result = checkDuplicateReport(data, birforms.FormBIR2550M, nil)
+	if !result.Passed {
+		t.Error("Expected pass when no existing reports")
 	}
 }
 

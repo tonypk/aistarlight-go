@@ -159,6 +159,7 @@ type services struct {
 	FinStatement   *service.FinancialStatementService
 	GLTaxBridge    *service.GLTaxBridge
 	VendorMemory   *service.VendorMemoryService
+	Tag            *service.TagService
 }
 
 func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxpool.Pool) services {
@@ -239,6 +240,7 @@ func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxp
 		FinStatement:  fsSvc,
 		GLTaxBridge:   service.NewGLTaxBridge(q, fsSvc),
 		VendorMemory:  vendorMemorySvc,
+		Tag:           service.NewTagService(q),
 	}
 }
 
@@ -282,6 +284,7 @@ type handlers struct {
 	VendorPolicy   *handler.VendorPolicyHandler
 	Approval       *handler.ApprovalHandler
 	Spending       *handler.SpendingHandler
+	Tag            *handler.TagHandler
 }
 
 func newAgentRuntime(ai *oai.Client, q *sqlc.Queries, chatSvc *service.ChatService) *agent.Runtime {
@@ -333,6 +336,7 @@ func newHandlers(svc services, cfg *config.Config, ai *oai.Client, q *sqlc.Queri
 		VendorPolicy:   handler.NewVendorPolicyHandler(svc.VendorMemory),
 		Approval:       handler.NewApprovalHandler(service.NewApprovalService(q), q),
 		Spending:       handler.NewSpendingHandler(service.NewSpendingAnalyticsService(q)),
+		Tag:            handler.NewTagHandler(svc.Tag),
 	}
 }
 
@@ -391,6 +395,7 @@ func newGinEngine(cfg *config.Config, rdb *redis.Client, svc services, h handler
 		VendorPolicy:   h.VendorPolicy,
 		Approval:       h.Approval,
 		Spending:       h.Spending,
+		Tag:            h.Tag,
 		AuthSvc:        svc.Auth,
 		OrgSvc:         svc.Org,
 		CompanySvc:     svc.Company,

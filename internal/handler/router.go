@@ -49,6 +49,7 @@ type Router struct {
 	VendorPolicy   *VendorPolicyHandler
 	Approval       *ApprovalHandler
 	Spending       *SpendingHandler
+	Tag            *TagHandler
 
 	AuthSvc    *service.AuthService
 	OrgSvc     *service.OrgService
@@ -325,11 +326,23 @@ func (rt *Router) Setup(r *gin.Engine) {
 		receipts.GET("/batches/:id", rt.Receipt.Get)
 	}
 
+	// Tag management routes
+	tags := api.Group("/tags")
+	tags.Use(authMw)
+	{
+		tags.POST("", rt.Tag.Create)
+		tags.GET("", rt.Tag.List)
+		tags.PUT("/:id", rt.Tag.Update)
+		tags.DELETE("/:id", rt.Tag.Delete)
+	}
+
 	// Transaction overview routes (company-wide)
 	transactions := api.Group("/transactions")
 	transactions.Use(authMw)
 	{
 		transactions.GET("", rt.Transaction.ListAll)
+		transactions.PUT("/:id/tags", rt.Tag.SetTransactionTags)
+		transactions.GET("/:id/tags", rt.Tag.GetTransactionTags)
 	}
 
 	// Audit trail routes

@@ -494,6 +494,15 @@ type Supplier struct {
 	UpdatedAt       time.Time      `json:"updated_at"`
 }
 
+type Tag struct {
+	ID        uuid.UUID `json:"id"`
+	CompanyID uuid.UUID `json:"company_id"`
+	Name      string    `json:"name"`
+	Color     string    `json:"color"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type TaxDraft struct {
 	ID          uuid.UUID          `json:"id"`
 	CompanyID   uuid.UUID          `json:"company_id"`
@@ -565,6 +574,12 @@ type Transaction struct {
 	TaxCode              *string        `json:"tax_code"`
 	Department           *string        `json:"department"`
 	Project              *string        `json:"project"`
+}
+
+type TransactionTag struct {
+	TransactionID uuid.UUID `json:"transaction_id"`
+	TagID         uuid.UUID `json:"tag_id"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 type User struct {

@@ -151,6 +151,10 @@ func (b *Bot) registerHandlers() {
 	b.B.Handle(&btnFxEdit, b.handleForexEdit)
 	b.B.Handle(&btnFxCancel, b.handleForexCancel)
 	b.B.Handle(&btnFxProject, b.handleForexProjectSelect)
+
+	// Learning rule suggestion callback handlers.
+	b.B.Handle(&btnLearnAccept, b.handleLearnAccept)
+	b.B.Handle(&btnLearnIgnore, b.handleLearnIgnore)
 }
 
 // Start begins polling for updates (blocks until Stop is called).

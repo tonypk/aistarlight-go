@@ -241,6 +241,14 @@ func (b *Bot) handleReceiptConfirm(c tele.Context) error {
 	}
 
 	_ = c.Respond(&tele.CallbackResponse{})
+
+	// Check if approval is required before processing.
+	vendorName, amount := extractReceiptInfo(batch)
+	if b.checkAndRequestApproval(c, ctx, batchID, tgUser.CompanyID, tgUser.UserID, amount, vendorName, false) {
+		_, _ = b.B.Edit(c.Message(), "Pending approval — an approver has been notified.")
+		return nil
+	}
+
 	_, _ = b.B.Edit(c.Message(), "Recording transaction...")
 
 	company, compErr := b.q.GetCompanyByID(ctx, tgUser.CompanyID)
@@ -273,6 +281,10 @@ func (b *Bot) handleReceiptConfirm(c tele.Context) error {
 		slog.Warn("failed to edit confirmation message", "error", editErr)
 	}
 	b.storeReplyMapping(c.Chat().ID, msg, txnIDs, refNumbers)
+
+	// Proactively suggest vendor rules after successful confirmation.
+	go b.checkAndSendRuleSuggestions(c.Chat().ID, tgUser.CompanyID)
+
 	return nil
 }
 
@@ -312,6 +324,14 @@ func (b *Bot) handleCategorySelect(c tele.Context) error {
 	}
 
 	_ = c.Respond(&tele.CallbackResponse{Text: "Category: " + category})
+
+	// Check if approval is required before processing.
+	vendorName, amount := extractReceiptInfo(batch)
+	if b.checkAndRequestApproval(c, ctx, batchID, tgUser.CompanyID, tgUser.UserID, amount, vendorName, false) {
+		_, _ = b.B.Edit(c.Message(), "Pending approval — an approver has been notified.")
+		return nil
+	}
+
 	_, _ = b.B.Edit(c.Message(), "Recording transaction...")
 
 	company, compErr := b.q.GetCompanyByID(ctx, tgUser.CompanyID)
@@ -343,6 +363,10 @@ func (b *Bot) handleCategorySelect(c tele.Context) error {
 		slog.Warn("failed to edit confirmation message", "error", editErr)
 	}
 	b.storeReplyMapping(c.Chat().ID, msg, txnIDs, refNumbers)
+
+	// Proactively suggest vendor rules after successful confirmation.
+	go b.checkAndSendRuleSuggestions(c.Chat().ID, tgUser.CompanyID)
+
 	return nil
 }
 
@@ -514,6 +538,24 @@ func (b *Bot) handleReceiptEditReply(c tele.Context, batchID uuid.UUID, text str
 	// No projects — show category selection directly.
 	markup := categorySelectionMarkup(batch.ID, "", receiptCategories)
 	return c.Send(preview+"\n\nSelect a category:", markup)
+}
+
+// extractReceiptInfo extracts vendor name and total amount from batch results for approval checks.
+func extractReceiptInfo(batch sqlc.ReceiptBatch) (vendorName string, amount float64) {
+	var results []service.ReceiptResult
+	if err := json.Unmarshal(batch.Results, &results); err != nil || len(results) == 0 {
+		return "", 0
+	}
+	if v, ok := results[0].Parsed.VendorName.Value.(string); ok {
+		vendorName = v
+	}
+	switch a := results[0].Parsed.TotalAmount.Value.(type) {
+	case float64:
+		amount = a
+	case int:
+		amount = float64(a)
+	}
+	return vendorName, amount
 }
 
 // confirmAndProcess executes Phase 2: create transactions, classify, generate journal.
@@ -973,6 +1015,14 @@ func (b *Bot) handleCustomCategoryInput(c tele.Context, text string) bool {
 		return true
 	}
 
+	// Check if approval is required before processing.
+	vendorName, amount := extractReceiptInfo(batch)
+	isDuplicate := batch.ImageHash != nil
+	if b.checkAndRequestApproval(c, ctx, pending.BatchID, tgUser.CompanyID, tgUser.UserID, amount, vendorName, isDuplicate) {
+		_ = c.Send("Pending approval — an approver has been notified.")
+		return true
+	}
+
 	_ = c.Send("Recording transaction...")
 
 	company, compErr := b.q.GetCompanyByID(ctx, tgUser.CompanyID)
@@ -1001,6 +1051,10 @@ func (b *Bot) handleCustomCategoryInput(c tele.Context, text string) bool {
 
 	sent, _ := b.B.Send(c.Chat(), reply)
 	b.storeReplyMapping(c.Chat().ID, sent, txnIDs, refNumbers)
+
+	// Proactively suggest vendor rules after successful confirmation.
+	go b.checkAndSendRuleSuggestions(c.Chat().ID, tgUser.CompanyID)
+
 	return true
 }
 

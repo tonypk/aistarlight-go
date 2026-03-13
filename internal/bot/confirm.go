@@ -686,6 +686,7 @@ func (b *Bot) confirmAndProcess(ctx context.Context, batch sqlc.ReceiptBatch, tg
 	_ = json.Unmarshal(batch.Results, &results)
 
 	// Vendor memory learning: record acceptance or correction for vendor-based predictions.
+	var learnMsg string
 	if b.vendorMemory != nil && len(txns) > 0 && len(results) > 0 {
 		vendorName := ""
 		if v, ok := results[0].Parsed.VendorName.Value.(string); ok {
@@ -709,21 +710,26 @@ func (b *Bot) confirmAndProcess(ctx context.Context, batch sqlc.ReceiptBatch, tg
 			}
 
 			// If user explicitly chose a category different from AI suggestion, record as correction.
-			if userCategory != "" && len(classResults) > 0 && classResults[0].Category != userCategory && classResults[0].ClassificationSource != "default" {
+			isCorrection := userCategory != "" && len(classResults) > 0 && classResults[0].Category != userCategory && classResults[0].ClassificationSource != "default"
+			if isCorrection {
 				if err := b.vendorMemory.RecordCorrection(ctx, tgUser.CompanyID, vendorName, userCategory, accountCode, taxCode); err != nil {
 					slog.Warn("vendor memory correction failed", "vendor", vendorName, "error", err)
+				} else {
+					learnMsg = fmt.Sprintf("\n🧠 Updated: %s → %s (correction recorded)", vendorName, userCategory)
 				}
 			} else {
 				// Record as acceptance.
 				if err := b.vendorMemory.RecordAcceptance(ctx, tgUser.CompanyID, vendorName, finalCategory, accountCode, taxCode, department, project); err != nil {
 					slog.Warn("vendor memory acceptance failed", "vendor", vendorName, "error", err)
+				} else if finalCategory != "" {
+					learnMsg = fmt.Sprintf("\n🧠 Learned: %s → %s", vendorName, finalCategory)
 				}
 			}
 		}
 	}
 
 	if len(results) == 0 {
-		return "Transaction recorded.", txnIDs, refNumbers, nil
+		return "Transaction recorded." + learnMsg, txnIDs, refNumbers, nil
 	}
 
 	// Multi-trip reply for app screenshots (Uber/Grab).
@@ -741,6 +747,9 @@ func (b *Bot) confirmAndProcess(ctx context.Context, batch sqlc.ReceiptBatch, tg
 	if note != "" {
 		reply += fmt.Sprintf("\nNote: %s", note)
 	}
+
+	// Append learning status.
+	reply += learnMsg
 
 	return reply, txnIDs, refNumbers, nil
 }

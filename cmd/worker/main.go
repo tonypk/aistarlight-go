@@ -77,16 +77,17 @@ func main() {
 	publisher := event.NewPublisher(asynqClient)
 
 	fsSvc := service.NewFinancialStatementService(q)
+	vendorMemorySvc := service.NewVendorMemoryService(q)
 
 	svc := &worker.Services{
 		Report:       service.NewReportService(q, complianceSvc),
 		Receipt:      service.NewReceiptService(q, ocrclient.NewClient(cfg.OCR.ServiceURL), supplierSvc),
-		Classifier:   func() *service.ClassifierService {
+		Classifier: func() *service.ClassifierService {
 			c := service.NewClassifierService(ai, q)
-			c.SetVendorMemory(service.NewVendorMemoryService(q))
+			c.SetVendorMemory(vendorMemorySvc)
 			return c
 		}(),
-		BankRecon:    service.NewBankReconService(q, matchAnalyzer, publisher),
+		BankRecon:    service.NewBankReconService(q, matchAnalyzer, publisher, vendorMemorySvc),
 		Compliance:   complianceSvc,
 		Notification: service.NewNotificationService(q),
 		Journal:      service.NewJournalService(q, pool, publisher),

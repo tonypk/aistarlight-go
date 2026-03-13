@@ -209,7 +209,7 @@ func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxp
 		ColMapper:   service.NewColumnMapperService(ai),
 		Knowledge:   knowledge,
 		Augmenter:   service.NewPromptAugmenter(q),
-		BankRecon:   service.NewBankReconService(q, matchAnalyzer, publisher),
+		BankRecon:   service.NewBankReconService(q, matchAnalyzer, publisher, vendorMemorySvc),
 		Compliance:  complianceSvc,
 		Corrections: service.NewCorrectionService(q),
 		Analyzer:    service.NewCorrectionAnalyzer(q),

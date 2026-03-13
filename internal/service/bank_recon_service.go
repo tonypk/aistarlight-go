@@ -20,14 +20,15 @@ var (
 
 // BankReconService orchestrates the bank reconciliation pipeline.
 type BankReconService struct {
-	q         *sqlc.Queries
-	analyzer  *MatchAnalyzer
-	publisher *event.Publisher
+	q            *sqlc.Queries
+	analyzer     *MatchAnalyzer
+	publisher    *event.Publisher
+	vendorMemory *VendorMemoryService
 }
 
 // NewBankReconService creates a BankReconService.
-func NewBankReconService(q *sqlc.Queries, analyzer *MatchAnalyzer, publisher *event.Publisher) *BankReconService {
-	return &BankReconService{q: q, analyzer: analyzer, publisher: publisher}
+func NewBankReconService(q *sqlc.Queries, analyzer *MatchAnalyzer, publisher *event.Publisher, vendorMemory *VendorMemoryService) *BankReconService {
+	return &BankReconService{q: q, analyzer: analyzer, publisher: publisher, vendorMemory: vendorMemory}
 }
 
 // CreateBatchInput holds parameters for creating a new reconciliation batch.
@@ -169,6 +170,9 @@ func (s *BankReconService) RunReconciliation(ctx context.Context, input CreateBa
 			})
 		}
 	}
+
+	// Vendor memory feedback: matched transactions confirm vendor defaults.
+	go s.recordMatchVendorFeedback(input.CompanyID, matchResult.MatchedPairs)
 
 	// Step 3: AI analysis of unmatched entries
 	result.Status = "analyzing"
@@ -411,6 +415,59 @@ func (s *BankReconService) updateStatus(ctx context.Context, batchID uuid.UUID, 
 		ID:     batchID,
 		Status: status,
 	})
+}
+
+// recordMatchVendorFeedback records vendor memory acceptances for matched
+// transactions. A successful bank reconciliation match confirms the transaction
+// data is correct, reinforcing vendor defaults.
+func (s *BankReconService) recordMatchVendorFeedback(companyID uuid.UUID, pairs []MatchedPair) {
+	if s.vendorMemory == nil || len(pairs) == 0 {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Collect record IDs from matched pairs.
+	ids := make([]uuid.UUID, 0, len(pairs))
+	for _, p := range pairs {
+		if recID, err := uuid.Parse(p.RecordID); err == nil {
+			ids = append(ids, recID)
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+
+	txns, err := s.q.GetTransactionsByIDs(ctx, sqlc.GetTransactionsByIDsParams{
+		Ids:       ids,
+		CompanyID: companyID,
+	})
+	if err != nil {
+		slog.Warn("recon vendor feedback: failed to fetch transactions", "error", err)
+		return
+	}
+
+	for _, txn := range txns {
+		vendor := ""
+		if txn.Description != nil {
+			vendor = *txn.Description
+		}
+		if vendor == "" {
+			continue
+		}
+		category := txn.Category
+		accountCode := deref(txn.AccountCode)
+		taxCode := deref(txn.TaxCode)
+		department := deref(txn.Department)
+		project := deref(txn.Project)
+
+		if err := s.vendorMemory.RecordAcceptance(ctx, companyID, vendor, category, accountCode, taxCode, department, project); err != nil {
+			slog.Warn("recon vendor feedback failed", "vendor", vendor, "error", err)
+		}
+	}
+
+	slog.Info("recon vendor feedback recorded", "matched_count", len(txns))
 }
 
 func bankEntriesToMaps(entries []ParsedBankEntry) []map[string]interface{} {

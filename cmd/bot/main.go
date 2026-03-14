@@ -60,7 +60,7 @@ func main() {
 	aiClient := oai.New(cfg.OpenAI)
 	ocrClient := ocrclient.NewClient(cfg.OCR.ServiceURL)
 	vendorSvc := service.NewVendorService(q)
-	receiptSvc := service.NewReceiptService(q, ocrClient, vendorSvc)
+	receiptSvc := service.NewReceiptService(q, ocrClient, vendorSvc, aiClient)
 	vendorMemorySvc := service.NewVendorMemoryService(q)
 	classifier := service.NewClassifierService(aiClient, q)
 	classifier.SetVendorMemory(vendorMemorySvc)

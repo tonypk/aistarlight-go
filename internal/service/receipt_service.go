@@ -12,20 +12,28 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	oai "github.com/sashabaranov/go-openai"
+	"github.com/tonypk/aistarlight-go/internal/platform/openai"
 	"github.com/tonypk/aistarlight-go/internal/repository/sqlc"
 	"github.com/tonypk/aistarlight-go/pkg/jurisdiction"
 )
 
 // ReceiptService orchestrates receipt OCR processing.
 type ReceiptService struct {
-	q        *sqlc.Queries
-	ocr      OCRClient
+	q      *sqlc.Queries
+	ocr    OCRClient
 	vendor *VendorService
+	ai     AIClient
 }
 
 // OCRClient is the interface for the OCR microservice.
 type OCRClient interface {
 	ExtractText(ctx context.Context, imagePath string) (*OCRResult, error)
+}
+
+// AIClient is the interface for LLM-based extraction (subset of openai.Client).
+type AIClient interface {
+	ChatCompletion(ctx context.Context, messages []oai.ChatCompletionMessage, opts ...openai.RequestOption) (oai.ChatCompletionResponse, error)
 }
 
 // OCRResult holds the raw OCR output.
@@ -36,8 +44,12 @@ type OCRResult struct {
 }
 
 // NewReceiptService creates a ReceiptService.
-func NewReceiptService(q *sqlc.Queries, ocr OCRClient, vendor *VendorService) *ReceiptService {
-	return &ReceiptService{q: q, ocr: ocr, vendor: vendor}
+func NewReceiptService(q *sqlc.Queries, ocr OCRClient, vendor *VendorService, ai ...AIClient) *ReceiptService {
+	s := &ReceiptService{q: q, ocr: ocr, vendor: vendor}
+	if len(ai) > 0 {
+		s.ai = ai[0]
+	}
+	return s
 }
 
 // ParsedField holds a parsed value with confidence.
@@ -53,6 +65,13 @@ type DetectedAmount struct {
 	IsLikelyTotal bool   `json:"is_likely_total"`
 }
 
+// LineItem represents a single item on a receipt.
+type LineItem struct {
+	Name   string  `json:"name"`
+	Qty    float64 `json:"qty,omitempty"`
+	Amount float64 `json:"amount,omitempty"`
+}
+
 // ParsedReceipt holds all fields extracted from a receipt.
 type ParsedReceipt struct {
 	VendorName      ParsedField      `json:"vendor_name"`
@@ -65,6 +84,7 @@ type ParsedReceipt struct {
 	Category        ParsedField      `json:"category"`
 	ReceiptNumber   ParsedField      `json:"receipt_number"`
 	DetectedAmounts []DetectedAmount `json:"detected_amounts,omitempty"`
+	LineItems       []LineItem       `json:"line_items,omitempty"`
 }
 
 // ReceiptResult holds a single receipt processing result.
@@ -207,12 +227,92 @@ func (s *ReceiptService) processOneImage(ctx context.Context, imagePath string, 
 
 	// Normal receipt processing.
 	parsed := parseReceipt(ocrResult.Text, ocrResult.Lines, jCfg)
+
+	// AI line-item extraction (non-blocking — best effort).
+	if s.ai != nil && len(ocrResult.Lines) >= 3 {
+		items, err := s.extractLineItems(ctx, ocrResult.Lines)
+		if err != nil {
+			slog.Warn("AI line item extraction failed", "error", err, "image", imagePath)
+		} else {
+			parsed.LineItems = items
+		}
+	}
+
 	return []ReceiptResult{{
 		Filename:          imagePath,
 		Parsed:            parsed,
 		OverallConfidence: AverageConfidence(parsed),
 	}}
 }
+
+// extractLineItems uses AI to extract individual purchased items from OCR text.
+func (s *ReceiptService) extractLineItems(ctx context.Context, lines []string) ([]LineItem, error) {
+	// Build compact OCR text (limit to avoid token waste)
+	var sb strings.Builder
+	for i, line := range lines {
+		if i > 0 {
+			sb.WriteString("\n")
+		}
+		sb.WriteString(line)
+		if sb.Len() > 2000 {
+			break
+		}
+	}
+
+	resp, err := s.ai.ChatCompletion(ctx, []oai.ChatCompletionMessage{
+		{
+			Role:    oai.ChatMessageRoleSystem,
+			Content: lineItemExtractionPrompt,
+		},
+		{
+			Role:    oai.ChatMessageRoleUser,
+			Content: sb.String(),
+		},
+	}, openai.WithTemperature(0.1), openai.WithMaxTokens(1024), openai.WithJSONResponse())
+	if err != nil {
+		return nil, fmt.Errorf("AI extraction: %w", err)
+	}
+
+	if len(resp.Choices) == 0 {
+		return nil, fmt.Errorf("no AI response")
+	}
+
+	var result struct {
+		Items []LineItem `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(resp.Choices[0].Message.Content), &result); err != nil {
+		return nil, fmt.Errorf("parse AI response: %w", err)
+	}
+
+	// Filter out empty or summary items
+	var filtered []LineItem
+	for _, item := range result.Items {
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			continue
+		}
+		filtered = append(filtered, LineItem{
+			Name:   name,
+			Qty:    item.Qty,
+			Amount: item.Amount,
+		})
+	}
+
+	return filtered, nil
+}
+
+const lineItemExtractionPrompt = `You are a receipt OCR parser. Extract ONLY the purchased line items (products/services) from the receipt text below.
+
+Rules:
+- Extract individual items the customer purchased
+- Include item name, quantity (default 1 if not shown), and line amount if visible
+- Do NOT include: totals, subtotals, VAT/tax lines, change, payment method, receipt headers, store info, cashier info, date/time
+- Keep item names concise but recognizable (e.g. "Coca-Cola 1.5L", "Rice 5kg", "Haircut")
+- If the receipt has no identifiable line items (e.g. only totals), return empty items array
+- For service receipts (taxi, utilities, etc.), extract the service description as a single item
+
+Respond with JSON only:
+{"items": [{"name": "item name", "qty": 1, "amount": 123.45}, ...]}`
 
 // Receipt parsing — rule-based extraction
 

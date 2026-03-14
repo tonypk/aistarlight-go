@@ -222,7 +222,7 @@ func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxp
 		Vendor:      vendorSvc,
 		Withholding: service.NewWithholdingService(q, vendorSvc),
 		Dashboard:   service.NewDashboardService(q),
-		Receipt:     service.NewReceiptService(q, ocrclient.NewClient(cfg.OCR.ServiceURL), vendorSvc),
+		Receipt:     service.NewReceiptService(q, ocrclient.NewClient(cfg.OCR.ServiceURL), vendorSvc, ai),
 		Audit:       service.NewAuditService(q),
 		Memory:      service.NewMemoryService(q),
 		Task:        service.NewTaskService(q, asynq.RedisClientOpt{

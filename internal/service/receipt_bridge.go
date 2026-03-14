@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -145,13 +146,8 @@ func (b *ReceiptBridge) createTransactionFromReceipt(ctx context.Context, compan
 		txnDate = pgtype.Date{Time: time.Now(), Valid: true}
 	}
 
-	// Build description
-	desc := "Receipt"
-	if parsed.VendorName.Value != nil {
-		if v, ok := parsed.VendorName.Value.(string); ok && v != "" {
-			desc = v
-		}
-	}
+	// Build description — vendor name + line items
+	desc := buildReceiptDescription(parsed)
 
 	// Extract TIN
 	var tin *string
@@ -236,4 +232,42 @@ func (b *ReceiptBridge) createTransactionFromReceipt(ctx context.Context, compan
 	}
 
 	return txn, nil
+}
+
+// buildReceiptDescription creates a rich description from vendor name and line items.
+// Format: "VendorName — Item1 x2, Item2, Item3 x3" (max ~200 chars)
+func buildReceiptDescription(parsed ParsedReceipt) string {
+	vendor := "Receipt"
+	if parsed.VendorName.Value != nil {
+		if v, ok := parsed.VendorName.Value.(string); ok && v != "" {
+			vendor = v
+		}
+	}
+
+	if len(parsed.LineItems) == 0 {
+		return vendor
+	}
+
+	var parts []string
+	for _, item := range parsed.LineItems {
+		s := item.Name
+		if item.Qty > 1 {
+			if item.Qty == float64(int(item.Qty)) {
+				s += fmt.Sprintf(" x%d", int(item.Qty))
+			} else {
+				s += fmt.Sprintf(" x%.1f", item.Qty)
+			}
+		}
+		parts = append(parts, s)
+	}
+
+	itemsStr := strings.Join(parts, ", ")
+
+	// Keep total description under ~250 chars for readability
+	desc := vendor + " — " + itemsStr
+	if len(desc) > 250 {
+		desc = desc[:247] + "..."
+	}
+
+	return desc
 }

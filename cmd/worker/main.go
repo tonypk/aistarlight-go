@@ -81,7 +81,7 @@ func main() {
 
 	svc := &worker.Services{
 		Report:       service.NewReportService(q, complianceSvc),
-		Receipt:      service.NewReceiptService(q, ocrclient.NewClient(cfg.OCR.ServiceURL), vendorSvc),
+		Receipt:      service.NewReceiptService(q, ocrclient.NewClient(cfg.OCR.ServiceURL), vendorSvc, ai),
 		Classifier: func() *service.ClassifierService {
 			c := service.NewClassifierService(ai, q)
 			c.SetVendorMemory(vendorMemorySvc)

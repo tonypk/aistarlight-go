@@ -138,11 +138,30 @@ func confirmationMarkup(batchID uuid.UUID, projectTag string) *tele.ReplyMarkup 
 
 // categorySelectionMarkup builds inline keyboard with category buttons for receipt classification.
 // Clicking a category confirms the receipt with that category.
-func categorySelectionMarkup(batchID uuid.UUID, projectTag string, categories []string) *tele.ReplyMarkup {
+// If aiCategory is non-empty, a Confirm button is shown first using the AI-detected category.
+func categorySelectionMarkup(batchID uuid.UUID, projectTag string, categories []string, aiCategory ...string) *tele.ReplyMarkup {
 	markup := &tele.ReplyMarkup{}
+	var rows []tele.Row
+
+	// If AI already detected a category, show a Confirm button on the first row.
+	detectedCat := ""
+	if len(aiCategory) > 0 {
+		detectedCat = aiCategory[0]
+	}
+	if detectedCat != "" {
+		confirmData := encodeCallbackData(batchID, projectTag)
+		confirmLabel := "Confirm (" + strings.ToUpper(detectedCat[:1]) + detectedCat[1:] + ")"
+		rows = append(rows, markup.Row(
+			tele.Btn{Unique: btnConfirm.Unique, Text: confirmLabel, Data: confirmData},
+		))
+	}
+
+	// Category buttons for manual override.
 	var catBtns []tele.Btn
 	for _, cat := range categories {
-		// Format: batchID|projectTag|category
+		if cat == detectedCat {
+			continue // skip the AI-detected one, already shown as Confirm
+		}
 		data := batchID.String() + "|" + projectTag + "|" + cat
 		label := strings.ToUpper(cat[:1]) + cat[1:]
 		catBtns = append(catBtns, tele.Btn{
@@ -151,7 +170,10 @@ func categorySelectionMarkup(batchID uuid.UUID, projectTag string, categories []
 			Data:   data,
 		})
 	}
-	rows := []tele.Row{markup.Row(catBtns...)}
+	if len(catBtns) > 0 {
+		rows = append(rows, markup.Row(catBtns...))
+	}
+
 	rows = append(rows, markup.Row(
 		tele.Btn{Unique: btnEdit.Unique, Text: "Edit", Data: batchID.String()},
 		tele.Btn{Unique: btnCancel.Unique, Text: "Cancel", Data: batchID.String()},
@@ -202,6 +224,7 @@ func (b *Bot) handleProjectSelect(c tele.Context) error {
 	jCfg := jurisdiction.Get(jurisdictionCode)
 
 	uploaderName := senderDisplayName(c.Sender())
+	aiCat := extractAICategory(results)
 	var preview string
 	if len(results) > 1 {
 		preview = formatMultiTripPreview(results, jCfg.CurrencySymbol, uploaderName)
@@ -209,9 +232,9 @@ func (b *Bot) handleProjectSelect(c tele.Context) error {
 	} else {
 		preview = formatReceiptPreview(results[0], jCfg.CurrencySymbol, uploaderName, projectTag)
 	}
-	preview += "\n\nSelect a category:"
+	preview += "\n\nConfirm or select a category:"
 
-	markup := categorySelectionMarkup(batchID, projectTag, receiptCategories)
+	markup := categorySelectionMarkup(batchID, projectTag, receiptCategories, aiCat)
 	_, _ = b.B.Edit(c.Message(), preview, markup)
 	return nil
 }
@@ -536,8 +559,9 @@ func (b *Bot) handleReceiptEditReply(c tele.Context, batchID uuid.UUID, text str
 	}
 
 	// No projects — show category selection directly.
-	markup := categorySelectionMarkup(batch.ID, "", receiptCategories)
-	return c.Send(preview+"\n\nSelect a category:", markup)
+	aiCat := extractAICategory(results)
+	markup := categorySelectionMarkup(batch.ID, "", receiptCategories, aiCat)
+	return c.Send(preview+"\n\nConfirm or select a category:", markup)
 }
 
 // extractReceiptInfo extracts vendor name and total amount from batch results for approval checks.
@@ -847,12 +871,13 @@ func (b *Bot) handleAmountSelect(c tele.Context) error {
 	preview := formatReceiptPreview(results[0], jCfg.CurrencySymbol, uploaderName, "")
 
 	// Proceed to project selection or category selection (skip note step).
+	aiCat := extractAICategory(results)
 	if len(b.projects) > 0 {
 		markup := projectSelectionMarkup(batch.ID, b.projects)
 		_, _ = b.B.Edit(c.Message(), preview+"\n\nPlease select a project:", markup)
 	} else {
-		markup := categorySelectionMarkup(batch.ID, "", receiptCategories)
-		_, _ = b.B.Edit(c.Message(), preview+"\n\nSelect a category:", markup)
+		markup := categorySelectionMarkup(batch.ID, "", receiptCategories, aiCat)
+		_, _ = b.B.Edit(c.Message(), preview+"\n\nConfirm or select a category:", markup)
 	}
 
 	return nil
@@ -949,12 +974,13 @@ func (b *Bot) handleCustomAmountInput(c tele.Context, text string) bool {
 	preview := formatReceiptPreview(results[0], jCfg.CurrencySymbol, uploaderName, "")
 
 	// Proceed to project selection or category selection.
+	aiCat := extractAICategory(results)
 	if len(b.projects) > 0 {
 		markup := projectSelectionMarkup(batch.ID, b.projects)
 		_ = c.Send(preview+"\n\nPlease select a project:", markup)
 	} else {
-		markup := categorySelectionMarkup(batch.ID, "", receiptCategories)
-		_ = c.Send(preview+"\n\nSelect a category:", markup)
+		markup := categorySelectionMarkup(batch.ID, "", receiptCategories, aiCat)
+		_ = c.Send(preview+"\n\nConfirm or select a category:", markup)
 	}
 
 	return true

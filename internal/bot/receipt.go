@@ -201,13 +201,14 @@ func (b *Bot) processReceipt(c tele.Context, fileID string, instruction string) 
 
 		uploaderName := senderDisplayName(c.Sender())
 		preview := formatMultiTripPreview(results, jCfg.CurrencySymbol, uploaderName)
+		aiCat := extractAICategory(results)
 
 		if len(b.projects) > 0 {
 			markup := projectSelectionMarkup(batch.ID, b.projects)
 			_, _ = b.B.Edit(processing, preview+"\n\nPlease select a project:", markup)
 		} else {
-			markup := categorySelectionMarkup(batch.ID, "", receiptCategories)
-			_, _ = b.B.Edit(processing, preview+"\n\nSelect a category:", markup)
+			markup := categorySelectionMarkup(batch.ID, "", receiptCategories, aiCat)
+			_, _ = b.B.Edit(processing, preview+"\n\nConfirm or select a category:", markup)
 		}
 
 		go b.receiptTimeout(c.Chat().ID, processing.ID, batch.ID)
@@ -262,14 +263,15 @@ func (b *Bot) processReceipt(c tele.Context, fileID string, instruction string) 
 	}
 
 	preview := formatReceiptPreview(results[0], jCfg.CurrencySymbol, uploaderName, "")
+	aiCat := extractAICategory(results)
 
 	// Show project selection or category selection directly (skip note step).
 	if len(b.projects) > 0 {
 		markup := projectSelectionMarkup(batch.ID, b.projects)
 		_, _ = b.B.Edit(processing, preview+"\n\nPlease select a project:", markup)
 	} else {
-		markup := categorySelectionMarkup(batch.ID, "", receiptCategories)
-		_, _ = b.B.Edit(processing, preview+"\n\nSelect a category:", markup)
+		markup := categorySelectionMarkup(batch.ID, "", receiptCategories, aiCat)
+		_, _ = b.B.Edit(processing, preview+"\n\nConfirm or select a category:", markup)
 	}
 
 	// Start timeout goroutine.
@@ -314,6 +316,18 @@ func (b *Bot) saveReceiptImage(localPath string, companyID, batchID uuid.UUID) (
 	}
 
 	return destPath, nil
+}
+
+// extractAICategory returns the AI-detected category from receipt results if available.
+func extractAICategory(results []service.ReceiptResult) string {
+	if len(results) == 0 {
+		return ""
+	}
+	cat, _ := results[0].Parsed.Category.Value.(string)
+	if cat == "" || cat == "other" {
+		return ""
+	}
+	return cat
 }
 
 // resizeIfNeeded scales the image so the longest side is at most maxPx.

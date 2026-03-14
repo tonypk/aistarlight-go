@@ -162,11 +162,14 @@ func (b *Bot) processReceipt(c tele.Context, fileID string, instruction string) 
 	}
 
 	// Save image persistently.
-	imagePath, saveErr := b.saveReceiptImage(localPath, tgUser.CompanyID, batch.ID)
+	var imagePath, imageRelPath string
+	fsPath, relPath, saveErr := b.saveReceiptImage(localPath, tgUser.CompanyID, batch.ID)
 	if saveErr != nil {
 		slog.Warn("failed to save receipt image persistently", "error", saveErr)
 		// Continue without persistent image — not fatal.
 	} else {
+		imagePath = fsPath
+		imageRelPath = relPath
 		// Clean up temp file since we saved a persistent copy.
 		_ = os.Remove(localPath)
 	}
@@ -192,7 +195,7 @@ func (b *Bot) processReceipt(c tele.Context, fileID string, instruction string) 
 			ID:        batch.ID,
 			Status:    "pending_confirmation",
 			Results:   resultsJSON,
-			ImagePath: ptrStr(imagePath),
+			ImagePath: ptrStr(imageRelPath),
 		})
 
 		if instruction != "" {
@@ -250,7 +253,7 @@ func (b *Bot) processReceipt(c tele.Context, fileID string, instruction string) 
 		ID:        batch.ID,
 		Status:    "pending_confirmation",
 		Results:   resultsJSON,
-		ImagePath: ptrStr(imagePath),
+		ImagePath: ptrStr(imageRelPath),
 	})
 
 	// Store caption description as receipt note for transaction description.
@@ -369,24 +372,26 @@ func (b *Bot) autoSelectProject(ctx context.Context, captionProject string, comp
 }
 
 // saveReceiptImage decodes, resizes (max 1920px long side), and saves as compressed JPEG.
-func (b *Bot) saveReceiptImage(localPath string, companyID, batchID uuid.UUID) (string, error) {
+// Returns (filesystemPath, relativeURLPath, error).
+// The relative path is for DB storage (e.g. "receipts/{companyID}/{batchID}.jpg").
+func (b *Bot) saveReceiptImage(localPath string, companyID, batchID uuid.UUID) (string, string, error) {
 	companyDir := filepath.Join(b.uploadDir, companyID.String())
 	if err := os.MkdirAll(companyDir, 0o755); err != nil {
-		return "", fmt.Errorf("create company dir: %w", err)
+		return "", "", fmt.Errorf("create company dir: %w", err)
 	}
 
-	// Always output as .jpg regardless of input format.
-	destPath := filepath.Join(companyDir, batchID.String()+".jpg")
+	filename := batchID.String() + ".jpg"
+	destPath := filepath.Join(companyDir, filename)
 
 	src, err := os.Open(localPath)
 	if err != nil {
-		return "", fmt.Errorf("open source: %w", err)
+		return "", "", fmt.Errorf("open source: %w", err)
 	}
 	defer func() { _ = src.Close() }()
 
 	img, _, err := image.Decode(src)
 	if err != nil {
-		return "", fmt.Errorf("decode image: %w", err)
+		return "", "", fmt.Errorf("decode image: %w", err)
 	}
 
 	// Resize if either dimension exceeds maxImageLongSide.
@@ -394,16 +399,19 @@ func (b *Bot) saveReceiptImage(localPath string, companyID, batchID uuid.UUID) (
 
 	dst, err := os.Create(destPath)
 	if err != nil {
-		return "", fmt.Errorf("create dest: %w", err)
+		return "", "", fmt.Errorf("create dest: %w", err)
 	}
 	defer func() { _ = dst.Close() }()
 
 	if err := jpeg.Encode(dst, img, &jpeg.Options{Quality: jpegQuality}); err != nil {
 		_ = os.Remove(destPath)
-		return "", fmt.Errorf("encode jpeg: %w", err)
+		return "", "", fmt.Errorf("encode jpeg: %w", err)
 	}
 
-	return destPath, nil
+	// Relative path for DB storage and URL construction (matches nginx /receipts/ alias).
+	relPath := filepath.Join("receipts", companyID.String(), filename)
+
+	return destPath, relPath, nil
 }
 
 // extractAICategory returns the AI-detected category from receipt results if available.

@@ -153,6 +153,12 @@ func formatReceiptPreview(result service.ReceiptResult, currencySymbol, uploader
 		}
 	}
 
+	// Description (from line items or caption)
+	desc := formatLineItemsDescription(parsed)
+	if desc != "" {
+		lines = append(lines, fmt.Sprintf("Description: %s", desc))
+	}
+
 	// Receipt number
 	if parsed.ReceiptNumber.Value != nil {
 		if v, ok := parsed.ReceiptNumber.Value.(string); ok && v != "" {
@@ -181,6 +187,10 @@ func formatReceiptPreview(result service.ReceiptResult, currencySymbol, uploader
 		}
 	}
 
+	if projectTag != "" {
+		lines = append(lines, fmt.Sprintf("Project: %s", projectTag))
+	}
+
 	// Classification preview
 	lines = append(lines, "\nRecommended Classification:")
 	if parsed.VATType.Value != nil {
@@ -194,13 +204,34 @@ func formatReceiptPreview(result service.ReceiptResult, currencySymbol, uploader
 		lines = append(lines, fmt.Sprintf("  Category: %s (%d%%)", category, confPct))
 	}
 
-	if projectTag != "" {
-		lines = append(lines, fmt.Sprintf("\nProject: %s", projectTag))
-	}
-
 	lines = append(lines, fmt.Sprintf("\nUploaded by: %s", uploaderName))
 
 	return strings.Join(lines, "\n")
+}
+
+// formatLineItemsDescription builds a short description from line items.
+// Returns empty string if no line items.
+func formatLineItemsDescription(parsed service.ParsedReceipt) string {
+	if len(parsed.LineItems) == 0 {
+		return ""
+	}
+	var parts []string
+	for _, item := range parsed.LineItems {
+		s := item.Name
+		if item.Qty > 1 {
+			if item.Qty == float64(int(item.Qty)) {
+				s += fmt.Sprintf(" x%d", int(item.Qty))
+			} else {
+				s += fmt.Sprintf(" x%.1f", item.Qty)
+			}
+		}
+		parts = append(parts, s)
+	}
+	desc := strings.Join(parts, ", ")
+	if len(desc) > 120 {
+		desc = desc[:117] + "..."
+	}
+	return desc
 }
 
 // formatAmountSelectionPreview shows a receipt preview with all detected amounts,

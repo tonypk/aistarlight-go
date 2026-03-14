@@ -53,6 +53,9 @@ type Bot struct {
 	// Custom amount: store pending state when user clicks "Other amount" in amount picker.
 	pendingCustomAmount sync.Map // map[int64]*CustomAmountPending — telegram user ID → pending state
 
+	// Field-specific edit: store pending state when user clicked a field button in edit mode.
+	pendingFieldEdit sync.Map // map[int64]*PendingFieldEdit — telegram user ID → pending field edit
+
 	// Reply-to correction: maps "chatID:msgID" → ReplyTxnData for reply-based editing.
 	replyTxnMap sync.Map // map[string]*ReplyTxnData
 }
@@ -141,6 +144,8 @@ func (b *Bot) registerHandlers() {
 	b.B.Handle(&btnAmountSelect, b.handleAmountSelect)
 	b.B.Handle(&btnAmountCustom, b.handleAmountCustom)
 	b.B.Handle(&btnCategory, b.handleCategorySelect)
+	b.B.Handle(&btnEditField, b.handleEditFieldSelect)
+	b.B.Handle(&btnEditBack, b.handleEditBack)
 
 	// Approval callback handlers.
 	b.B.Handle(&btnApprove, b.handleApproveReceipt)

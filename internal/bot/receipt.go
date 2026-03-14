@@ -216,6 +216,12 @@ func (b *Bot) processReceipt(c tele.Context, fileID string, instruction string) 
 	}
 
 	// Single receipt flow.
+	// Parse caption intent: extract description and project from natural language caption.
+	var captionDesc, captionProject string
+	if instruction != "" {
+		captionDesc, captionProject = parseCaptionIntent(instruction, b.projects)
+	}
+
 	// Apply user instruction to OCR results (e.g., "use net total", "amount: 1500").
 	if instruction != "" && len(results) > 0 {
 		applyInstruction(&results[0], instruction)
@@ -235,8 +241,10 @@ func (b *Bot) processReceipt(c tele.Context, fileID string, instruction string) 
 		needsSelection = true
 	}
 
+	// Auto-select project from: caption > vendor memory > single project fallback.
+	autoProject := b.autoSelectProject(ctx, captionProject, tgUser.CompanyID, results[0])
+
 	// Update batch: set status to pending_confirmation and store image_path.
-	// Use the actual results (not batch.Results which is the stale initial empty value).
 	resultsJSON, _ := json.Marshal(results)
 	_ = b.q.UpdateReceiptBatch(ctx, sqlc.UpdateReceiptBatchParams{
 		ID:        batch.ID,
@@ -245,8 +253,10 @@ func (b *Bot) processReceipt(c tele.Context, fileID string, instruction string) 
 		ImagePath: ptrStr(imagePath),
 	})
 
-	// If instruction provided, auto-store as receipt note.
-	if instruction != "" {
+	// Store caption description as receipt note for transaction description.
+	if captionDesc != "" {
+		b.receiptNotes.Store(batch.ID, captionDesc)
+	} else if instruction != "" {
 		b.receiptNotes.Store(batch.ID, instruction)
 	}
 
@@ -262,14 +272,22 @@ func (b *Bot) processReceipt(c tele.Context, fileID string, instruction string) 
 		return nil
 	}
 
-	preview := formatReceiptPreview(results[0], jCfg.CurrencySymbol, uploaderName, "")
+	// One-step confirm flow: show full preview with [Confirm][Edit][Cancel].
+	// If project was auto-selected (from caption, vendor memory, or single project),
+	// skip the project selection step and go directly to category confirm.
 	aiCat := extractAICategory(results)
+	preview := formatReceiptPreview(results[0], jCfg.CurrencySymbol, uploaderName, autoProject)
 
-	// Show project selection or category selection directly (skip note step).
-	if len(b.projects) > 0 {
+	if autoProject != "" {
+		// Project resolved — show category selection with Confirm button.
+		markup := categorySelectionMarkup(batch.ID, autoProject, receiptCategories, aiCat)
+		_, _ = b.B.Edit(processing, preview+"\n\nConfirm or select a category:", markup)
+	} else if len(b.projects) > 0 {
+		// Multiple projects, none auto-selected — show project picker.
 		markup := projectSelectionMarkup(batch.ID, b.projects)
 		_, _ = b.B.Edit(processing, preview+"\n\nPlease select a project:", markup)
 	} else {
+		// No projects configured — show category selection directly.
 		markup := categorySelectionMarkup(batch.ID, "", receiptCategories, aiCat)
 		_, _ = b.B.Edit(processing, preview+"\n\nConfirm or select a category:", markup)
 	}
@@ -278,6 +296,76 @@ func (b *Bot) processReceipt(c tele.Context, fileID string, instruction string) 
 	go b.receiptTimeout(c.Chat().ID, processing.ID, batch.ID)
 
 	return nil
+}
+
+// parseCaptionIntent extracts description and project from a photo caption.
+// It looks for project name matches and treats the rest as description.
+// Returns (description, projectTag).
+func parseCaptionIntent(caption string, projects []string) (string, string) {
+	if caption == "" {
+		return "", ""
+	}
+
+	// Check if caption contains key:value pairs — these are field instructions, not description.
+	lower := strings.ToLower(caption)
+	fieldPrefixes := []string{"amount:", "vendor:", "date:", "vat:", "category:", "tin:", "金额:", "商家:", "日期:"}
+	for _, prefix := range fieldPrefixes {
+		if strings.Contains(lower, prefix) {
+			return "", "" // instruction mode, not caption mode
+		}
+	}
+
+	matchedProject := ""
+	remaining := caption
+
+	// Try to match project names in the caption (case-insensitive).
+	for _, proj := range projects {
+		projLower := strings.ToLower(proj)
+		idx := strings.Index(lower, projLower)
+		if idx >= 0 {
+			matchedProject = proj
+			// Remove the project name from the remaining text.
+			remaining = caption[:idx] + caption[idx+len(proj):]
+			break
+		}
+	}
+
+	// Clean up remaining text: strip common delimiters and whitespace.
+	remaining = strings.TrimSpace(remaining)
+	remaining = strings.Trim(remaining, ",-—|/")
+	remaining = strings.TrimSpace(remaining)
+
+	return remaining, matchedProject
+}
+
+// autoSelectProject determines the best project for a receipt.
+// Priority: 1. caption match, 2. vendor memory, 3. single project fallback.
+func (b *Bot) autoSelectProject(ctx context.Context, captionProject string, companyID uuid.UUID, result service.ReceiptResult) string {
+	// 1. Caption explicitly mentioned a project.
+	if captionProject != "" {
+		return captionProject
+	}
+
+	// 2. Vendor memory: check if this vendor has a default project.
+	if b.vendorMemory != nil {
+		vendorName := ""
+		if v, ok := result.Parsed.VendorName.Value.(string); ok {
+			vendorName = v
+		}
+		if vendorName != "" {
+			policy, err := b.vendorMemory.MatchVendor(ctx, companyID, vendorName)
+			if err == nil && policy != nil && policy.Project != "" {
+				return policy.Project
+			}
+		}
+	}
+
+	// 3. Only one project configured — auto-select it.
+	if len(b.projects) == 1 {
+		return b.projects[0]
+	}
+
+	return ""
 }
 
 // saveReceiptImage decodes, resizes (max 1920px long side), and saves as compressed JPEG.

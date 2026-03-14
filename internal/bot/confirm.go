@@ -28,6 +28,10 @@ var (
 	btnAmountSelect       = tele.Btn{Unique: "rcpt_am", Text: "Amount"}
 	btnAmountCustom       = tele.Btn{Unique: "rcpt_ac", Text: "Other amount"}
 	btnCategory           = tele.Btn{Unique: "rcpt_ct", Text: "Category"}
+
+	// Field-level edit buttons.
+	btnEditField = tele.Btn{Unique: "rcpt_ef", Text: "Edit Field"}
+	btnEditBack  = tele.Btn{Unique: "rcpt_eb", Text: "Back"}
 )
 
 // Default expense categories for receipt classification.
@@ -44,6 +48,12 @@ type CustomCategoryPending struct {
 // CustomAmountPending tracks the state when waiting for a user to type a custom amount.
 type CustomAmountPending struct {
 	BatchID uuid.UUID
+}
+
+// PendingFieldEdit tracks the state when waiting for a user to type a field value.
+type PendingFieldEdit struct {
+	BatchID uuid.UUID
+	Field   string // "amount", "description", "vendor", "date", "vat", "category"
 }
 
 // callbackData encodes batchID + optional projectTag into callback data.
@@ -393,7 +403,7 @@ func (b *Bot) handleCategorySelect(c tele.Context) error {
 	return nil
 }
 
-// handleReceiptEdit handles the Edit button click.
+// handleReceiptEdit handles the Edit button click — shows field selection buttons.
 func (b *Bot) handleReceiptEdit(c tele.Context) error {
 	batchID, _, err := parseCallbackData(c.Data())
 	if err != nil {
@@ -419,17 +429,172 @@ func (b *Bot) handleReceiptEdit(c tele.Context) error {
 
 	_ = c.Respond(&tele.CallbackResponse{})
 
-	b.receiptNotes.Delete(batchID)
+	// Show field selection buttons.
+	markup := editFieldSelectionMarkup(batchID)
+	_, _ = b.B.Edit(c.Message(), "Which field do you want to edit?\n选择要修改的字段：", markup)
+	return nil
+}
+
+// editFieldSelectionMarkup builds inline keyboard with field buttons for editing.
+func editFieldSelectionMarkup(batchID uuid.UUID) *tele.ReplyMarkup {
+	markup := &tele.ReplyMarkup{}
+	fields := []struct {
+		label string
+		key   string
+	}{
+		{"Amount / 金额", "amount"},
+		{"Description / 用途", "description"},
+		{"Vendor / 商家", "vendor"},
+		{"Date / 日期", "date"},
+		{"VAT / 税额", "vat"},
+		{"Category / 科目", "category"},
+	}
+	var rows []tele.Row
+	// Two fields per row.
+	for i := 0; i < len(fields); i += 2 {
+		var btns []tele.Btn
+		btns = append(btns, tele.Btn{
+			Unique: btnEditField.Unique,
+			Text:   fields[i].label,
+			Data:   batchID.String() + "|" + fields[i].key,
+		})
+		if i+1 < len(fields) {
+			btns = append(btns, tele.Btn{
+				Unique: btnEditField.Unique,
+				Text:   fields[i+1].label,
+				Data:   batchID.String() + "|" + fields[i+1].key,
+			})
+		}
+		rows = append(rows, markup.Row(btns...))
+	}
+	// Back and Cancel.
+	rows = append(rows, markup.Row(
+		tele.Btn{Unique: btnEditBack.Unique, Text: "Back", Data: batchID.String()},
+		tele.Btn{Unique: btnCancel.Unique, Text: "Cancel", Data: batchID.String()},
+	))
+	markup.Inline(rows...)
+	return markup
+}
+
+// handleEditFieldSelect handles a specific field edit button click.
+func (b *Bot) handleEditFieldSelect(c tele.Context) error {
+	parts := strings.SplitN(c.Data(), "|", 2)
+	if len(parts) != 2 {
+		return c.Respond(&tele.CallbackResponse{Text: "Invalid data."})
+	}
+	batchID, err := uuid.Parse(parts[0])
+	if err != nil {
+		return c.Respond(&tele.CallbackResponse{Text: "Invalid batch ID."})
+	}
+	field := parts[1]
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	batch, err := b.q.GetReceiptBatchByID(ctx, batchID)
+	if err != nil {
+		return c.Respond(&tele.CallbackResponse{Text: "Batch not found."})
+	}
+
+	tgUser, err := b.q.GetTelegramUser(ctx, c.Sender().ID)
+	if err != nil || tgUser.CompanyID != batch.CompanyID {
+		return c.Respond(&tele.CallbackResponse{Text: "Unauthorized."})
+	}
+
+	if batch.Status != "pending_confirmation" {
+		return c.Respond(&tele.CallbackResponse{Text: "Already processed."})
+	}
+
+	_ = c.Respond(&tele.CallbackResponse{})
+
+	// Store original results for auto-learning on first edit.
+	var results []service.ReceiptResult
+	if err := json.Unmarshal(batch.Results, &results); err == nil && len(results) > 0 {
+		if _, loaded := b.originalResults.LoadOrStore(batchID, results[0]); loaded {
+			// Already stored from a previous edit — don't overwrite.
+		}
+	}
+
+	// Store pending field edit state.
 	b.pendingEdits.Store(c.Sender().ID, batchID)
+	b.pendingFieldEdit.Store(c.Sender().ID, &PendingFieldEdit{
+		BatchID: batchID,
+		Field:   field,
+	})
 
-	editInstructions := "Reply with corrections (colon or space separated).\n" +
-		"Supported fields: amount, vendor, date, vat, category, tin, receipt_no\n\n" +
-		"Example:\n" +
-		"amount 1500\n" +
-		"vendor ABC Store\n" +
-		"category services"
+	prompts := map[string]string{
+		"amount":      "Enter the correct amount (e.g. 1500.00):\n请输入正确金额：",
+		"description": "Enter the description / purpose (e.g. 办公用品, lunch meeting):\n请输入用途说明：",
+		"vendor":      "Enter the correct vendor name:\n请输入正确商家名称：",
+		"date":        "Enter the correct date (e.g. 2026-03-14):\n请输入正确日期：",
+		"vat":         "Enter the correct VAT amount (e.g. 520.00):\n请输入正确税额：",
+		"category":    "Enter the category (goods, services, capital, imports):\n请输入分类：",
+	}
+	prompt := prompts[field]
+	if prompt == "" {
+		prompt = "Enter the new value:"
+	}
 
-	_, _ = b.B.Edit(c.Message(), editInstructions)
+	_, _ = b.B.Edit(c.Message(), prompt)
+	return nil
+}
+
+// handleEditBack handles the Back button from field edit selection — returns to preview.
+func (b *Bot) handleEditBack(c tele.Context) error {
+	batchID, err := uuid.Parse(c.Data())
+	if err != nil {
+		return c.Respond(&tele.CallbackResponse{Text: "Invalid batch ID."})
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	batch, err := b.q.GetReceiptBatchByID(ctx, batchID)
+	if err != nil {
+		return c.Respond(&tele.CallbackResponse{Text: "Batch not found."})
+	}
+
+	tgUser, err := b.q.GetTelegramUser(ctx, c.Sender().ID)
+	if err != nil || tgUser.CompanyID != batch.CompanyID {
+		return c.Respond(&tele.CallbackResponse{Text: "Unauthorized."})
+	}
+
+	if batch.Status != "pending_confirmation" {
+		return c.Respond(&tele.CallbackResponse{Text: "Already processed."})
+	}
+
+	_ = c.Respond(&tele.CallbackResponse{})
+
+	var results []service.ReceiptResult
+	if err := json.Unmarshal(batch.Results, &results); err != nil || len(results) == 0 {
+		_, _ = b.B.Edit(c.Message(), "Failed to load receipt data.")
+		return nil
+	}
+
+	company, compErr := b.q.GetCompanyByID(ctx, tgUser.CompanyID)
+	jurisdictionCode := "PH"
+	if compErr == nil {
+		jurisdictionCode = company.Jurisdiction
+	}
+	jCfg := jurisdiction.Get(jurisdictionCode)
+
+	uploaderName := senderDisplayName(c.Sender())
+	aiCat := extractAICategory(results)
+
+	if len(results) > 1 {
+		preview := formatMultiTripPreview(results, jCfg.CurrencySymbol, uploaderName)
+		markup := categorySelectionMarkup(batchID, "", receiptCategories, aiCat)
+		_, _ = b.B.Edit(c.Message(), preview+"\n\nConfirm or select a category:", markup)
+	} else {
+		preview := formatReceiptPreview(results[0], jCfg.CurrencySymbol, uploaderName, "")
+		if len(b.projects) > 0 {
+			markup := projectSelectionMarkup(batchID, b.projects)
+			_, _ = b.B.Edit(c.Message(), preview+"\n\nPlease select a project:", markup)
+		} else {
+			markup := categorySelectionMarkup(batchID, "", receiptCategories, aiCat)
+			_, _ = b.B.Edit(c.Message(), preview+"\n\nConfirm or select a category:", markup)
+		}
+	}
 	return nil
 }
 
@@ -468,6 +633,7 @@ func (b *Bot) handleReceiptCancel(c tele.Context) error {
 }
 
 // handleReceiptEditReply processes a user's text correction for a pending edit.
+// Supports both field-specific edits (from button flow) and free-form multi-field edits.
 func (b *Bot) handleReceiptEditReply(c tele.Context, batchID uuid.UUID, text string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -487,48 +653,87 @@ func (b *Bot) handleReceiptEditReply(c tele.Context, batchID uuid.UUID, text str
 	}
 
 	// Store original OCR results before user edits (for auto-learning).
-	b.originalResults.Store(batchID, results[0])
+	if _, loaded := b.originalResults.LoadOrStore(batchID, results[0]); loaded {
+		// Already stored — don't overwrite.
+	}
 
 	parsed := &results[0].Parsed
-	for _, line := range strings.Split(text, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		// Support both "key: value" and "key value" formats.
-		var key, value string
-		if parts := strings.SplitN(line, ":", 2); len(parts) == 2 {
-			key = strings.TrimSpace(strings.ToLower(parts[0]))
-			value = strings.TrimSpace(parts[1])
-		} else if parts := strings.SplitN(line, " ", 2); len(parts) == 2 {
-			key = strings.TrimSpace(strings.ToLower(parts[0]))
-			value = strings.TrimSpace(parts[1])
-		} else {
-			continue
-		}
-		if value == "" {
-			continue
-		}
 
-		switch key {
-		case "amount":
-			if f, err := strconv.ParseFloat(strings.ReplaceAll(value, ",", ""), 64); err == nil {
-				parsed.TotalAmount = service.ParsedField{Value: f, Confidence: 1.0}
+	// Check if this is a field-specific edit (from button flow).
+	if raw, ok := b.pendingFieldEdit.LoadAndDelete(c.Sender().ID); ok {
+		pending, _ := raw.(*PendingFieldEdit)
+		if pending != nil && pending.BatchID == batchID {
+			value := strings.TrimSpace(text)
+			switch pending.Field {
+			case "amount":
+				cleaned := strings.NewReplacer("₱", "", "PHP", "", "P", "", "S$", "", "SGD", "", ",", "", " ", "").Replace(value)
+				if f, err := strconv.ParseFloat(cleaned, 64); err == nil && f > 0 {
+					parsed.TotalAmount = service.ParsedField{Value: f, Confidence: 1.0}
+				} else {
+					return c.Send("Invalid amount. Please enter a number (e.g. 1500.00).")
+				}
+			case "description":
+				// Store as receipt note (will be appended to transaction description).
+				b.receiptNotes.Store(batchID, value)
+			case "vendor":
+				parsed.VendorName = service.ParsedField{Value: value, Confidence: 1.0}
+			case "date":
+				parsed.Date = service.ParsedField{Value: value, Confidence: 1.0}
+			case "vat":
+				cleaned := strings.NewReplacer("₱", "", "PHP", "", ",", "", " ", "").Replace(value)
+				if f, err := strconv.ParseFloat(cleaned, 64); err == nil {
+					parsed.VATAmount = service.ParsedField{Value: f, Confidence: 1.0}
+				} else {
+					return c.Send("Invalid VAT amount. Please enter a number.")
+				}
+			case "category":
+				parsed.Category = service.ParsedField{Value: strings.ToLower(value), Confidence: 1.0}
 			}
-		case "vendor":
-			parsed.VendorName = service.ParsedField{Value: value, Confidence: 1.0}
-		case "date":
-			parsed.Date = service.ParsedField{Value: value, Confidence: 1.0}
-		case "vat":
-			if f, err := strconv.ParseFloat(strings.ReplaceAll(value, ",", ""), 64); err == nil {
-				parsed.VATAmount = service.ParsedField{Value: f, Confidence: 1.0}
+			// Fall through to save and show preview.
+		}
+	} else {
+		// Free-form multi-field edit (legacy format).
+		for _, line := range strings.Split(text, "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
 			}
-		case "category":
-			parsed.Category = service.ParsedField{Value: value, Confidence: 1.0}
-		case "tin":
-			parsed.TIN = service.ParsedField{Value: value, Confidence: 1.0}
-		case "receipt_no":
-			parsed.ReceiptNumber = service.ParsedField{Value: value, Confidence: 1.0}
+			var key, value string
+			if parts := strings.SplitN(line, ":", 2); len(parts) == 2 {
+				key = strings.TrimSpace(strings.ToLower(parts[0]))
+				value = strings.TrimSpace(parts[1])
+			} else if parts := strings.SplitN(line, " ", 2); len(parts) == 2 {
+				key = strings.TrimSpace(strings.ToLower(parts[0]))
+				value = strings.TrimSpace(parts[1])
+			} else {
+				continue
+			}
+			if value == "" {
+				continue
+			}
+
+			switch key {
+			case "amount":
+				if f, err := strconv.ParseFloat(strings.ReplaceAll(value, ",", ""), 64); err == nil {
+					parsed.TotalAmount = service.ParsedField{Value: f, Confidence: 1.0}
+				}
+			case "vendor":
+				parsed.VendorName = service.ParsedField{Value: value, Confidence: 1.0}
+			case "date":
+				parsed.Date = service.ParsedField{Value: value, Confidence: 1.0}
+			case "vat":
+				if f, err := strconv.ParseFloat(strings.ReplaceAll(value, ",", ""), 64); err == nil {
+					parsed.VATAmount = service.ParsedField{Value: f, Confidence: 1.0}
+				}
+			case "category":
+				parsed.Category = service.ParsedField{Value: value, Confidence: 1.0}
+			case "tin":
+				parsed.TIN = service.ParsedField{Value: value, Confidence: 1.0}
+			case "receipt_no":
+				parsed.ReceiptNumber = service.ParsedField{Value: value, Confidence: 1.0}
+			case "description":
+				b.receiptNotes.Store(batchID, value)
+			}
 		}
 	}
 
@@ -553,13 +758,12 @@ func (b *Bot) handleReceiptEditReply(c tele.Context, batchID uuid.UUID, text str
 	preview := formatReceiptPreview(results[0], jCfg.CurrencySymbol, uploaderName, "")
 
 	// After edit, show project selection or category selection.
+	aiCat := extractAICategory(results)
 	if len(b.projects) > 0 {
 		markup := projectSelectionMarkup(batch.ID, b.projects)
 		return c.Send(preview+"\n\nPlease select a project:", markup)
 	}
 
-	// No projects — show category selection directly.
-	aiCat := extractAICategory(results)
 	markup := categorySelectionMarkup(batch.ID, "", receiptCategories, aiCat)
 	return c.Send(preview+"\n\nConfirm or select a category:", markup)
 }

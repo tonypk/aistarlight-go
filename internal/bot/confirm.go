@@ -587,8 +587,9 @@ func (b *Bot) handleEditBack(c tele.Context) error {
 		_, _ = b.B.Edit(c.Message(), preview+"\n\nConfirm or select a category:", markup)
 	} else {
 		preview := formatReceiptPreview(results[0], jCfg.CurrencySymbol, uploaderName, "")
-		if len(b.projects) > 0 {
-			markup := projectSelectionMarkup(batchID, b.projects)
+		projects := b.getProjectNames(ctx, tgUser.CompanyID)
+		if len(projects) > 0 {
+			markup := projectSelectionMarkup(batchID, projects)
 			_, _ = b.B.Edit(c.Message(), preview+"\n\nPlease select a project:", markup)
 		} else {
 			markup := categorySelectionMarkup(batchID, "", receiptCategories, aiCat)
@@ -759,8 +760,9 @@ func (b *Bot) handleReceiptEditReply(c tele.Context, batchID uuid.UUID, text str
 
 	// After edit, show project selection or category selection.
 	aiCat := extractAICategory(results)
-	if len(b.projects) > 0 {
-		markup := projectSelectionMarkup(batch.ID, b.projects)
+	projects := b.getProjectNames(ctx, tgUser.CompanyID)
+	if len(projects) > 0 {
+		markup := projectSelectionMarkup(batch.ID, projects)
 		return c.Send(preview+"\n\nPlease select a project:", markup)
 	}
 
@@ -976,6 +978,15 @@ func (b *Bot) confirmAndProcess(ctx context.Context, batch sqlc.ReceiptBatch, tg
 		reply += fmt.Sprintf("\nNote: %s", note)
 	}
 
+	// Link project tag to transactions in transaction_tags table.
+	if projectTag != nil && *projectTag != "" && b.tags != nil {
+		for _, txn := range txns {
+			if err := b.tags.LinkProjectTagToTransaction(ctx, tgUser.CompanyID, *projectTag, txn.ID); err != nil {
+				slog.Warn("link project tag failed", "txn_id", txn.ID, "project", *projectTag, "error", err)
+			}
+		}
+	}
+
 	// Append learning status.
 	reply += learnMsg
 
@@ -1076,8 +1087,9 @@ func (b *Bot) handleAmountSelect(c tele.Context) error {
 
 	// Proceed to project selection or category selection (skip note step).
 	aiCat := extractAICategory(results)
-	if len(b.projects) > 0 {
-		markup := projectSelectionMarkup(batch.ID, b.projects)
+	projects := b.getProjectNames(ctx, tgUser.CompanyID)
+	if len(projects) > 0 {
+		markup := projectSelectionMarkup(batch.ID, projects)
 		_, _ = b.B.Edit(c.Message(), preview+"\n\nPlease select a project:", markup)
 	} else {
 		markup := categorySelectionMarkup(batch.ID, "", receiptCategories, aiCat)
@@ -1179,8 +1191,9 @@ func (b *Bot) handleCustomAmountInput(c tele.Context, text string) bool {
 
 	// Proceed to project selection or category selection.
 	aiCat := extractAICategory(results)
-	if len(b.projects) > 0 {
-		markup := projectSelectionMarkup(batch.ID, b.projects)
+	projects := b.getProjectNames(ctx, tgUser.CompanyID)
+	if len(projects) > 0 {
+		markup := projectSelectionMarkup(batch.ID, projects)
 		_ = c.Send(preview+"\n\nPlease select a project:", markup)
 	} else {
 		markup := categorySelectionMarkup(batch.ID, "", receiptCategories, aiCat)

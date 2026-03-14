@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/tonypk/aistarlight-go/internal/bot"
 	"github.com/tonypk/aistarlight-go/internal/config"
@@ -73,9 +74,29 @@ func main() {
 	correctionSvc := service.NewCorrectionService(q)
 	docQualitySvc := service.NewDocumentQualityService(q)
 	approvalSvc := service.NewApprovalService(q)
+	tagSvc := service.NewTagService(q)
+
+	// Legacy BOT_PROJECTS seed: migrate static env projects into DB tags.
+	if len(cfg.Telegram.Projects) > 0 {
+		slog.Warn("DEPRECATED: BOT_PROJECTS env var detected. Projects will be seeded as tags with is_project=true. Manage projects via the Tags UI instead.")
+		seedCtx, seedCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		companies, listErr := q.ListAllCompanies(seedCtx)
+		if listErr != nil {
+			slog.Warn("failed to list companies for project seed", "error", listErr)
+		} else {
+			for _, comp := range companies {
+				if err := tagSvc.SeedProjectTags(seedCtx, comp.ID, cfg.Telegram.Projects); err != nil {
+					slog.Warn("seed project tags failed", "company_id", comp.ID, "error", err)
+				} else {
+					slog.Info("seeded project tags", "company_id", comp.ID, "projects", cfg.Telegram.Projects)
+				}
+			}
+		}
+		seedCancel()
+	}
 
 	// Bot.
-	b, err := bot.New(cfg.Telegram.BotToken, q, receiptSvc, bridgeSvc, journalGen, classifier, chatSvc, correctionSvc, vendorMemorySvc, docQualitySvc, approvalSvc, cfg.UploadDir, cfg.Telegram.Projects, cfg.Telegram.BaseURL)
+	b, err := bot.New(cfg.Telegram.BotToken, q, receiptSvc, bridgeSvc, journalGen, classifier, chatSvc, correctionSvc, vendorMemorySvc, docQualitySvc, approvalSvc, tagSvc, cfg.UploadDir, cfg.Telegram.BaseURL)
 	if err != nil {
 		slog.Error("failed to create bot", "error", err)
 		os.Exit(1)

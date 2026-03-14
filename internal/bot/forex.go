@@ -143,8 +143,9 @@ func (b *Bot) showForexProjectOrConfirm(c tele.Context, pending *ForexPending) {
 
 	preview := formatForexPreview(pending, jCfg.CurrencySymbol, "")
 
-	if len(b.projects) > 0 {
-		markup := forexProjectSelectionMarkup(b.projects)
+	projects := b.getProjectNames(ctx, tgUser.CompanyID)
+	if len(projects) > 0 {
+		markup := forexProjectSelectionMarkup(projects)
 		_, _ = b.B.Send(c.Chat(), preview, markup)
 	} else {
 		markup := forexConfirmationMarkup("")
@@ -295,6 +296,17 @@ func (b *Bot) handleForexConfirm(c tele.Context) error {
 		slog.Error("forex: failed to create transaction", "error", err)
 		_, _ = b.B.Edit(c.Message(), "Failed to record exchange.")
 		return nil
+	}
+
+	// Link project tag to the forex transaction.
+	finalProject := projectTag
+	if finalProject == "" {
+		finalProject = pending.ProjectTag
+	}
+	if finalProject != "" && b.tags != nil {
+		if err := b.tags.LinkProjectTagToTransaction(ctx, tgUser.CompanyID, finalProject, dbTxn.ID); err != nil {
+			slog.Warn("forex: link project tag failed", "project", finalProject, "error", err)
+		}
 	}
 
 	var refNum int32

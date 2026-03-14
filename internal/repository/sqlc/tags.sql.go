@@ -31,34 +31,42 @@ const countTagsByCompany = `-- name: CountTagsByCompany :one
 SELECT COUNT(*) FROM tags
 WHERE company_id = $1
   AND ($2::varchar = '' OR name ILIKE '%' || $2 || '%')
+  AND ($3::boolean IS NULL OR is_project = $3::boolean)
 `
 
 type CountTagsByCompanyParams struct {
 	CompanyID uuid.UUID `json:"company_id"`
 	Column2   string    `json:"column_2"`
+	IsProject *bool     `json:"is_project"`
 }
 
 func (q *Queries) CountTagsByCompany(ctx context.Context, arg CountTagsByCompanyParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countTagsByCompany, arg.CompanyID, arg.Column2)
+	row := q.db.QueryRow(ctx, countTagsByCompany, arg.CompanyID, arg.Column2, arg.IsProject)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
 }
 
 const createTag = `-- name: CreateTag :one
-INSERT INTO tags (company_id, name, color)
-VALUES ($1, $2, $3)
-RETURNING id, company_id, name, color, created_at, updated_at
+INSERT INTO tags (company_id, name, color, is_project)
+VALUES ($1, $2, $3, $4)
+RETURNING id, company_id, name, color, created_at, updated_at, is_project
 `
 
 type CreateTagParams struct {
 	CompanyID uuid.UUID `json:"company_id"`
 	Name      string    `json:"name"`
 	Color     string    `json:"color"`
+	IsProject bool      `json:"is_project"`
 }
 
 func (q *Queries) CreateTag(ctx context.Context, arg CreateTagParams) (Tag, error) {
-	row := q.db.QueryRow(ctx, createTag, arg.CompanyID, arg.Name, arg.Color)
+	row := q.db.QueryRow(ctx, createTag,
+		arg.CompanyID,
+		arg.Name,
+		arg.Color,
+		arg.IsProject,
+	)
 	var i Tag
 	err := row.Scan(
 		&i.ID,
@@ -67,6 +75,7 @@ func (q *Queries) CreateTag(ctx context.Context, arg CreateTagParams) (Tag, erro
 		&i.Color,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IsProject,
 	)
 	return i, err
 }
@@ -95,7 +104,7 @@ func (q *Queries) DeleteTag(ctx context.Context, arg DeleteTagParams) error {
 }
 
 const getTagByID = `-- name: GetTagByID :one
-SELECT id, company_id, name, color, created_at, updated_at FROM tags WHERE id = $1 AND company_id = $2
+SELECT id, company_id, name, color, created_at, updated_at, is_project FROM tags WHERE id = $1 AND company_id = $2
 `
 
 type GetTagByIDParams struct {
@@ -113,14 +122,50 @@ func (q *Queries) GetTagByID(ctx context.Context, arg GetTagByIDParams) (Tag, er
 		&i.Color,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IsProject,
 	)
 	return i, err
 }
 
+const listProjectTagsByCompany = `-- name: ListProjectTagsByCompany :many
+SELECT id, company_id, name, color, created_at, updated_at, is_project FROM tags
+WHERE company_id = $1 AND is_project = true
+ORDER BY name
+`
+
+func (q *Queries) ListProjectTagsByCompany(ctx context.Context, companyID uuid.UUID) ([]Tag, error) {
+	rows, err := q.db.Query(ctx, listProjectTagsByCompany, companyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Tag{}
+	for rows.Next() {
+		var i Tag
+		if err := rows.Scan(
+			&i.ID,
+			&i.CompanyID,
+			&i.Name,
+			&i.Color,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.IsProject,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTagsByCompany = `-- name: ListTagsByCompany :many
-SELECT id, company_id, name, color, created_at, updated_at FROM tags
+SELECT id, company_id, name, color, created_at, updated_at, is_project FROM tags
 WHERE company_id = $1
   AND ($4::varchar = '' OR name ILIKE '%' || $4 || '%')
+  AND ($5::boolean IS NULL OR is_project = $5::boolean)
 ORDER BY name
 LIMIT $2 OFFSET $3
 `
@@ -130,6 +175,7 @@ type ListTagsByCompanyParams struct {
 	Limit     int32     `json:"limit"`
 	Offset    int32     `json:"offset"`
 	Column4   string    `json:"column_4"`
+	IsProject *bool     `json:"is_project"`
 }
 
 func (q *Queries) ListTagsByCompany(ctx context.Context, arg ListTagsByCompanyParams) ([]Tag, error) {
@@ -138,6 +184,7 @@ func (q *Queries) ListTagsByCompany(ctx context.Context, arg ListTagsByCompanyPa
 		arg.Limit,
 		arg.Offset,
 		arg.Column4,
+		arg.IsProject,
 	)
 	if err != nil {
 		return nil, err
@@ -153,6 +200,7 @@ func (q *Queries) ListTagsByCompany(ctx context.Context, arg ListTagsByCompanyPa
 			&i.Color,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.IsProject,
 		); err != nil {
 			return nil, err
 		}
@@ -165,7 +213,7 @@ func (q *Queries) ListTagsByCompany(ctx context.Context, arg ListTagsByCompanyPa
 }
 
 const listTagsForTransaction = `-- name: ListTagsForTransaction :many
-SELECT t.id, t.company_id, t.name, t.color, t.created_at, t.updated_at FROM tags t
+SELECT t.id, t.company_id, t.name, t.color, t.created_at, t.updated_at, t.is_project FROM tags t
 JOIN transaction_tags tt ON tt.tag_id = t.id
 WHERE tt.transaction_id = $1
 ORDER BY t.name
@@ -187,6 +235,7 @@ func (q *Queries) ListTagsForTransaction(ctx context.Context, transactionID uuid
 			&i.Color,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.IsProject,
 		); err != nil {
 			return nil, err
 		}
@@ -240,9 +289,10 @@ const updateTag = `-- name: UpdateTag :one
 UPDATE tags SET
     name = $3,
     color = $4,
+    is_project = $5,
     updated_at = NOW()
 WHERE id = $1 AND company_id = $2
-RETURNING id, company_id, name, color, created_at, updated_at
+RETURNING id, company_id, name, color, created_at, updated_at, is_project
 `
 
 type UpdateTagParams struct {
@@ -250,6 +300,7 @@ type UpdateTagParams struct {
 	CompanyID uuid.UUID `json:"company_id"`
 	Name      string    `json:"name"`
 	Color     string    `json:"color"`
+	IsProject bool      `json:"is_project"`
 }
 
 func (q *Queries) UpdateTag(ctx context.Context, arg UpdateTagParams) (Tag, error) {
@@ -258,6 +309,7 @@ func (q *Queries) UpdateTag(ctx context.Context, arg UpdateTagParams) (Tag, erro
 		arg.CompanyID,
 		arg.Name,
 		arg.Color,
+		arg.IsProject,
 	)
 	var i Tag
 	err := row.Scan(
@@ -267,6 +319,36 @@ func (q *Queries) UpdateTag(ctx context.Context, arg UpdateTagParams) (Tag, erro
 		&i.Color,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IsProject,
+	)
+	return i, err
+}
+
+const upsertProjectTag = `-- name: UpsertProjectTag :one
+INSERT INTO tags (company_id, name, color, is_project)
+VALUES ($1, $2, COALESCE(NULLIF($3, ''), '#4f46e5'), true)
+ON CONFLICT (company_id, name) WHERE is_project = true
+DO UPDATE SET is_project = true, updated_at = NOW()
+RETURNING id, company_id, name, color, created_at, updated_at, is_project
+`
+
+type UpsertProjectTagParams struct {
+	CompanyID uuid.UUID   `json:"company_id"`
+	Name      string      `json:"name"`
+	Column3   interface{} `json:"column_3"`
+}
+
+func (q *Queries) UpsertProjectTag(ctx context.Context, arg UpsertProjectTagParams) (Tag, error) {
+	row := q.db.QueryRow(ctx, upsertProjectTag, arg.CompanyID, arg.Name, arg.Column3)
+	var i Tag
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.Name,
+		&i.Color,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.IsProject,
 	)
 	return i, err
 }

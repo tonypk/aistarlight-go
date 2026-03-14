@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,6 +26,7 @@ type TagResponse struct {
 	CompanyID string `json:"company_id"`
 	Name      string `json:"name"`
 	Color     string `json:"color"`
+	IsProject bool   `json:"is_project"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
 }
@@ -35,13 +37,14 @@ func tagToResponse(t sqlc.Tag) TagResponse {
 		CompanyID: t.CompanyID.String(),
 		Name:      t.Name,
 		Color:     t.Color,
+		IsProject: t.IsProject,
 		CreatedAt: t.CreatedAt.Format(time.RFC3339),
 		UpdatedAt: t.UpdatedAt.Format(time.RFC3339),
 	}
 }
 
 // Create creates a new tag for a company.
-func (s *TagService) Create(ctx context.Context, companyID uuid.UUID, name, color string) (*TagResponse, error) {
+func (s *TagService) Create(ctx context.Context, companyID uuid.UUID, name, color string, isProject bool) (*TagResponse, error) {
 	if name == "" {
 		return nil, fmt.Errorf("tag name is required")
 	}
@@ -53,6 +56,7 @@ func (s *TagService) Create(ctx context.Context, companyID uuid.UUID, name, colo
 		CompanyID: companyID,
 		Name:      name,
 		Color:     color,
+		IsProject: isProject,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create tag: %w", err)
@@ -62,13 +66,14 @@ func (s *TagService) Create(ctx context.Context, companyID uuid.UUID, name, colo
 	return &resp, nil
 }
 
-// List returns paginated tags for a company with optional search.
-func (s *TagService) List(ctx context.Context, companyID uuid.UUID, search string, limit, offset int) ([]TagResponse, int64, error) {
+// List returns paginated tags for a company with optional search and is_project filter.
+func (s *TagService) List(ctx context.Context, companyID uuid.UUID, search string, isProject *bool, limit, offset int) ([]TagResponse, int64, error) {
 	tags, err := s.q.ListTagsByCompany(ctx, sqlc.ListTagsByCompanyParams{
 		CompanyID: companyID,
 		Limit:     int32(limit),
 		Offset:    int32(offset),
 		Column4:   search,
+		IsProject: isProject,
 	})
 	if err != nil {
 		return nil, 0, fmt.Errorf("list tags: %w", err)
@@ -77,6 +82,7 @@ func (s *TagService) List(ctx context.Context, companyID uuid.UUID, search strin
 	total, err := s.q.CountTagsByCompany(ctx, sqlc.CountTagsByCompanyParams{
 		CompanyID: companyID,
 		Column2:   search,
+		IsProject: isProject,
 	})
 	if err != nil {
 		return nil, 0, fmt.Errorf("count tags: %w", err)
@@ -89,8 +95,8 @@ func (s *TagService) List(ctx context.Context, companyID uuid.UUID, search strin
 	return result, total, nil
 }
 
-// Update updates a tag's name and color.
-func (s *TagService) Update(ctx context.Context, id, companyID uuid.UUID, name, color string) (*TagResponse, error) {
+// Update updates a tag's name, color, and is_project flag.
+func (s *TagService) Update(ctx context.Context, id, companyID uuid.UUID, name, color string, isProject bool) (*TagResponse, error) {
 	if name == "" {
 		return nil, fmt.Errorf("tag name is required")
 	}
@@ -100,6 +106,7 @@ func (s *TagService) Update(ctx context.Context, id, companyID uuid.UUID, name, 
 		CompanyID: companyID,
 		Name:      name,
 		Color:     color,
+		IsProject: isProject,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("update tag: %w", err)
@@ -146,4 +153,56 @@ func (s *TagService) GetTransactionTags(ctx context.Context, transactionID uuid.
 		result[i] = tagToResponse(t)
 	}
 	return result, nil
+}
+
+// ListProjectTags returns all project tags for a company (used by bot).
+func (s *TagService) ListProjectTags(ctx context.Context, companyID uuid.UUID) ([]string, error) {
+	tags, err := s.q.ListProjectTagsByCompany(ctx, companyID)
+	if err != nil {
+		return nil, fmt.Errorf("list project tags: %w", err)
+	}
+
+	names := make([]string, len(tags))
+	for i, t := range tags {
+		names[i] = t.Name
+	}
+	return names, nil
+}
+
+// SeedProjectTags idempotently creates project tags from a list of names.
+func (s *TagService) SeedProjectTags(ctx context.Context, companyID uuid.UUID, names []string) error {
+	for _, name := range names {
+		_, err := s.q.UpsertProjectTag(ctx, sqlc.UpsertProjectTagParams{
+			CompanyID: companyID,
+			Name:      name,
+			Column3:   "",
+		})
+		if err != nil {
+			slog.Warn("seed project tag failed", "name", name, "error", err)
+			continue
+		}
+	}
+	return nil
+}
+
+// LinkProjectTagToTransaction finds the project tag by name and links it to a transaction.
+func (s *TagService) LinkProjectTagToTransaction(ctx context.Context, companyID uuid.UUID, projectName string, transactionID uuid.UUID) error {
+	if projectName == "" {
+		return nil
+	}
+
+	// Upsert to ensure the project tag exists, then link it.
+	tag, err := s.q.UpsertProjectTag(ctx, sqlc.UpsertProjectTagParams{
+		CompanyID: companyID,
+		Name:      projectName,
+		Column3:   "",
+	})
+	if err != nil {
+		return fmt.Errorf("upsert project tag %q: %w", projectName, err)
+	}
+
+	return s.q.AddTransactionTag(ctx, sqlc.AddTransactionTagParams{
+		TransactionID: transactionID,
+		TagID:         tag.ID,
+	})
 }

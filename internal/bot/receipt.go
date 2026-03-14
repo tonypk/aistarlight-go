@@ -206,8 +206,9 @@ func (b *Bot) processReceipt(c tele.Context, fileID string, instruction string) 
 		preview := formatMultiTripPreview(results, jCfg.CurrencySymbol, uploaderName)
 		aiCat := extractAICategory(results)
 
-		if len(b.projects) > 0 {
-			markup := projectSelectionMarkup(batch.ID, b.projects)
+		projects := b.getProjectNames(ctx, tgUser.CompanyID)
+		if len(projects) > 0 {
+			markup := projectSelectionMarkup(batch.ID, projects)
 			_, _ = b.B.Edit(processing, preview+"\n\nPlease select a project:", markup)
 		} else {
 			markup := categorySelectionMarkup(batch.ID, "", receiptCategories, aiCat)
@@ -218,11 +219,14 @@ func (b *Bot) processReceipt(c tele.Context, fileID string, instruction string) 
 		return nil
 	}
 
+	// Fetch project names from DB for caption matching and project selection.
+	projects := b.getProjectNames(ctx, tgUser.CompanyID)
+
 	// Single receipt flow.
 	// Parse caption intent: extract description and project from natural language caption.
 	var captionDesc, captionProject string
 	if instruction != "" {
-		captionDesc, captionProject = parseCaptionIntent(instruction, b.projects)
+		captionDesc, captionProject = parseCaptionIntent(instruction, projects)
 	}
 
 	// Apply user instruction to OCR results (e.g., "use net total", "amount: 1500").
@@ -245,7 +249,7 @@ func (b *Bot) processReceipt(c tele.Context, fileID string, instruction string) 
 	}
 
 	// Auto-select project from: caption > vendor memory > single project fallback.
-	autoProject := b.autoSelectProject(ctx, captionProject, tgUser.CompanyID, results[0])
+	autoProject := b.autoSelectProject(ctx, captionProject, tgUser.CompanyID, results[0], projects)
 
 	// Update batch: set status to pending_confirmation and store image_path.
 	resultsJSON, _ := json.Marshal(results)
@@ -285,9 +289,9 @@ func (b *Bot) processReceipt(c tele.Context, fileID string, instruction string) 
 		// Project resolved — show category selection with Confirm button.
 		markup := categorySelectionMarkup(batch.ID, autoProject, receiptCategories, aiCat)
 		_, _ = b.B.Edit(processing, preview+"\n\nConfirm or select a category:", markup)
-	} else if len(b.projects) > 0 {
+	} else if len(projects) > 0 {
 		// Multiple projects, none auto-selected — show project picker.
-		markup := projectSelectionMarkup(batch.ID, b.projects)
+		markup := projectSelectionMarkup(batch.ID, projects)
 		_, _ = b.B.Edit(processing, preview+"\n\nPlease select a project:", markup)
 	} else {
 		// No projects configured — show category selection directly.
@@ -343,7 +347,7 @@ func parseCaptionIntent(caption string, projects []string) (string, string) {
 
 // autoSelectProject determines the best project for a receipt.
 // Priority: 1. caption match, 2. vendor memory, 3. single project fallback.
-func (b *Bot) autoSelectProject(ctx context.Context, captionProject string, companyID uuid.UUID, result service.ReceiptResult) string {
+func (b *Bot) autoSelectProject(ctx context.Context, captionProject string, companyID uuid.UUID, result service.ReceiptResult, projects []string) string {
 	// 1. Caption explicitly mentioned a project.
 	if captionProject != "" {
 		return captionProject
@@ -364,8 +368,8 @@ func (b *Bot) autoSelectProject(ctx context.Context, captionProject string, comp
 	}
 
 	// 3. Only one project configured — auto-select it.
-	if len(b.projects) == 1 {
-		return b.projects[0]
+	if len(projects) == 1 {
+		return projects[0]
 	}
 
 	return ""

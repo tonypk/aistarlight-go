@@ -34,9 +34,9 @@ type Bot struct {
 	vendorMemory *service.VendorMemoryService
 	docQuality   *service.DocumentQualityService
 	approvals    *service.ApprovalService
+	tags         *service.TagService
 	uploadDir    string
-	baseURL      string   // public base URL for receipt image links
-	projects     []string // configurable project tags (from BOT_PROJECTS env)
+	baseURL      string // public base URL for receipt image links
 	pendingEdits sync.Map // map[int64]uuid.UUID — telegram user ID → batch ID awaiting edit
 	pendingForex sync.Map // map[int64]*ForexPending — telegram user ID → forex exchange state
 	receiptNotes sync.Map // map[uuid.UUID]string — batch ID → user note
@@ -61,9 +61,8 @@ type Bot struct {
 }
 
 // New creates and configures a new Telegram Bot.
-// projects is an optional list of project tags for receipt classification.
 // baseURL is the public URL prefix for receipt image links (e.g. https://tax.clawpapa.win).
-func New(token string, q *sqlc.Queries, receipt *service.ReceiptService, bridge *service.ReceiptBridge, journalGen *service.JournalGenerator, classifier *service.ClassifierService, chat *service.ChatService, corrections *service.CorrectionService, vendorMemory *service.VendorMemoryService, docQuality *service.DocumentQualityService, approvals *service.ApprovalService, uploadDir string, projects []string, baseURL string) (*Bot, error) {
+func New(token string, q *sqlc.Queries, receipt *service.ReceiptService, bridge *service.ReceiptBridge, journalGen *service.JournalGenerator, classifier *service.ClassifierService, chat *service.ChatService, corrections *service.CorrectionService, vendorMemory *service.VendorMemoryService, docQuality *service.DocumentQualityService, approvals *service.ApprovalService, tags *service.TagService, uploadDir string, baseURL string) (*Bot, error) {
 	pref := tele.Settings{
 		Token:  token,
 		Poller: &tele.LongPoller{Timeout: 10 * time.Second},
@@ -86,9 +85,9 @@ func New(token string, q *sqlc.Queries, receipt *service.ReceiptService, bridge 
 		vendorMemory: vendorMemory,
 		docQuality:   docQuality,
 		approvals:    approvals,
+		tags:         tags,
 		uploadDir:    uploadDir,
 		baseURL:      baseURL,
-		projects:     projects,
 	}
 
 	bot.registerHandlers()
@@ -192,4 +191,17 @@ func (b *Bot) Start() {
 func (b *Bot) Stop() {
 	slog.Info("telegram bot stopping")
 	b.B.Stop()
+}
+
+// getProjectNames fetches project tag names from the database for a company.
+func (b *Bot) getProjectNames(ctx context.Context, companyID uuid.UUID) []string {
+	if b.tags == nil {
+		return nil
+	}
+	names, err := b.tags.ListProjectTags(ctx, companyID)
+	if err != nil {
+		slog.Warn("failed to get project tags", "company_id", companyID, "error", err)
+		return nil
+	}
+	return names
 }

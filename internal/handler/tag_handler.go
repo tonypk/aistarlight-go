@@ -20,8 +20,9 @@ func NewTagHandler(tags *service.TagService) *TagHandler {
 }
 
 type createTagRequest struct {
-	Name  string `json:"name" binding:"required"`
-	Color string `json:"color"`
+	Name      string `json:"name" binding:"required"`
+	Color     string `json:"color"`
+	IsProject bool   `json:"is_project"`
 }
 
 // Create handles POST /api/v1/tags.
@@ -34,7 +35,7 @@ func (h *TagHandler) Create(c *gin.Context) {
 
 	companyID := middleware.GetCompanyID(c)
 
-	tag, err := h.tags.Create(c.Request.Context(), companyID, req.Name, req.Color)
+	tag, err := h.tags.Create(c.Request.Context(), companyID, req.Name, req.Color, req.IsProject)
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return
@@ -49,7 +50,17 @@ func (h *TagHandler) List(c *gin.Context) {
 	p := pagination.Parse(c)
 	search := c.Query("search")
 
-	tags, total, err := h.tags.List(c.Request.Context(), companyID, search, p.Limit, p.Offset)
+	// Optional is_project filter: "true" / "false" / "" (all).
+	var isProject *bool
+	if v := c.Query("is_project"); v == "true" {
+		t := true
+		isProject = &t
+	} else if v == "false" {
+		f := false
+		isProject = &f
+	}
+
+	tags, total, err := h.tags.List(c.Request.Context(), companyID, search, isProject, p.Limit, p.Offset)
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return
@@ -59,8 +70,9 @@ func (h *TagHandler) List(c *gin.Context) {
 }
 
 type updateTagRequest struct {
-	Name  string `json:"name" binding:"required"`
-	Color string `json:"color" binding:"required"`
+	Name      string `json:"name" binding:"required"`
+	Color     string `json:"color" binding:"required"`
+	IsProject bool   `json:"is_project"`
 }
 
 // Update handles PUT /api/v1/tags/:id.
@@ -79,7 +91,7 @@ func (h *TagHandler) Update(c *gin.Context) {
 
 	companyID := middleware.GetCompanyID(c)
 
-	tag, err := h.tags.Update(c.Request.Context(), id, companyID, req.Name, req.Color)
+	tag, err := h.tags.Update(c.Request.Context(), id, companyID, req.Name, req.Color, req.IsProject)
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return

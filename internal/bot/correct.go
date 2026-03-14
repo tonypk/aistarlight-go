@@ -46,7 +46,7 @@ func (b *Bot) handleTransactionCorrection(c tele.Context, data *ReplyTxnData, te
 	// Parse corrections from user text.
 	corrections := parseCorrectionText(text)
 	if len(corrections) == 0 {
-		return c.Send("Could not parse corrections. Use format:\namount: 2000\nvendor: ABC Store\ndate: 2025-01-15\ncategory: services\nvat: 120")
+		return c.Send("Could not parse corrections. Use format:\namount 2000\nvendor ABC Store\ndate 2025-01-15\ncategory services\nvat 120")
 	}
 
 	// Apply corrections to all transactions in this reply group.
@@ -129,7 +129,17 @@ func (b *Bot) handleTransactionCorrection(c tele.Context, data *ReplyTxnData, te
 func parseCorrectionText(text string) map[string]string {
 	corrections := make(map[string]string)
 
-	// Try key:value parsing first (most reliable).
+	// Known field aliases mapped to canonical names.
+	fieldAliases := map[string]string{
+		"amount": "amount", "金额": "amount", "总额": "amount",
+		"vendor": "description", "description": "description", "商家": "description", "描述": "description", "说明": "description",
+		"date": "date", "日期": "date",
+		"category": "category", "类别": "category", "分类": "category",
+		"vat": "vat", "税额": "vat", "增值税": "vat",
+		"tin": "tin",
+		"receipt_no": "receipt_no", "ref": "receipt_no", "receipt": "receipt_no",
+	}
+
 	for _, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -143,23 +153,21 @@ func parseCorrectionText(text string) map[string]string {
 		} else if parts := strings.SplitN(line, "：", 2); len(parts) == 2 { // Chinese colon
 			key = strings.TrimSpace(strings.ToLower(parts[0]))
 			value = strings.TrimSpace(parts[1])
+		} else if parts := strings.SplitN(line, " ", 2); len(parts) == 2 {
+			// Space-separated: only accept if first word is a known field.
+			candidate := strings.TrimSpace(strings.ToLower(parts[0]))
+			if _, ok := fieldAliases[candidate]; ok {
+				key = candidate
+				value = strings.TrimSpace(parts[1])
+			}
 		}
 
 		if value == "" {
 			continue
 		}
 
-		switch key {
-		case "amount", "金额", "总额":
-			corrections["amount"] = value
-		case "vendor", "description", "商家", "描述", "说明":
-			corrections["description"] = value
-		case "date", "日期":
-			corrections["date"] = value
-		case "category", "类别", "分类":
-			corrections["category"] = value
-		case "vat", "税额", "增值税":
-			corrections["vat"] = value
+		if canonical, ok := fieldAliases[key]; ok {
+			corrections[canonical] = value
 		}
 	}
 

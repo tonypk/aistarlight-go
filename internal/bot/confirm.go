@@ -399,12 +399,12 @@ func (b *Bot) handleReceiptEdit(c tele.Context) error {
 	b.receiptNotes.Delete(batchID)
 	b.pendingEdits.Store(c.Sender().ID, batchID)
 
-	editInstructions := "Please reply with corrections in key:value format.\n" +
+	editInstructions := "Reply with corrections (colon or space separated).\n" +
 		"Supported fields: amount, vendor, date, vat, category, tin, receipt_no\n\n" +
 		"Example:\n" +
-		"amount: 1500\n" +
-		"vendor: ABC Store\n" +
-		"category: services"
+		"amount 1500\n" +
+		"vendor ABC Store\n" +
+		"category services"
 
 	_, _ = b.B.Edit(c.Message(), editInstructions)
 	return nil

@@ -64,7 +64,7 @@ type TransactionResponse struct {
 	EWTRate              *float64 `json:"ewt_rate"`
 	EWTAmount            *float64 `json:"ewt_amount"`
 	ATCCode              *string  `json:"atc_code"`
-	SupplierID           *string  `json:"supplier_id"`
+	VendorID             *string  `json:"vendor_id"`
 	SubmittedBy          *string  `json:"submitted_by,omitempty"`
 	SubmittedByName      *string  `json:"submitted_by_name,omitempty"`
 	ReceiptImageURL      *string  `json:"receipt_image_url,omitempty"`
@@ -165,9 +165,9 @@ func txnToResponse(t sqlc.Transaction) TransactionResponse {
 			resp.EWTAmount = &f.Float64
 		}
 	}
-	if t.SupplierID.Valid {
-		id := uuid.UUID(t.SupplierID.Bytes).String()
-		resp.SupplierID = &id
+	if t.VendorID.Valid {
+		id := uuid.UUID(t.VendorID.Bytes).String()
+		resp.VendorID = &id
 	}
 	return resp
 }
@@ -827,18 +827,25 @@ func filteredTxnToResponse(t sqlc.ListCompanyTransactionsFilteredRow, baseURL st
 			resp.EWTAmount = &f.Float64
 		}
 	}
-	if t.SupplierID.Valid {
-		id := uuid.UUID(t.SupplierID.Bytes).String()
-		resp.SupplierID = &id
+	if t.VendorID.Valid {
+		id := uuid.UUID(t.VendorID.Bytes).String()
+		resp.VendorID = &id
 	}
 	if t.SubmittedBy.Valid {
 		id := uuid.UUID(t.SubmittedBy.Bytes).String()
 		resp.SubmittedBy = &id
 	}
 	// Construct receipt image URL
-	if baseURL != "" && t.SourceType == "receipt" && t.SourceFileID != "" {
-		url := fmt.Sprintf("%s/receipts/%s/%s.jpg", baseURL, t.CompanyID.String(), t.SourceFileID)
-		resp.ReceiptImageURL = &url
+	if baseURL != "" && t.SourceType == "receipt" {
+		if t.ReceiptImagePath != nil && *t.ReceiptImagePath != "" {
+			// Use stored image_path from receipt_batches (most reliable)
+			url := fmt.Sprintf("%s/%s", baseURL, *t.ReceiptImagePath)
+			resp.ReceiptImageURL = &url
+		} else if t.SourceFileID != "" {
+			// Fallback: construct from batch ID
+			url := fmt.Sprintf("%s/receipts/%s/%s.jpg", baseURL, t.CompanyID.String(), t.SourceFileID)
+			resp.ReceiptImageURL = &url
+		}
 	}
 	// Journal entry link
 	if t.JournalEntryID.Valid {

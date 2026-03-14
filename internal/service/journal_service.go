@@ -86,6 +86,10 @@ func (s *JournalService) Create(ctx context.Context, input CreateJournalEntryInp
 	})
 	if err == nil {
 		periodID = pgtype.UUID{Bytes: period.ID, Valid: true}
+		// Enforce period is open (not closed/locked)
+		if period.Status != string(domain.PeriodOpen) {
+			return nil, fmt.Errorf("%w: period %q is %s", ErrPeriodClosed, period.Name, period.Status)
+		}
 	}
 	// If no period found, allow creation without period (period_id is nullable)
 

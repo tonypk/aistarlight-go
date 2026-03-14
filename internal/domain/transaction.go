@@ -29,7 +29,7 @@ type Transaction struct {
 	EWTRate              *decimal.Decimal `json:"ewt_rate,omitempty"`
 	EWTAmount            *decimal.Decimal `json:"ewt_amount,omitempty"`
 	ATCCode              *string         `json:"atc_code,omitempty"`
-	SupplierID           *uuid.UUID       `json:"supplier_id,omitempty"`
+	VendorID             *uuid.UUID       `json:"vendor_id,omitempty"`
 	FromCurrency         *string          `json:"from_currency,omitempty"`
 	ToCurrency           *string          `json:"to_currency,omitempty"`
 	ExchangeRate         *decimal.Decimal `json:"exchange_rate,omitempty"`

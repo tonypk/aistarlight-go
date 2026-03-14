@@ -24,16 +24,16 @@ func (q *Queries) CountWithholdingByCompany(ctx context.Context, companyID uuid.
 }
 
 const createWithholdingCertificate = `-- name: CreateWithholdingCertificate :one
-INSERT INTO withholding_certificates (id, company_id, session_id, supplier_id, period, quarter, atc_code, income_type, income_amount, ewt_rate, tax_withheld, status, file_path, created_at, updated_at)
+INSERT INTO withholding_certificates (id, company_id, session_id, vendor_id, period, quarter, atc_code, income_type, income_amount, ewt_rate, tax_withheld, status, file_path, created_at, updated_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW())
-RETURNING id, company_id, session_id, supplier_id, period, quarter, atc_code, income_type, income_amount, ewt_rate, tax_withheld, status, file_path, created_at, updated_at
+RETURNING id, company_id, session_id, vendor_id, period, quarter, atc_code, income_type, income_amount, ewt_rate, tax_withheld, status, file_path, created_at, updated_at
 `
 
 type CreateWithholdingCertificateParams struct {
 	ID           uuid.UUID      `json:"id"`
 	CompanyID    uuid.UUID      `json:"company_id"`
 	SessionID    pgtype.UUID    `json:"session_id"`
-	SupplierID   uuid.UUID      `json:"supplier_id"`
+	VendorID     uuid.UUID      `json:"vendor_id"`
 	Period       string         `json:"period"`
 	Quarter      string         `json:"quarter"`
 	AtcCode      string         `json:"atc_code"`
@@ -50,7 +50,7 @@ func (q *Queries) CreateWithholdingCertificate(ctx context.Context, arg CreateWi
 		arg.ID,
 		arg.CompanyID,
 		arg.SessionID,
-		arg.SupplierID,
+		arg.VendorID,
 		arg.Period,
 		arg.Quarter,
 		arg.AtcCode,
@@ -66,7 +66,7 @@ func (q *Queries) CreateWithholdingCertificate(ctx context.Context, arg CreateWi
 		&i.ID,
 		&i.CompanyID,
 		&i.SessionID,
-		&i.SupplierID,
+		&i.VendorID,
 		&i.Period,
 		&i.Quarter,
 		&i.AtcCode,
@@ -83,7 +83,7 @@ func (q *Queries) CreateWithholdingCertificate(ctx context.Context, arg CreateWi
 }
 
 const getWithholdingCertificateByID = `-- name: GetWithholdingCertificateByID :one
-SELECT id, company_id, session_id, supplier_id, period, quarter, atc_code, income_type, income_amount, ewt_rate, tax_withheld, status, file_path, created_at, updated_at FROM withholding_certificates WHERE id = $1
+SELECT id, company_id, session_id, vendor_id, period, quarter, atc_code, income_type, income_amount, ewt_rate, tax_withheld, status, file_path, created_at, updated_at FROM withholding_certificates WHERE id = $1
 `
 
 func (q *Queries) GetWithholdingCertificateByID(ctx context.Context, id uuid.UUID) (WithholdingCertificate, error) {
@@ -93,7 +93,7 @@ func (q *Queries) GetWithholdingCertificateByID(ctx context.Context, id uuid.UUI
 		&i.ID,
 		&i.CompanyID,
 		&i.SessionID,
-		&i.SupplierID,
+		&i.VendorID,
 		&i.Period,
 		&i.Quarter,
 		&i.AtcCode,
@@ -110,7 +110,7 @@ func (q *Queries) GetWithholdingCertificateByID(ctx context.Context, id uuid.UUI
 }
 
 const listWithholdingByCompany = `-- name: ListWithholdingByCompany :many
-SELECT id, company_id, session_id, supplier_id, period, quarter, atc_code, income_type, income_amount, ewt_rate, tax_withheld, status, file_path, created_at, updated_at FROM withholding_certificates WHERE company_id = $1
+SELECT id, company_id, session_id, vendor_id, period, quarter, atc_code, income_type, income_amount, ewt_rate, tax_withheld, status, file_path, created_at, updated_at FROM withholding_certificates WHERE company_id = $1
 ORDER BY created_at DESC LIMIT $2 OFFSET $3
 `
 
@@ -133,7 +133,7 @@ func (q *Queries) ListWithholdingByCompany(ctx context.Context, arg ListWithhold
 			&i.ID,
 			&i.CompanyID,
 			&i.SessionID,
-			&i.SupplierID,
+			&i.VendorID,
 			&i.Period,
 			&i.Quarter,
 			&i.AtcCode,
@@ -156,19 +156,19 @@ func (q *Queries) ListWithholdingByCompany(ctx context.Context, arg ListWithhold
 	return items, nil
 }
 
-const listWithholdingBySupplier = `-- name: ListWithholdingBySupplier :many
-SELECT id, company_id, session_id, supplier_id, period, quarter, atc_code, income_type, income_amount, ewt_rate, tax_withheld, status, file_path, created_at, updated_at FROM withholding_certificates
-WHERE supplier_id = $1 AND period = $2
+const listWithholdingByVendor = `-- name: ListWithholdingByVendor :many
+SELECT id, company_id, session_id, vendor_id, period, quarter, atc_code, income_type, income_amount, ewt_rate, tax_withheld, status, file_path, created_at, updated_at FROM withholding_certificates
+WHERE vendor_id = $1 AND period = $2
 ORDER BY created_at
 `
 
-type ListWithholdingBySupplierParams struct {
-	SupplierID uuid.UUID `json:"supplier_id"`
-	Period     string    `json:"period"`
+type ListWithholdingByVendorParams struct {
+	VendorID uuid.UUID `json:"vendor_id"`
+	Period   string    `json:"period"`
 }
 
-func (q *Queries) ListWithholdingBySupplier(ctx context.Context, arg ListWithholdingBySupplierParams) ([]WithholdingCertificate, error) {
-	rows, err := q.db.Query(ctx, listWithholdingBySupplier, arg.SupplierID, arg.Period)
+func (q *Queries) ListWithholdingByVendor(ctx context.Context, arg ListWithholdingByVendorParams) ([]WithholdingCertificate, error) {
+	rows, err := q.db.Query(ctx, listWithholdingByVendor, arg.VendorID, arg.Period)
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +180,7 @@ func (q *Queries) ListWithholdingBySupplier(ctx context.Context, arg ListWithhol
 			&i.ID,
 			&i.CompanyID,
 			&i.SessionID,
-			&i.SupplierID,
+			&i.VendorID,
 			&i.Period,
 			&i.Quarter,
 			&i.AtcCode,

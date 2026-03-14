@@ -12,7 +12,7 @@ import (
 )
 
 const getAccountBySubType = `-- name: GetAccountBySubType :one
-SELECT id, company_id, account_number, name, account_type, sub_type, parent_id, description, is_active, is_system, normal_balance, qbo_account_id, created_at, updated_at FROM accounts
+SELECT id, company_id, account_number, name, account_type, sub_type, parent_id, description, is_active, is_system, normal_balance, qbo_account_id, created_at, updated_at, currency_code, default_tax_code, cash_flow_category FROM accounts
 WHERE company_id = $1 AND sub_type = $2 AND is_active = true
 LIMIT 1
 `
@@ -40,12 +40,15 @@ func (q *Queries) GetAccountBySubType(ctx context.Context, arg GetAccountBySubTy
 		&i.QboAccountID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CurrencyCode,
+		&i.DefaultTaxCode,
+		&i.CashFlowCategory,
 	)
 	return i, err
 }
 
 const getMatchedTransactionsWithoutJournal = `-- name: GetMatchedTransactionsWithoutJournal :many
-SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, supplier_id, created_at, updated_at, journal_entry_id, project_tag, from_currency, to_currency, exchange_rate, from_amount, submitted_by, ref_number, account_code, tax_code, department, project FROM transactions
+SELECT id, company_id, session_id, source_type, source_file_id, row_index, date, description, amount, vat_amount, vat_type, category, tin, confidence, classification_source, raw_data, match_group_id, match_status, ewt_rate, ewt_amount, atc_code, vendor_id, created_at, updated_at, journal_entry_id, project_tag, from_currency, to_currency, exchange_rate, from_amount, submitted_by, ref_number, account_code, tax_code, department, project FROM transactions
 WHERE company_id = $1
   AND match_status IN ('matched', 'split_matched')
   AND journal_entry_id IS NULL
@@ -83,7 +86,7 @@ func (q *Queries) GetMatchedTransactionsWithoutJournal(ctx context.Context, comp
 			&i.EwtRate,
 			&i.EwtAmount,
 			&i.AtcCode,
-			&i.SupplierID,
+			&i.VendorID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.JournalEntryID,

@@ -111,7 +111,9 @@ SELECT
     a.account_number,
     a.name AS account_name,
     a.account_type,
+    a.sub_type,
     a.normal_balance,
+    a.cash_flow_category,
     COALESCE(SUM(jl.debit), 0)::NUMERIC(15,2) AS total_debit,
     COALESCE(SUM(jl.credit), 0)::NUMERIC(15,2) AS total_credit
 FROM accounts a
@@ -123,7 +125,7 @@ LEFT JOIN journal_entries je ON je.id = jl.journal_entry_id
 WHERE a.company_id = @company_id
     AND a.is_active = true
     AND a.account_number LIKE @prefix || '%'
-GROUP BY a.id, a.account_number, a.name, a.account_type, a.normal_balance
+GROUP BY a.id, a.account_number, a.name, a.account_type, a.sub_type, a.normal_balance, a.cash_flow_category
 HAVING COALESCE(SUM(jl.debit), 0) > 0 OR COALESCE(SUM(jl.credit), 0) > 0
 ORDER BY a.account_number ASC;
 
@@ -135,7 +137,9 @@ SELECT
     a.account_number,
     a.name AS account_name,
     a.account_type,
+    a.sub_type,
     a.normal_balance,
+    a.cash_flow_category,
     COALESCE(SUM(jl.debit), 0)::NUMERIC(15,2) AS total_debit,
     COALESCE(SUM(jl.credit), 0)::NUMERIC(15,2) AS total_credit
 FROM accounts a
@@ -148,7 +152,7 @@ LEFT JOIN journal_entries je ON je.id = jl.journal_entry_id
 WHERE a.company_id = @company_id
     AND a.is_active = true
     AND a.account_number LIKE @prefix || '%'
-GROUP BY a.id, a.account_number, a.name, a.account_type, a.normal_balance
+GROUP BY a.id, a.account_number, a.name, a.account_type, a.sub_type, a.normal_balance, a.cash_flow_category
 HAVING COALESCE(SUM(jl.debit), 0) > 0 OR COALESCE(SUM(jl.credit), 0) > 0
 ORDER BY a.account_number ASC;
 
@@ -159,7 +163,9 @@ SELECT
     a.account_number,
     a.name AS account_name,
     a.account_type,
+    a.sub_type,
     a.normal_balance,
+    a.cash_flow_category,
     COALESCE(SUM(jl.debit), 0)::NUMERIC(15,2) AS total_debit,
     COALESCE(SUM(jl.credit), 0)::NUMERIC(15,2) AS total_credit
 FROM accounts a
@@ -169,7 +175,7 @@ LEFT JOIN journal_entries je ON je.id = jl.journal_entry_id
     AND je.status = 'posted'
     AND je.entry_date <= @as_of_date
 WHERE a.company_id = @company_id AND a.is_active = true
-GROUP BY a.id, a.account_number, a.name, a.account_type, a.normal_balance
+GROUP BY a.id, a.account_number, a.name, a.account_type, a.sub_type, a.normal_balance, a.cash_flow_category
 HAVING COALESCE(SUM(jl.debit), 0) > 0 OR COALESCE(SUM(jl.credit), 0) > 0
 ORDER BY a.account_number ASC;
 
@@ -180,7 +186,9 @@ SELECT
     a.account_number,
     a.name AS account_name,
     a.account_type,
+    a.sub_type,
     a.normal_balance,
+    a.cash_flow_category,
     COALESCE(SUM(jl.debit), 0)::NUMERIC(15,2) AS total_debit,
     COALESCE(SUM(jl.credit), 0)::NUMERIC(15,2) AS total_credit
 FROM accounts a
@@ -191,6 +199,6 @@ LEFT JOIN journal_entries je ON je.id = jl.journal_entry_id
     AND je.entry_date >= @from_date
     AND je.entry_date <= @to_date
 WHERE a.company_id = @company_id AND a.is_active = true
-GROUP BY a.id, a.account_number, a.name, a.account_type, a.normal_balance
+GROUP BY a.id, a.account_number, a.name, a.account_type, a.sub_type, a.normal_balance, a.cash_flow_category
 HAVING COALESCE(SUM(jl.debit), 0) > 0 OR COALESCE(SUM(jl.credit), 0) > 0
 ORDER BY a.account_number ASC;

@@ -1,6 +1,6 @@
 -- name: CreateAccount :one
-INSERT INTO accounts (id, company_id, account_number, name, account_type, sub_type, parent_id, description, is_active, is_system, normal_balance, qbo_account_id, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())
+INSERT INTO accounts (id, company_id, account_number, name, account_type, sub_type, parent_id, description, is_active, is_system, normal_balance, qbo_account_id, currency_code, default_tax_code, cash_flow_category, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), NOW())
 RETURNING *;
 
 -- name: GetAccountByID :one
@@ -30,6 +30,9 @@ UPDATE accounts SET
     description = $4,
     is_active = COALESCE($5, is_active),
     qbo_account_id = $6,
+    currency_code = $7,
+    default_tax_code = $8,
+    cash_flow_category = $9,
     updated_at = NOW()
 WHERE id = $1;
 

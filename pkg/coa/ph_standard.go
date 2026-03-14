@@ -54,6 +54,8 @@ func PHStandardCOA() []AccountTemplate {
 		{"3000", "Common Stock / Capital", "equity", "capital", "credit", "Owner's capital / share capital"},
 		{"3100", "Retained Earnings", "equity", "retained", "credit", "Accumulated profits/losses"},
 		{"3200", "Drawings / Dividends", "equity", "drawings", "debit", "Owner's withdrawals / dividends declared"},
+		{"3300", "Opening Balance Equity", "equity", "opening", "credit", "Opening balance adjustments"},
+		{"3900", "Income Summary", "equity", "closing", "credit", "Year-end closing temporary account"},
 
 		// ============================================================
 		// 4xxx — REVENUE (by VAT classification)

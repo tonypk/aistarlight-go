@@ -17,13 +17,13 @@ import (
 
 // WithholdingHandler handles EWT endpoints.
 type WithholdingHandler struct {
-	svc      *service.WithholdingService
-	supplier *service.SupplierService
+	svc    *service.WithholdingService
+	vendor *service.VendorService
 }
 
 // NewWithholdingHandler creates a withholding handler.
-func NewWithholdingHandler(svc *service.WithholdingService, supplier *service.SupplierService) *WithholdingHandler {
-	return &WithholdingHandler{svc: svc, supplier: supplier}
+func NewWithholdingHandler(svc *service.WithholdingService, vendor *service.VendorService) *WithholdingHandler {
+	return &WithholdingHandler{svc: svc, vendor: vendor}
 }
 
 type classifyEWTRequest struct {
@@ -50,7 +50,7 @@ func (h *WithholdingHandler) Classify(c *gin.Context) {
 }
 
 type createCertificateRequest struct {
-	SupplierID   string `json:"supplier_id" binding:"required"`
+	VendorID     string `json:"vendor_id" binding:"required"`
 	SessionID    *string `json:"session_id"`
 	Period       string `json:"period" binding:"required"`
 	Quarter      string `json:"quarter" binding:"required"`
@@ -68,9 +68,9 @@ func (h *WithholdingHandler) CreateCertificate(c *gin.Context) {
 		return
 	}
 
-	supplierID, err := uuid.Parse(req.SupplierID)
+	vendorID, err := uuid.Parse(req.VendorID)
 	if err != nil {
-		response.BadRequest(c, "invalid supplier_id")
+		response.BadRequest(c, "invalid vendor_id")
 		return
 	}
 
@@ -90,7 +90,7 @@ func (h *WithholdingHandler) CreateCertificate(c *gin.Context) {
 
 	cert, err := h.svc.CreateCertificate(
 		c.Request.Context(),
-		companyID, supplierID, sessionID,
+		companyID, vendorID, sessionID,
 		req.Period, req.Quarter, req.ATCCode,
 		incomeAmount, ewtRate, taxWithheld,
 	)
@@ -163,24 +163,24 @@ func (h *WithholdingHandler) EWTSummary(c *gin.Context) {
 	})
 }
 
-// ListSuppliers handles GET /api/v1/withholding/suppliers.
-func (h *WithholdingHandler) ListSuppliers(c *gin.Context) {
+// ListVendors handles GET /api/v1/withholding/vendors (+ /suppliers compat).
+func (h *WithholdingHandler) ListVendors(c *gin.Context) {
 	companyID := middleware.GetCompanyID(c)
 	p := pagination.Parse(c)
 	search := c.Query("search")
 
-	suppliers, total, err := h.supplier.List(c.Request.Context(), companyID, p.Limit, p.Offset, search)
+	vendors, total, err := h.vendor.List(c.Request.Context(), companyID, p.Limit, p.Offset, search)
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return
 	}
 
-	response.Paginated(c, suppliers, int(total), p.Page, p.Limit)
+	response.Paginated(c, vendors, int(total), p.Page, p.Limit)
 }
 
-// CreateSupplier handles POST /api/v1/withholding/suppliers.
-func (h *WithholdingHandler) CreateSupplier(c *gin.Context) {
-	var req service.CreateSupplierInput
+// CreateVendor handles POST /api/v1/withholding/vendors (+ /suppliers compat).
+func (h *WithholdingHandler) CreateVendor(c *gin.Context) {
+	var req service.CreateVendorInput
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
@@ -188,9 +188,9 @@ func (h *WithholdingHandler) CreateSupplier(c *gin.Context) {
 
 	companyID := middleware.GetCompanyID(c)
 
-	supplier, err := h.supplier.Create(c.Request.Context(), companyID, req)
+	vendor, err := h.vendor.Create(c.Request.Context(), companyID, req)
 	if err != nil {
-		if err.Error() == fmt.Sprintf("supplier with TIN %s already exists", req.TIN) {
+		if err.Error() == fmt.Sprintf("vendor with TIN %s already exists", req.TIN) {
 			response.Conflict(c, err.Error())
 		} else {
 			response.InternalError(c, err.Error())
@@ -198,18 +198,18 @@ func (h *WithholdingHandler) CreateSupplier(c *gin.Context) {
 		return
 	}
 
-	response.Created(c, supplier)
+	response.Created(c, vendor)
 }
 
-// UpdateSupplier handles PATCH /api/v1/withholding/suppliers/:id.
-func (h *WithholdingHandler) UpdateSupplier(c *gin.Context) {
+// UpdateVendor handles PATCH /api/v1/withholding/vendors/:id (+ /suppliers compat).
+func (h *WithholdingHandler) UpdateVendor(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		response.BadRequest(c, "invalid supplier id")
+		response.BadRequest(c, "invalid vendor id")
 		return
 	}
 
-	var req service.CreateSupplierInput
+	var req service.CreateVendorInput
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
@@ -217,26 +217,26 @@ func (h *WithholdingHandler) UpdateSupplier(c *gin.Context) {
 
 	companyID := middleware.GetCompanyID(c)
 
-	supplier, err := h.supplier.Update(c.Request.Context(), id, companyID, req)
+	vendor, err := h.vendor.Update(c.Request.Context(), id, companyID, req)
 	if err != nil {
 		response.NotFound(c, err.Error())
 		return
 	}
 
-	response.OK(c, supplier)
+	response.OK(c, vendor)
 }
 
-// DeleteSupplier handles DELETE /api/v1/withholding/suppliers/:id.
-func (h *WithholdingHandler) DeleteSupplier(c *gin.Context) {
+// DeleteVendor handles DELETE /api/v1/withholding/vendors/:id (+ /suppliers compat).
+func (h *WithholdingHandler) DeleteVendor(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		response.BadRequest(c, "invalid supplier id")
+		response.BadRequest(c, "invalid vendor id")
 		return
 	}
 
 	companyID := middleware.GetCompanyID(c)
 
-	if err := h.supplier.Delete(c.Request.Context(), id, companyID); err != nil {
+	if err := h.vendor.Delete(c.Request.Context(), id, companyID); err != nil {
 		response.NotFound(c, err.Error())
 		return
 	}
@@ -259,12 +259,12 @@ func (h *WithholdingHandler) DownloadCertificate(c *gin.Context) {
 		return
 	}
 
-	// Get supplier info
-	sup, _ := h.supplier.GetByID(c.Request.Context(), cert.SupplierID)
+	// Get vendor info
+	v, _ := h.vendor.GetByID(c.Request.Context(), cert.VendorID)
 
 	format := c.DefaultQuery("format", "pdf")
 	if format == "csv" {
-		h.downloadCertificateCSV(c, cert, sup)
+		h.downloadCertificateCSV(c, cert, v)
 		return
 	}
 
@@ -272,9 +272,9 @@ func (h *WithholdingHandler) DownloadCertificate(c *gin.Context) {
 	companyID := middleware.GetCompanyID(c)
 	company, _ := h.svc.GetCompanyForPDF(c.Request.Context(), companyID)
 
-	supplierRow, _ := h.svc.GetSupplierByID(c.Request.Context(), cert.SupplierID)
+	vendorRow, _ := h.svc.GetVendorByID(c.Request.Context(), cert.VendorID)
 
-	pdfBytes, err := h.svc.GenerateCertificatePDF(c.Request.Context(), cert, company, &supplierRow)
+	pdfBytes, err := h.svc.GenerateCertificatePDF(c.Request.Context(), cert, company, &vendorRow)
 	if err != nil {
 		response.InternalError(c, "failed to generate PDF: "+err.Error())
 		return
@@ -285,7 +285,7 @@ func (h *WithholdingHandler) DownloadCertificate(c *gin.Context) {
 	c.Data(http.StatusOK, "application/pdf", pdfBytes)
 }
 
-func (h *WithholdingHandler) downloadCertificateCSV(c *gin.Context, cert *sqlc.WithholdingCertificate, sup *service.SupplierResponse) {
+func (h *WithholdingHandler) downloadCertificateCSV(c *gin.Context, cert *sqlc.WithholdingCertificate, v *service.VendorResponse) {
 	c.Header("Content-Type", "text/csv")
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=BIR2307_%s_%s.csv", cert.Period, cert.Quarter))
 
@@ -316,9 +316,9 @@ func (h *WithholdingHandler) downloadCertificateCSV(c *gin.Context, cert *sqlc.W
 	_ = w.Write([]string{"Tax Withheld", taxWithheld})
 	_ = w.Write([]string{"Status", cert.Status})
 
-	if sup != nil {
-		_ = w.Write([]string{"Supplier Name", sup.Name})
-		_ = w.Write([]string{"Supplier TIN", sup.TIN})
+	if v != nil {
+		_ = w.Write([]string{"Vendor Name", v.Name})
+		_ = w.Write([]string{"Vendor TIN", v.TIN})
 	}
 
 	w.Flush()
@@ -404,18 +404,18 @@ func (h *WithholdingHandler) DownloadSAWT(c *gin.Context) {
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=SAWT_%s.csv", period))
 
 	w := csv.NewWriter(c.Writer)
-	_ = w.Write([]string{"Supplier TIN", "Supplier Name", "ATC Code", "Income Type", "Income Amount", "EWT Rate (%)", "Tax Withheld", "Period", "Quarter"})
+	_ = w.Write([]string{"Vendor TIN", "Vendor Name", "ATC Code", "Income Type", "Income Amount", "EWT Rate (%)", "Tax Withheld", "Period", "Quarter"})
 
 	for _, cert := range certs {
 		if period != "all" && cert.Period != period {
 			continue
 		}
 
-		supName := ""
-		supTIN := ""
-		if sup, err := h.supplier.GetByID(c.Request.Context(), cert.SupplierID); err == nil {
-			supName = sup.Name
-			supTIN = sup.TIN
+		vendorName := ""
+		vendorTIN := ""
+		if v, err := h.vendor.GetByID(c.Request.Context(), cert.VendorID); err == nil {
+			vendorName = v.Name
+			vendorTIN = v.TIN
 		}
 
 		incAmt := "0.00"
@@ -431,7 +431,7 @@ func (h *WithholdingHandler) DownloadSAWT(c *gin.Context) {
 			taxWithheld = fmt.Sprintf("%.2f", f.Float64)
 		}
 
-		_ = w.Write([]string{supTIN, supName, cert.AtcCode, cert.IncomeType, incAmt, ewtRate, taxWithheld, cert.Period, cert.Quarter})
+		_ = w.Write([]string{vendorTIN, vendorName, cert.AtcCode, cert.IncomeType, incAmt, ewtRate, taxWithheld, cert.Period, cert.Quarter})
 	}
 
 	w.Flush()

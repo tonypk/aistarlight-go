@@ -48,7 +48,7 @@ func (q *Queries) GetActiveSessionByCompanyAndPeriod(ctx context.Context, arg Ge
 }
 
 const getFirstCompanyByUser = `-- name: GetFirstCompanyByUser :one
-SELECT c.id, c.organization_id, c.company_name, c.tin_number, c.rdo_code, c.vat_classification, c.fiscal_year_end, c.industry, c.address, c.plan, c.settings, c.is_active, c.created_at, c.updated_at, c.jurisdiction FROM companies c
+SELECT c.id, c.organization_id, c.company_name, c.tin_number, c.rdo_code, c.vat_classification, c.fiscal_year_end, c.industry, c.address, c.plan, c.settings, c.is_active, c.created_at, c.updated_at, c.jurisdiction, c.base_currency FROM companies c
 JOIN company_members cm ON c.id = cm.company_id
 WHERE cm.user_id = $1 AND c.is_active = true
 ORDER BY cm.joined_at ASC
@@ -74,6 +74,7 @@ func (q *Queries) GetFirstCompanyByUser(ctx context.Context, userID uuid.UUID) (
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Jurisdiction,
+		&i.BaseCurrency,
 	)
 	return i, err
 }

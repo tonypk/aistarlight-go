@@ -3,7 +3,7 @@ INSERT INTO transactions (
     id, company_id, session_id, source_type, source_file_id, row_index,
     date, description, amount, vat_amount, vat_type, category, tin,
     confidence, classification_source, raw_data, match_group_id, match_status,
-    ewt_rate, ewt_amount, atc_code, supplier_id, project_tag,
+    ewt_rate, ewt_amount, atc_code, vendor_id, project_tag,
     from_currency, to_currency, exchange_rate, from_amount,
     submitted_by,
     created_at, updated_at
@@ -29,7 +29,7 @@ UPDATE transactions SET
     ewt_rate = $8,
     ewt_amount = $9,
     atc_code = $10,
-    supplier_id = $11,
+    vendor_id = $11,
     updated_at = NOW()
 WHERE id = $1;
 

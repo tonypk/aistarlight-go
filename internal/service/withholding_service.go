@@ -35,13 +35,13 @@ type EWTClassificationResult struct {
 
 // WithholdingService handles EWT classification and certificate generation.
 type WithholdingService struct {
-	q        *sqlc.Queries
-	supplier *SupplierService
+	q      *sqlc.Queries
+	vendor *VendorService
 }
 
 // NewWithholdingService creates a WithholdingService.
-func NewWithholdingService(q *sqlc.Queries, supplier *SupplierService) *WithholdingService {
-	return &WithholdingService{q: q, supplier: supplier}
+func NewWithholdingService(q *sqlc.Queries, vendor *VendorService) *WithholdingService {
+	return &WithholdingService{q: q, vendor: vendor}
 }
 
 // ClassifyEWTTransactions classifies transactions for EWT applicability.
@@ -52,15 +52,15 @@ func (s *WithholdingService) ClassifyEWTTransactions(
 ) ([]EWTClassificationResult, error) {
 	results := make([]EWTClassificationResult, len(transactions))
 
-	// Load supplier lookup
-	suppliers, _ := s.q.ListSuppliersByCompany(ctx, sqlc.ListSuppliersByCompanyParams{
+	// Load vendor lookup
+	vendors, _ := s.q.ListVendorsByCompany(ctx, sqlc.ListVendorsByCompanyParams{
 		CompanyID: companyID,
 		Limit:     1000,
 		Offset:    0,
 	})
-	supplierByTIN := make(map[string]sqlc.Supplier)
-	for _, sup := range suppliers {
-		supplierByTIN[sup.Tin] = sup
+	vendorByTIN := make(map[string]sqlc.Vendor)
+	for _, v := range vendors {
+		vendorByTIN[v.Tin] = v
 	}
 
 	// Load learned rules
@@ -68,30 +68,32 @@ func (s *WithholdingService) ClassifyEWTTransactions(
 	ewtRules := filterEWTRules(rules)
 
 	for i, tx := range transactions {
-		// Auto-discover supplier if TIN present but not in map
-		if s.supplier != nil {
+		// Auto-discover vendor if TIN present but not in map
+		if s.vendor != nil {
 			tin := toString(tx["tin"])
-			name := toString(tx["supplier_name"])
+			name := toString(tx["vendor_name"])
+			if name == "" {
+				name = toString(tx["supplier_name"]) // backward compat
+			}
 			if tin != "" {
-				if _, ok := supplierByTIN[tin]; !ok {
-					if sup, err := s.supplier.FindOrCreate(ctx, companyID, tin, name); err == nil {
-						// Re-fetch to populate local cache
-						fetched, fetchErr := s.q.GetSupplierByTIN(ctx, sqlc.GetSupplierByTINParams{
+				if _, ok := vendorByTIN[tin]; !ok {
+					if v, err := s.vendor.FindOrCreate(ctx, companyID, tin, name); err == nil {
+						fetched, fetchErr := s.q.GetVendorByTIN(ctx, sqlc.GetVendorByTINParams{
 							CompanyID: companyID,
-							Tin:       sup.TIN,
+							Tin:       v.TIN,
 						})
 						if fetchErr == nil {
-							supplierByTIN[tin] = fetched
+							vendorByTIN[tin] = fetched
 						}
 					} else {
-						slog.Warn("auto-create supplier from EWT failed", "tin", tin, "error", err)
+						slog.Warn("auto-create vendor from EWT failed", "tin", tin, "error", err)
 					}
 				}
 			}
 		}
 
 		// Phase 1: Rule-based
-		result := classifyEWTRuleBased(tx, supplierByTIN)
+		result := classifyEWTRuleBased(tx, vendorByTIN)
 		if result != nil {
 			results[i] = *result
 			continue
@@ -119,7 +121,7 @@ func (s *WithholdingService) ClassifyEWTTransactions(
 func (s *WithholdingService) CreateCertificate(
 	ctx context.Context,
 	companyID uuid.UUID,
-	supplierID uuid.UUID,
+	vendorID uuid.UUID,
 	sessionID *uuid.UUID,
 	period, quarter, atcCode string,
 	incomeAmount, ewtRate, taxWithheld decimal.Decimal,
@@ -140,7 +142,7 @@ func (s *WithholdingService) CreateCertificate(
 		ID:           uuid.New(),
 		CompanyID:    companyID,
 		SessionID:    sessID,
-		SupplierID:   supplierID,
+		VendorID:     vendorID,
 		Period:       period,
 		Quarter:      quarter,
 		AtcCode:      atcCode,
@@ -185,18 +187,18 @@ func (s *WithholdingService) GetCertificate(ctx context.Context, id uuid.UUID) (
 }
 
 // GenerateCertificatePDF writes BIR 2307 PDF for the given certificate to w.
-func (s *WithholdingService) GenerateCertificatePDF(ctx context.Context, cert *sqlc.WithholdingCertificate, company *sqlc.Company, supplier *sqlc.Supplier) ([]byte, error) {
+func (s *WithholdingService) GenerateCertificatePDF(ctx context.Context, cert *sqlc.WithholdingCertificate, company *sqlc.Company, vendor *sqlc.Vendor) ([]byte, error) {
 	data := map[string]string{
 		"period":  cert.Period,
 		"quarter": cert.Quarter,
 	}
 
-	// Payee (supplier) info
-	if supplier != nil {
-		data["payee_tin"] = supplier.Tin
-		data["payee_name"] = supplier.Name
-		if supplier.Address != nil {
-			data["payee_address"] = *supplier.Address
+	// Payee (vendor) info
+	if vendor != nil {
+		data["payee_tin"] = vendor.Tin
+		data["payee_name"] = vendor.Name
+		if vendor.Address != nil {
+			data["payee_address"] = *vendor.Address
 		}
 	}
 
@@ -253,12 +255,12 @@ func (s *WithholdingService) GetCompanyForPDF(ctx context.Context, companyID uui
 	return &company, nil
 }
 
-// GetSupplierByID returns the raw supplier record.
-func (s *WithholdingService) GetSupplierByID(ctx context.Context, id uuid.UUID) (sqlc.Supplier, error) {
-	return s.q.GetSupplierByID(ctx, id)
+// GetVendorByID returns the raw vendor record.
+func (s *WithholdingService) GetVendorByID(ctx context.Context, id uuid.UUID) (sqlc.Vendor, error) {
+	return s.q.GetVendorByID(ctx, id)
 }
 
-func classifyEWTRuleBased(tx map[string]interface{}, suppliers map[string]sqlc.Supplier) *EWTClassificationResult {
+func classifyEWTRuleBased(tx map[string]interface{}, vendors map[string]sqlc.Vendor) *EWTClassificationResult {
 	desc := strings.ToLower(toString(tx["description"]))
 	tin := toString(tx["tin"])
 
@@ -273,16 +275,16 @@ func classifyEWTRuleBased(tx map[string]interface{}, suppliers map[string]sqlc.S
 		}
 	}
 
-	// Check supplier default
+	// Check vendor default
 	if tin != "" {
-		if sup, ok := suppliers[tin]; ok && sup.DefaultAtcCode != nil {
-			rate, err := GetEWTRate(*sup.DefaultAtcCode)
+		if v, ok := vendors[tin]; ok && v.DefaultAtcCode != nil {
+			rate, err := GetEWTRate(*v.DefaultAtcCode)
 			if err == nil {
 				return &EWTClassificationResult{
 					EWTApplicable:        true,
-					ATCCode:              *sup.DefaultAtcCode,
+					ATCCode:              *v.DefaultAtcCode,
 					EWTRate:              rate.InexactFloat64(),
-					IncomeType:           GetEWTIncomeType(*sup.DefaultAtcCode),
+					IncomeType:           GetEWTIncomeType(*v.DefaultAtcCode),
 					Confidence:           0.85,
 					ClassificationSource: "rule",
 				}
@@ -291,11 +293,14 @@ func classifyEWTRuleBased(tx map[string]interface{}, suppliers map[string]sqlc.S
 	}
 
 	// Keyword matching
-	supplierType := toString(tx["supplier_type"])
-	if supplierType == "" {
-		supplierType = "corporation"
+	vendorType := toString(tx["vendor_type"])
+	if vendorType == "" {
+		vendorType = toString(tx["supplier_type"]) // backward compat
 	}
-	atc := FindATCByKeywords(desc, supplierType)
+	if vendorType == "" {
+		vendorType = "corporation"
+	}
+	atc := FindATCByKeywords(desc, vendorType)
 	if atc != "" {
 		rate, err := GetEWTRate(atc)
 		if err == nil {

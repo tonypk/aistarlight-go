@@ -64,7 +64,7 @@ func main() {
 	// Build service dependencies.
 	knowledge := service.NewKnowledgeService(ai, q)
 	matchAnalyzer := service.NewMatchAnalyzer(ai)
-	supplierSvc := service.NewSupplierService(q)
+	vendorSvc := service.NewVendorService(q)
 	complianceSvc := service.NewComplianceService(q, knowledge)
 
 	// Redis + event publisher (worker also publishes events on re-entrant flows)
@@ -81,7 +81,7 @@ func main() {
 
 	svc := &worker.Services{
 		Report:       service.NewReportService(q, complianceSvc),
-		Receipt:      service.NewReceiptService(q, ocrclient.NewClient(cfg.OCR.ServiceURL), supplierSvc),
+		Receipt:      service.NewReceiptService(q, ocrclient.NewClient(cfg.OCR.ServiceURL), vendorSvc),
 		Classifier: func() *service.ClassifierService {
 			c := service.NewClassifierService(ai, q)
 			c.SetVendorMemory(vendorMemorySvc)

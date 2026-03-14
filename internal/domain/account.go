@@ -24,20 +24,23 @@ const (
 )
 
 type Account struct {
-	ID            uuid.UUID     `json:"id"`
-	CompanyID     uuid.UUID     `json:"company_id"`
-	AccountNumber string        `json:"account_number"`
-	Name          string        `json:"name"`
-	AccountType   AccountType   `json:"account_type"`
-	SubType       *string       `json:"sub_type,omitempty"`
-	ParentID      *uuid.UUID    `json:"parent_id,omitempty"`
-	Description   *string       `json:"description,omitempty"`
-	IsActive      bool          `json:"is_active"`
-	IsSystem      bool          `json:"is_system"`
-	NormalBalance NormalBalance `json:"normal_balance"`
-	QBOAccountID  *string       `json:"qbo_account_id,omitempty"`
-	CreatedAt     time.Time     `json:"created_at"`
-	UpdatedAt     time.Time     `json:"updated_at"`
+	ID               uuid.UUID     `json:"id"`
+	CompanyID        uuid.UUID     `json:"company_id"`
+	AccountNumber    string        `json:"account_number"`
+	Name             string        `json:"name"`
+	AccountType      AccountType   `json:"account_type"`
+	SubType          *string       `json:"sub_type,omitempty"`
+	ParentID         *uuid.UUID    `json:"parent_id,omitempty"`
+	Description      *string       `json:"description,omitempty"`
+	IsActive         bool          `json:"is_active"`
+	IsSystem         bool          `json:"is_system"`
+	NormalBalance    NormalBalance `json:"normal_balance"`
+	QBOAccountID     *string       `json:"qbo_account_id,omitempty"`
+	CurrencyCode     *string       `json:"currency_code,omitempty"`
+	DefaultTaxCode   *string       `json:"default_tax_code,omitempty"`
+	CashFlowCategory *string       `json:"cash_flow_category,omitempty"` // operating/investing/financing
+	CreatedAt        time.Time     `json:"created_at"`
+	UpdatedAt        time.Time     `json:"updated_at"`
 }
 
 // NormalBalanceFor returns the standard normal balance for a given account type.

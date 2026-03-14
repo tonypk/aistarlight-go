@@ -136,7 +136,7 @@ func (s *QBOService) SyncAccounts(ctx context.Context, companyID uuid.UUID, acco
 		})
 		if existErr == nil {
 			// Update existing
-			err := accountSvc.Update(ctx, existing.ID, &qboAcct.Name, nil, nil, nil, &qboAcct.ID)
+			err := accountSvc.Update(ctx, existing.ID, &qboAcct.Name, nil, nil, nil, &qboAcct.ID, nil, nil, nil)
 			if err != nil {
 				failed++
 				slog.Warn("update QBO-linked account", "qbo_id", qboAcct.ID, "error", err)

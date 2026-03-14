@@ -80,7 +80,7 @@ func main() {
 		{"migrate reports", m.migrateTableSimple("reports")},
 		{"migrate reconciliation_sessions", m.migrateTableSimple("reconciliation_sessions")},
 		{"migrate transactions", m.migrateTableSimple("transactions")},
-		{"migrate suppliers", m.migrateTableSimple("suppliers")},
+		{"migrate vendors (was suppliers)", m.migrateTableSimple("vendors")},
 		{"migrate chat_messages", m.migrateTableSimple("chat_messages")},
 		{"migrate user_preferences", m.migrateTableSimple("user_preferences")},
 		{"migrate correction_history", m.migrateTableSimple("correction_history")},

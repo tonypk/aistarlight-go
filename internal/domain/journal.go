@@ -22,6 +22,8 @@ const (
 	SourceReceipt        JournalSourceType = "receipt"
 	SourceQBOSync        JournalSourceType = "qbo_sync"
 	SourceReconciliation JournalSourceType = "reconciliation"
+	SourceOpeningBalance JournalSourceType = "opening_balance"
+	SourceYearEndClose   JournalSourceType = "year_end_close"
 )
 
 type JournalEntry struct {

@@ -20,6 +20,7 @@ type Company struct {
 	Settings          JSON       `json:"settings"`
 	IsActive          bool       `json:"is_active"`
 	Jurisdiction      string     `json:"jurisdiction"`
+	BaseCurrency      string     `json:"base_currency"`
 	CreatedAt         time.Time  `json:"created_at"`
 	UpdatedAt         time.Time  `json:"updated_at"`
 }

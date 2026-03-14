@@ -137,8 +137,10 @@ func (h *ReceiptHandler) Upload(c *gin.Context) {
 	}
 
 	// --- Phase 3: Compress images for long-term storage (after OCR) ---
+	// Use batch ID as filename so the receipt_image_url construction works:
+	// URL = {baseURL}/receipts/{companyID}/{batchID}.jpg
 	var compressionInfo []gin.H
-	for _, fi := range fileInfos {
+	for i, fi := range fileInfos {
 		data, err := os.ReadFile(fi.ocrPath)
 		if err != nil {
 			slog.Warn("read OCR file for compression", "error", err)
@@ -160,13 +162,30 @@ func (h *ReceiptHandler) Upload(c *gin.Context) {
 			continue
 		}
 
-		// Save compressed version
-		archiveName := fmt.Sprintf("%s.jpg", uuid.New().String())
+		// Save compressed version using batch ID so URL construction matches
+		// For single-image batches, use batchID directly; for multi-image, add index
+		var archiveName string
+		if len(fileInfos) == 1 {
+			archiveName = fmt.Sprintf("%s.jpg", batch.ID.String())
+		} else {
+			archiveName = fmt.Sprintf("%s_%d.jpg", batch.ID.String(), i)
+		}
 		archivePath := filepath.Join(receiptDir, archiveName)
 		if err := os.WriteFile(archivePath, compressed.Data, 0o644); err != nil {
 			slog.Warn("save compressed archive", "error", err)
 			continue
 		}
+
+		// Update batch image_path so it's queryable
+		imgPath := filepath.Join("receipts", companyID.String(), archiveName)
+		_ = h.q.UpdateReceiptBatch(c.Request.Context(), sqlc.UpdateReceiptBatchParams{
+			ID:             batch.ID,
+			Status:         batch.Status,
+			ProcessedCount: batch.ProcessedCount,
+			Results:        batch.Results,
+			ErrorMessage:   batch.ErrorMessage,
+			ImagePath:      &imgPath,
+		})
 
 		// Remove the full-quality OCR file (no longer needed)
 		_ = os.Remove(fi.ocrPath)

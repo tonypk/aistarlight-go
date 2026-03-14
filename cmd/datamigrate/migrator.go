@@ -161,7 +161,7 @@ func (m *migrator) verify(ctx context.Context) error {
 		{"reports", "reports"},
 		{"reconciliation_sessions", "reconciliation_sessions"},
 		{"transactions", "transactions"},
-		{"suppliers", "suppliers"},
+		{"suppliers", "vendors"},
 		{"chat_messages", "chat_messages"},
 		{"user_preferences", "user_preferences"},
 		{"audit_logs", "audit_logs"},

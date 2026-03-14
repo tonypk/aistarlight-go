@@ -27,7 +27,7 @@ type DashboardStats struct {
 	SessionCount    int64          `json:"session_count"`
 	BankReconCount  int64          `json:"bank_recon_count"`
 	ReceiptCount    int64          `json:"receipt_count"`
-	SupplierCount   int64          `json:"supplier_count"`
+	VendorCount     int64          `json:"vendor_count"`
 }
 
 // GetStats returns dashboard statistics for a company.
@@ -36,7 +36,7 @@ func (s *DashboardService) GetStats(ctx context.Context, companyID uuid.UUID) (*
 	sessionCount, _ := s.q.CountReconciliationSessionsByCompany(ctx, companyID)
 	bankReconCount, _ := s.q.CountBankReconBatchesByCompany(ctx, companyID)
 	receiptCount, _ := s.q.CountReceiptBatchesByCompany(ctx, companyID)
-	supplierCount, _ := s.q.CountSuppliersByCompany(ctx, companyID)
+	vendorCount, _ := s.q.CountVendorsByCompany(ctx, companyID)
 
 	// Get reports by status
 	reports, _ := s.q.ListReportsByCompany(ctx, sqlc.ListReportsByCompanyParams{
@@ -62,7 +62,7 @@ func (s *DashboardService) GetStats(ctx context.Context, companyID uuid.UUID) (*
 		SessionCount:    sessionCount,
 		BankReconCount:  bankReconCount,
 		ReceiptCount:    receiptCount,
-		SupplierCount:   supplierCount,
+		VendorCount:     vendorCount,
 	}, nil
 }
 

@@ -72,24 +72,27 @@ func (q *Queries) CountAccountsByCompany(ctx context.Context, companyID uuid.UUI
 }
 
 const createAccount = `-- name: CreateAccount :one
-INSERT INTO accounts (id, company_id, account_number, name, account_type, sub_type, parent_id, description, is_active, is_system, normal_balance, qbo_account_id, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())
-RETURNING id, company_id, account_number, name, account_type, sub_type, parent_id, description, is_active, is_system, normal_balance, qbo_account_id, created_at, updated_at
+INSERT INTO accounts (id, company_id, account_number, name, account_type, sub_type, parent_id, description, is_active, is_system, normal_balance, qbo_account_id, currency_code, default_tax_code, cash_flow_category, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), NOW())
+RETURNING id, company_id, account_number, name, account_type, sub_type, parent_id, description, is_active, is_system, normal_balance, qbo_account_id, created_at, updated_at, currency_code, default_tax_code, cash_flow_category
 `
 
 type CreateAccountParams struct {
-	ID            uuid.UUID   `json:"id"`
-	CompanyID     uuid.UUID   `json:"company_id"`
-	AccountNumber string      `json:"account_number"`
-	Name          string      `json:"name"`
-	AccountType   string      `json:"account_type"`
-	SubType       *string     `json:"sub_type"`
-	ParentID      pgtype.UUID `json:"parent_id"`
-	Description   *string     `json:"description"`
-	IsActive      bool        `json:"is_active"`
-	IsSystem      bool        `json:"is_system"`
-	NormalBalance string      `json:"normal_balance"`
-	QboAccountID  *string     `json:"qbo_account_id"`
+	ID               uuid.UUID   `json:"id"`
+	CompanyID        uuid.UUID   `json:"company_id"`
+	AccountNumber    string      `json:"account_number"`
+	Name             string      `json:"name"`
+	AccountType      string      `json:"account_type"`
+	SubType          *string     `json:"sub_type"`
+	ParentID         pgtype.UUID `json:"parent_id"`
+	Description      *string     `json:"description"`
+	IsActive         bool        `json:"is_active"`
+	IsSystem         bool        `json:"is_system"`
+	NormalBalance    string      `json:"normal_balance"`
+	QboAccountID     *string     `json:"qbo_account_id"`
+	CurrencyCode     *string     `json:"currency_code"`
+	DefaultTaxCode   *string     `json:"default_tax_code"`
+	CashFlowCategory *string     `json:"cash_flow_category"`
 }
 
 func (q *Queries) CreateAccount(ctx context.Context, arg CreateAccountParams) (Account, error) {
@@ -106,6 +109,9 @@ func (q *Queries) CreateAccount(ctx context.Context, arg CreateAccountParams) (A
 		arg.IsSystem,
 		arg.NormalBalance,
 		arg.QboAccountID,
+		arg.CurrencyCode,
+		arg.DefaultTaxCode,
+		arg.CashFlowCategory,
 	)
 	var i Account
 	err := row.Scan(
@@ -123,6 +129,9 @@ func (q *Queries) CreateAccount(ctx context.Context, arg CreateAccountParams) (A
 		&i.QboAccountID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CurrencyCode,
+		&i.DefaultTaxCode,
+		&i.CashFlowCategory,
 	)
 	return i, err
 }
@@ -152,7 +161,7 @@ func (q *Queries) DeleteAccount(ctx context.Context, id uuid.UUID) error {
 }
 
 const getAccountByID = `-- name: GetAccountByID :one
-SELECT id, company_id, account_number, name, account_type, sub_type, parent_id, description, is_active, is_system, normal_balance, qbo_account_id, created_at, updated_at FROM accounts WHERE id = $1
+SELECT id, company_id, account_number, name, account_type, sub_type, parent_id, description, is_active, is_system, normal_balance, qbo_account_id, created_at, updated_at, currency_code, default_tax_code, cash_flow_category FROM accounts WHERE id = $1
 `
 
 func (q *Queries) GetAccountByID(ctx context.Context, id uuid.UUID) (Account, error) {
@@ -173,12 +182,15 @@ func (q *Queries) GetAccountByID(ctx context.Context, id uuid.UUID) (Account, er
 		&i.QboAccountID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CurrencyCode,
+		&i.DefaultTaxCode,
+		&i.CashFlowCategory,
 	)
 	return i, err
 }
 
 const getAccountByNumber = `-- name: GetAccountByNumber :one
-SELECT id, company_id, account_number, name, account_type, sub_type, parent_id, description, is_active, is_system, normal_balance, qbo_account_id, created_at, updated_at FROM accounts WHERE company_id = $1 AND account_number = $2
+SELECT id, company_id, account_number, name, account_type, sub_type, parent_id, description, is_active, is_system, normal_balance, qbo_account_id, created_at, updated_at, currency_code, default_tax_code, cash_flow_category FROM accounts WHERE company_id = $1 AND account_number = $2
 `
 
 type GetAccountByNumberParams struct {
@@ -204,12 +216,15 @@ func (q *Queries) GetAccountByNumber(ctx context.Context, arg GetAccountByNumber
 		&i.QboAccountID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CurrencyCode,
+		&i.DefaultTaxCode,
+		&i.CashFlowCategory,
 	)
 	return i, err
 }
 
 const getAccountByQBOID = `-- name: GetAccountByQBOID :one
-SELECT id, company_id, account_number, name, account_type, sub_type, parent_id, description, is_active, is_system, normal_balance, qbo_account_id, created_at, updated_at FROM accounts WHERE company_id = $1 AND qbo_account_id = $2
+SELECT id, company_id, account_number, name, account_type, sub_type, parent_id, description, is_active, is_system, normal_balance, qbo_account_id, created_at, updated_at, currency_code, default_tax_code, cash_flow_category FROM accounts WHERE company_id = $1 AND qbo_account_id = $2
 `
 
 type GetAccountByQBOIDParams struct {
@@ -235,12 +250,15 @@ func (q *Queries) GetAccountByQBOID(ctx context.Context, arg GetAccountByQBOIDPa
 		&i.QboAccountID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CurrencyCode,
+		&i.DefaultTaxCode,
+		&i.CashFlowCategory,
 	)
 	return i, err
 }
 
 const listAccountsByCompany = `-- name: ListAccountsByCompany :many
-SELECT id, company_id, account_number, name, account_type, sub_type, parent_id, description, is_active, is_system, normal_balance, qbo_account_id, created_at, updated_at FROM accounts
+SELECT id, company_id, account_number, name, account_type, sub_type, parent_id, description, is_active, is_system, normal_balance, qbo_account_id, created_at, updated_at, currency_code, default_tax_code, cash_flow_category FROM accounts
 WHERE company_id = $1 AND is_active = true
 ORDER BY account_number ASC
 LIMIT $2 OFFSET $3
@@ -276,6 +294,9 @@ func (q *Queries) ListAccountsByCompany(ctx context.Context, arg ListAccountsByC
 			&i.QboAccountID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.CurrencyCode,
+			&i.DefaultTaxCode,
+			&i.CashFlowCategory,
 		); err != nil {
 			return nil, err
 		}
@@ -288,7 +309,7 @@ func (q *Queries) ListAccountsByCompany(ctx context.Context, arg ListAccountsByC
 }
 
 const listAccountsByType = `-- name: ListAccountsByType :many
-SELECT id, company_id, account_number, name, account_type, sub_type, parent_id, description, is_active, is_system, normal_balance, qbo_account_id, created_at, updated_at FROM accounts
+SELECT id, company_id, account_number, name, account_type, sub_type, parent_id, description, is_active, is_system, normal_balance, qbo_account_id, created_at, updated_at, currency_code, default_tax_code, cash_flow_category FROM accounts
 WHERE company_id = $1 AND account_type = $2 AND is_active = true
 ORDER BY account_number ASC
 `
@@ -322,6 +343,9 @@ func (q *Queries) ListAccountsByType(ctx context.Context, arg ListAccountsByType
 			&i.QboAccountID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.CurrencyCode,
+			&i.DefaultTaxCode,
+			&i.CashFlowCategory,
 		); err != nil {
 			return nil, err
 		}
@@ -340,17 +364,23 @@ UPDATE accounts SET
     description = $4,
     is_active = COALESCE($5, is_active),
     qbo_account_id = $6,
+    currency_code = $7,
+    default_tax_code = $8,
+    cash_flow_category = $9,
     updated_at = NOW()
 WHERE id = $1
 `
 
 type UpdateAccountParams struct {
-	ID           uuid.UUID `json:"id"`
-	Name         string    `json:"name"`
-	SubType      *string   `json:"sub_type"`
-	Description  *string   `json:"description"`
-	IsActive     bool      `json:"is_active"`
-	QboAccountID *string   `json:"qbo_account_id"`
+	ID               uuid.UUID `json:"id"`
+	Name             string    `json:"name"`
+	SubType          *string   `json:"sub_type"`
+	Description      *string   `json:"description"`
+	IsActive         bool      `json:"is_active"`
+	QboAccountID     *string   `json:"qbo_account_id"`
+	CurrencyCode     *string   `json:"currency_code"`
+	DefaultTaxCode   *string   `json:"default_tax_code"`
+	CashFlowCategory *string   `json:"cash_flow_category"`
 }
 
 func (q *Queries) UpdateAccount(ctx context.Context, arg UpdateAccountParams) error {
@@ -361,6 +391,9 @@ func (q *Queries) UpdateAccount(ctx context.Context, arg UpdateAccountParams) er
 		arg.Description,
 		arg.IsActive,
 		arg.QboAccountID,
+		arg.CurrencyCode,
+		arg.DefaultTaxCode,
+		arg.CashFlowCategory,
 	)
 	return err
 }

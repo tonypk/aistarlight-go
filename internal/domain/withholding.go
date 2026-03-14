@@ -11,7 +11,7 @@ type WithholdingCertificate struct {
 	ID           uuid.UUID       `json:"id"`
 	CompanyID    uuid.UUID       `json:"company_id"`
 	SessionID    *uuid.UUID      `json:"session_id,omitempty"`
-	SupplierID   uuid.UUID       `json:"supplier_id"`
+	VendorID     uuid.UUID       `json:"vendor_id"`
 	Period       string          `json:"period"`
 	Quarter      string          `json:"quarter"`
 	ATCCode      string          `json:"atc_code"`

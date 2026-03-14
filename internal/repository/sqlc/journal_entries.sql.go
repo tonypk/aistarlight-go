@@ -18,7 +18,9 @@ SELECT
     a.account_number,
     a.name AS account_name,
     a.account_type,
+    a.sub_type,
     a.normal_balance,
+    a.cash_flow_category,
     COALESCE(SUM(jl.debit), 0)::NUMERIC(15,2) AS total_debit,
     COALESCE(SUM(jl.credit), 0)::NUMERIC(15,2) AS total_credit
 FROM accounts a
@@ -30,7 +32,7 @@ LEFT JOIN journal_entries je ON je.id = jl.journal_entry_id
 WHERE a.company_id = $1
     AND a.is_active = true
     AND a.account_number LIKE $3 || '%'
-GROUP BY a.id, a.account_number, a.name, a.account_type, a.normal_balance
+GROUP BY a.id, a.account_number, a.name, a.account_type, a.sub_type, a.normal_balance, a.cash_flow_category
 HAVING COALESCE(SUM(jl.debit), 0) > 0 OR COALESCE(SUM(jl.credit), 0) > 0
 ORDER BY a.account_number ASC
 `
@@ -42,13 +44,15 @@ type AccountBalancesByPrefixParams struct {
 }
 
 type AccountBalancesByPrefixRow struct {
-	AccountID     uuid.UUID      `json:"account_id"`
-	AccountNumber string         `json:"account_number"`
-	AccountName   string         `json:"account_name"`
-	AccountType   string         `json:"account_type"`
-	NormalBalance string         `json:"normal_balance"`
-	TotalDebit    pgtype.Numeric `json:"total_debit"`
-	TotalCredit   pgtype.Numeric `json:"total_credit"`
+	AccountID        uuid.UUID      `json:"account_id"`
+	AccountNumber    string         `json:"account_number"`
+	AccountName      string         `json:"account_name"`
+	AccountType      string         `json:"account_type"`
+	SubType          *string        `json:"sub_type"`
+	NormalBalance    string         `json:"normal_balance"`
+	CashFlowCategory *string        `json:"cash_flow_category"`
+	TotalDebit       pgtype.Numeric `json:"total_debit"`
+	TotalCredit      pgtype.Numeric `json:"total_credit"`
 }
 
 // Returns aggregated debit/credit for all accounts matching a number prefix,
@@ -67,7 +71,9 @@ func (q *Queries) AccountBalancesByPrefix(ctx context.Context, arg AccountBalanc
 			&i.AccountNumber,
 			&i.AccountName,
 			&i.AccountType,
+			&i.SubType,
 			&i.NormalBalance,
+			&i.CashFlowCategory,
 			&i.TotalDebit,
 			&i.TotalCredit,
 		); err != nil {
@@ -156,7 +162,9 @@ SELECT
     a.account_number,
     a.name AS account_name,
     a.account_type,
+    a.sub_type,
     a.normal_balance,
+    a.cash_flow_category,
     COALESCE(SUM(jl.debit), 0)::NUMERIC(15,2) AS total_debit,
     COALESCE(SUM(jl.credit), 0)::NUMERIC(15,2) AS total_credit
 FROM accounts a
@@ -166,7 +174,7 @@ LEFT JOIN journal_entries je ON je.id = jl.journal_entry_id
     AND je.status = 'posted'
     AND je.entry_date <= $2
 WHERE a.company_id = $1 AND a.is_active = true
-GROUP BY a.id, a.account_number, a.name, a.account_type, a.normal_balance
+GROUP BY a.id, a.account_number, a.name, a.account_type, a.sub_type, a.normal_balance, a.cash_flow_category
 HAVING COALESCE(SUM(jl.debit), 0) > 0 OR COALESCE(SUM(jl.credit), 0) > 0
 ORDER BY a.account_number ASC
 `
@@ -177,13 +185,15 @@ type AllAccountBalancesAsOfParams struct {
 }
 
 type AllAccountBalancesAsOfRow struct {
-	AccountID     uuid.UUID      `json:"account_id"`
-	AccountNumber string         `json:"account_number"`
-	AccountName   string         `json:"account_name"`
-	AccountType   string         `json:"account_type"`
-	NormalBalance string         `json:"normal_balance"`
-	TotalDebit    pgtype.Numeric `json:"total_debit"`
-	TotalCredit   pgtype.Numeric `json:"total_credit"`
+	AccountID        uuid.UUID      `json:"account_id"`
+	AccountNumber    string         `json:"account_number"`
+	AccountName      string         `json:"account_name"`
+	AccountType      string         `json:"account_type"`
+	SubType          *string        `json:"sub_type"`
+	NormalBalance    string         `json:"normal_balance"`
+	CashFlowCategory *string        `json:"cash_flow_category"`
+	TotalDebit       pgtype.Numeric `json:"total_debit"`
+	TotalCredit      pgtype.Numeric `json:"total_credit"`
 }
 
 // Returns aggregated balances for ALL active accounts up to a date (for balance sheet).
@@ -201,7 +211,9 @@ func (q *Queries) AllAccountBalancesAsOf(ctx context.Context, arg AllAccountBala
 			&i.AccountNumber,
 			&i.AccountName,
 			&i.AccountType,
+			&i.SubType,
 			&i.NormalBalance,
+			&i.CashFlowCategory,
 			&i.TotalDebit,
 			&i.TotalCredit,
 		); err != nil {
@@ -259,7 +271,7 @@ func (q *Queries) CountJournalEntriesByDateRange(ctx context.Context, arg CountJ
 const createJournalEntry = `-- name: CreateJournalEntry :one
 INSERT INTO journal_entries (id, company_id, period_id, entry_date, reference, description, source_type, source_id, status, memo, created_by, created_at, updated_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft', $9, $10, NOW(), NOW())
-RETURNING id, company_id, period_id, entry_number, entry_date, reference, description, source_type, source_id, status, posted_by, posted_at, reversed_by_id, reverses_id, memo, created_by, created_at, updated_at
+RETURNING id, company_id, period_id, entry_number, entry_date, reference, description, source_type, source_id, status, posted_by, posted_at, reversed_by_id, reverses_id, memo, created_by, created_at, updated_at, currency_code
 `
 
 type CreateJournalEntryParams struct {
@@ -308,6 +320,7 @@ func (q *Queries) CreateJournalEntry(ctx context.Context, arg CreateJournalEntry
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CurrencyCode,
 	)
 	return i, err
 }
@@ -315,7 +328,7 @@ func (q *Queries) CreateJournalEntry(ctx context.Context, arg CreateJournalEntry
 const createJournalLine = `-- name: CreateJournalLine :one
 INSERT INTO journal_lines (id, journal_entry_id, account_id, line_number, description, debit, credit)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, journal_entry_id, account_id, line_number, description, debit, credit
+RETURNING id, journal_entry_id, account_id, line_number, description, debit, credit, currency_code, exchange_rate, home_debit, home_credit, tax_code, tax_amount
 `
 
 type CreateJournalLineParams struct {
@@ -347,12 +360,18 @@ func (q *Queries) CreateJournalLine(ctx context.Context, arg CreateJournalLinePa
 		&i.Description,
 		&i.Debit,
 		&i.Credit,
+		&i.CurrencyCode,
+		&i.ExchangeRate,
+		&i.HomeDebit,
+		&i.HomeCredit,
+		&i.TaxCode,
+		&i.TaxAmount,
 	)
 	return i, err
 }
 
 const getJournalEntryByID = `-- name: GetJournalEntryByID :one
-SELECT id, company_id, period_id, entry_number, entry_date, reference, description, source_type, source_id, status, posted_by, posted_at, reversed_by_id, reverses_id, memo, created_by, created_at, updated_at FROM journal_entries WHERE id = $1
+SELECT id, company_id, period_id, entry_number, entry_date, reference, description, source_type, source_id, status, posted_by, posted_at, reversed_by_id, reverses_id, memo, created_by, created_at, updated_at, currency_code FROM journal_entries WHERE id = $1
 `
 
 func (q *Queries) GetJournalEntryByID(ctx context.Context, id uuid.UUID) (JournalEntry, error) {
@@ -377,12 +396,13 @@ func (q *Queries) GetJournalEntryByID(ctx context.Context, id uuid.UUID) (Journa
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CurrencyCode,
 	)
 	return i, err
 }
 
 const listJournalEntries = `-- name: ListJournalEntries :many
-SELECT id, company_id, period_id, entry_number, entry_date, reference, description, source_type, source_id, status, posted_by, posted_at, reversed_by_id, reverses_id, memo, created_by, created_at, updated_at FROM journal_entries
+SELECT id, company_id, period_id, entry_number, entry_date, reference, description, source_type, source_id, status, posted_by, posted_at, reversed_by_id, reverses_id, memo, created_by, created_at, updated_at, currency_code FROM journal_entries
 WHERE company_id = $1
 ORDER BY entry_date DESC, entry_number DESC
 LIMIT $2 OFFSET $3
@@ -422,6 +442,7 @@ func (q *Queries) ListJournalEntries(ctx context.Context, arg ListJournalEntries
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.CurrencyCode,
 		); err != nil {
 			return nil, err
 		}
@@ -434,7 +455,7 @@ func (q *Queries) ListJournalEntries(ctx context.Context, arg ListJournalEntries
 }
 
 const listJournalEntriesByDateRange = `-- name: ListJournalEntriesByDateRange :many
-SELECT id, company_id, period_id, entry_number, entry_date, reference, description, source_type, source_id, status, posted_by, posted_at, reversed_by_id, reverses_id, memo, created_by, created_at, updated_at FROM journal_entries
+SELECT id, company_id, period_id, entry_number, entry_date, reference, description, source_type, source_id, status, posted_by, posted_at, reversed_by_id, reverses_id, memo, created_by, created_at, updated_at, currency_code FROM journal_entries
 WHERE company_id = $1
     AND entry_date >= $2
     AND entry_date <= $3
@@ -484,6 +505,7 @@ func (q *Queries) ListJournalEntriesByDateRange(ctx context.Context, arg ListJou
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.CurrencyCode,
 		); err != nil {
 			return nil, err
 		}
@@ -496,7 +518,7 @@ func (q *Queries) ListJournalEntriesByDateRange(ctx context.Context, arg ListJou
 }
 
 const listJournalLinesByEntry = `-- name: ListJournalLinesByEntry :many
-SELECT jl.id, jl.journal_entry_id, jl.account_id, jl.line_number, jl.description, jl.debit, jl.credit, a.name AS account_name, a.account_number
+SELECT jl.id, jl.journal_entry_id, jl.account_id, jl.line_number, jl.description, jl.debit, jl.credit, jl.currency_code, jl.exchange_rate, jl.home_debit, jl.home_credit, jl.tax_code, jl.tax_amount, a.name AS account_name, a.account_number
 FROM journal_lines jl
 JOIN accounts a ON a.id = jl.account_id
 WHERE jl.journal_entry_id = $1
@@ -511,6 +533,12 @@ type ListJournalLinesByEntryRow struct {
 	Description    *string        `json:"description"`
 	Debit          pgtype.Numeric `json:"debit"`
 	Credit         pgtype.Numeric `json:"credit"`
+	CurrencyCode   *string        `json:"currency_code"`
+	ExchangeRate   pgtype.Numeric `json:"exchange_rate"`
+	HomeDebit      pgtype.Numeric `json:"home_debit"`
+	HomeCredit     pgtype.Numeric `json:"home_credit"`
+	TaxCode        *string        `json:"tax_code"`
+	TaxAmount      pgtype.Numeric `json:"tax_amount"`
 	AccountName    string         `json:"account_name"`
 	AccountNumber  string         `json:"account_number"`
 }
@@ -532,6 +560,12 @@ func (q *Queries) ListJournalLinesByEntry(ctx context.Context, journalEntryID uu
 			&i.Description,
 			&i.Debit,
 			&i.Credit,
+			&i.CurrencyCode,
+			&i.ExchangeRate,
+			&i.HomeDebit,
+			&i.HomeCredit,
+			&i.TaxCode,
+			&i.TaxAmount,
 			&i.AccountName,
 			&i.AccountNumber,
 		); err != nil {
@@ -551,7 +585,9 @@ SELECT
     a.account_number,
     a.name AS account_name,
     a.account_type,
+    a.sub_type,
     a.normal_balance,
+    a.cash_flow_category,
     COALESCE(SUM(jl.debit), 0)::NUMERIC(15,2) AS total_debit,
     COALESCE(SUM(jl.credit), 0)::NUMERIC(15,2) AS total_credit
 FROM accounts a
@@ -564,7 +600,7 @@ LEFT JOIN journal_entries je ON je.id = jl.journal_entry_id
 WHERE a.company_id = $1
     AND a.is_active = true
     AND a.account_number LIKE $4 || '%'
-GROUP BY a.id, a.account_number, a.name, a.account_type, a.normal_balance
+GROUP BY a.id, a.account_number, a.name, a.account_type, a.sub_type, a.normal_balance, a.cash_flow_category
 HAVING COALESCE(SUM(jl.debit), 0) > 0 OR COALESCE(SUM(jl.credit), 0) > 0
 ORDER BY a.account_number ASC
 `
@@ -577,13 +613,15 @@ type PeriodAccountBalancesParams struct {
 }
 
 type PeriodAccountBalancesRow struct {
-	AccountID     uuid.UUID      `json:"account_id"`
-	AccountNumber string         `json:"account_number"`
-	AccountName   string         `json:"account_name"`
-	AccountType   string         `json:"account_type"`
-	NormalBalance string         `json:"normal_balance"`
-	TotalDebit    pgtype.Numeric `json:"total_debit"`
-	TotalCredit   pgtype.Numeric `json:"total_credit"`
+	AccountID        uuid.UUID      `json:"account_id"`
+	AccountNumber    string         `json:"account_number"`
+	AccountName      string         `json:"account_name"`
+	AccountType      string         `json:"account_type"`
+	SubType          *string        `json:"sub_type"`
+	NormalBalance    string         `json:"normal_balance"`
+	CashFlowCategory *string        `json:"cash_flow_category"`
+	TotalDebit       pgtype.Numeric `json:"total_debit"`
+	TotalCredit      pgtype.Numeric `json:"total_credit"`
 }
 
 // Returns aggregated debit/credit for all accounts matching a number prefix,
@@ -607,7 +645,9 @@ func (q *Queries) PeriodAccountBalances(ctx context.Context, arg PeriodAccountBa
 			&i.AccountNumber,
 			&i.AccountName,
 			&i.AccountType,
+			&i.SubType,
 			&i.NormalBalance,
+			&i.CashFlowCategory,
 			&i.TotalDebit,
 			&i.TotalCredit,
 		); err != nil {
@@ -627,7 +667,9 @@ SELECT
     a.account_number,
     a.name AS account_name,
     a.account_type,
+    a.sub_type,
     a.normal_balance,
+    a.cash_flow_category,
     COALESCE(SUM(jl.debit), 0)::NUMERIC(15,2) AS total_debit,
     COALESCE(SUM(jl.credit), 0)::NUMERIC(15,2) AS total_credit
 FROM accounts a
@@ -638,7 +680,7 @@ LEFT JOIN journal_entries je ON je.id = jl.journal_entry_id
     AND je.entry_date >= $2
     AND je.entry_date <= $3
 WHERE a.company_id = $1 AND a.is_active = true
-GROUP BY a.id, a.account_number, a.name, a.account_type, a.normal_balance
+GROUP BY a.id, a.account_number, a.name, a.account_type, a.sub_type, a.normal_balance, a.cash_flow_category
 HAVING COALESCE(SUM(jl.debit), 0) > 0 OR COALESCE(SUM(jl.credit), 0) > 0
 ORDER BY a.account_number ASC
 `
@@ -650,13 +692,15 @@ type PeriodAllAccountBalancesParams struct {
 }
 
 type PeriodAllAccountBalancesRow struct {
-	AccountID     uuid.UUID      `json:"account_id"`
-	AccountNumber string         `json:"account_number"`
-	AccountName   string         `json:"account_name"`
-	AccountType   string         `json:"account_type"`
-	NormalBalance string         `json:"normal_balance"`
-	TotalDebit    pgtype.Numeric `json:"total_debit"`
-	TotalCredit   pgtype.Numeric `json:"total_credit"`
+	AccountID        uuid.UUID      `json:"account_id"`
+	AccountNumber    string         `json:"account_number"`
+	AccountName      string         `json:"account_name"`
+	AccountType      string         `json:"account_type"`
+	SubType          *string        `json:"sub_type"`
+	NormalBalance    string         `json:"normal_balance"`
+	CashFlowCategory *string        `json:"cash_flow_category"`
+	TotalDebit       pgtype.Numeric `json:"total_debit"`
+	TotalCredit      pgtype.Numeric `json:"total_credit"`
 }
 
 // Returns aggregated balances for ALL active accounts within a date range (for income statement).
@@ -674,7 +718,9 @@ func (q *Queries) PeriodAllAccountBalances(ctx context.Context, arg PeriodAllAcc
 			&i.AccountNumber,
 			&i.AccountName,
 			&i.AccountType,
+			&i.SubType,
 			&i.NormalBalance,
+			&i.CashFlowCategory,
 			&i.TotalDebit,
 			&i.TotalCredit,
 		); err != nil {

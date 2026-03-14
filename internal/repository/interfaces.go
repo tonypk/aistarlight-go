@@ -100,14 +100,14 @@ type KnowledgeRepo interface {
 	ListByCategory(ctx context.Context, category string) ([]domain.KnowledgeChunk, error)
 }
 
-// ---- Supplier ----
+// ---- Vendor ----
 
-type SupplierRepo interface {
-	Create(ctx context.Context, s *domain.Supplier) error
-	GetByID(ctx context.Context, id uuid.UUID) (*domain.Supplier, error)
-	Update(ctx context.Context, s *domain.Supplier) error
-	ListByCompany(ctx context.Context, companyID uuid.UUID, p pagination.Params) ([]domain.Supplier, int, error)
-	GetByTIN(ctx context.Context, companyID uuid.UUID, tin string) (*domain.Supplier, error)
+type VendorRepo interface {
+	Create(ctx context.Context, v *domain.Vendor) error
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.Vendor, error)
+	Update(ctx context.Context, v *domain.Vendor) error
+	ListByCompany(ctx context.Context, companyID uuid.UUID, p pagination.Params) ([]domain.Vendor, int, error)
+	GetByTIN(ctx context.Context, companyID uuid.UUID, tin string) (*domain.Vendor, error)
 }
 
 // ---- Withholding ----
@@ -117,7 +117,7 @@ type WithholdingRepo interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.WithholdingCertificate, error)
 	Update(ctx context.Context, w *domain.WithholdingCertificate) error
 	ListByCompany(ctx context.Context, companyID uuid.UUID, p pagination.Params) ([]domain.WithholdingCertificate, int, error)
-	ListBySupplier(ctx context.Context, supplierID uuid.UUID, period string) ([]domain.WithholdingCertificate, error)
+	ListByVendor(ctx context.Context, vendorID uuid.UUID, period string) ([]domain.WithholdingCertificate, error)
 }
 
 // ---- Correction ----

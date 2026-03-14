@@ -136,7 +136,7 @@ type services struct {
 	Compliance  *service.ComplianceService
 	Corrections *service.CorrectionService
 	Analyzer    *service.CorrectionAnalyzer
-	Supplier    *service.SupplierService
+	Vendor      *service.VendorService
 	Withholding *service.WithholdingService
 	Dashboard   *service.DashboardService
 	Receipt     *service.ReceiptService
@@ -160,6 +160,9 @@ type services struct {
 	GLTaxBridge    *service.GLTaxBridge
 	VendorMemory   *service.VendorMemoryService
 	Tag            *service.TagService
+	TaxCode        *service.TaxCodeService
+	ExchangeRate   *service.ExchangeRateService
+	YearEndClose   *service.YearEndCloseService
 }
 
 func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxpool.Pool) services {
@@ -192,11 +195,14 @@ func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxp
 	vendorMemorySvc := service.NewVendorMemoryService(q)
 	classifierSvc := service.NewClassifierService(ai, q)
 	classifierSvc.SetVendorMemory(vendorMemorySvc)
-	supplierSvc := service.NewSupplierService(q)
+	vendorSvc := service.NewVendorService(q)
 	complianceSvc := service.NewComplianceService(q, knowledge)
 
 	journalSvc := service.NewJournalService(q, pool, publisher)
 	fsSvc := service.NewFinancialStatementService(q)
+	taxCodeSvc := service.NewTaxCodeService(q)
+	exchangeRateSvc := service.NewExchangeRateService(q)
+	yearEndCloseSvc := service.NewYearEndCloseService(q, journalSvc, accountSvc)
 
 	return services{
 		Auth:        service.NewAuthService(q, cfg.JWT),
@@ -213,10 +219,10 @@ func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxp
 		Compliance:  complianceSvc,
 		Corrections: service.NewCorrectionService(q),
 		Analyzer:    service.NewCorrectionAnalyzer(q),
-		Supplier:    supplierSvc,
-		Withholding: service.NewWithholdingService(q, supplierSvc),
+		Vendor:      vendorSvc,
+		Withholding: service.NewWithholdingService(q, vendorSvc),
 		Dashboard:   service.NewDashboardService(q),
-		Receipt:     service.NewReceiptService(q, ocrclient.NewClient(cfg.OCR.ServiceURL), supplierSvc),
+		Receipt:     service.NewReceiptService(q, ocrclient.NewClient(cfg.OCR.ServiceURL), vendorSvc),
 		Audit:       service.NewAuditService(q),
 		Memory:      service.NewMemoryService(q),
 		Task:        service.NewTaskService(q, asynq.RedisClientOpt{
@@ -241,6 +247,9 @@ func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxp
 		GLTaxBridge:   service.NewGLTaxBridge(q, fsSvc),
 		VendorMemory:  vendorMemorySvc,
 		Tag:           service.NewTagService(q),
+		TaxCode:       taxCodeSvc,
+		ExchangeRate:  exchangeRateSvc,
+		YearEndClose:  yearEndCloseSvc,
 	}
 }
 
@@ -285,6 +294,9 @@ type handlers struct {
 	Approval       *handler.ApprovalHandler
 	Spending       *handler.SpendingHandler
 	Tag            *handler.TagHandler
+	TaxCode        *handler.TaxCodeHandler
+	ExchangeRate   *handler.ExchangeRateHandler
+	YearEndClose   *handler.YearEndCloseHandler
 }
 
 func newAgentRuntime(ai *oai.Client, q *sqlc.Queries, chatSvc *service.ChatService) *agent.Runtime {
@@ -306,7 +318,7 @@ func newHandlers(svc services, cfg *config.Config, ai *oai.Client, q *sqlc.Queri
 		Session:        handler.NewSessionHandler(svc.Session, svc.Report, ai, cfg),
 		Compliance:     handler.NewComplianceHandler(svc.Compliance, svc.Report, ai, svc.RuleResolver),
 		Correction:     handler.NewCorrectionHandler(svc.Corrections, svc.Analyzer, svc.VendorMemory, q),
-		Withholding:    handler.NewWithholdingHandler(svc.Withholding, svc.Supplier),
+		Withholding:    handler.NewWithholdingHandler(svc.Withholding, svc.Vendor),
 		Dashboard:      handler.NewDashboardHandler(svc.Dashboard),
 		Receipt:        handler.NewReceiptHandler(svc.Receipt, cfg, q),
 		Audit:          handler.NewAuditHandler(svc.Audit),
@@ -337,6 +349,9 @@ func newHandlers(svc services, cfg *config.Config, ai *oai.Client, q *sqlc.Queri
 		Approval:       handler.NewApprovalHandler(service.NewApprovalService(q), q),
 		Spending:       handler.NewSpendingHandler(service.NewSpendingAnalyticsService(q)),
 		Tag:            handler.NewTagHandler(svc.Tag),
+		TaxCode:        handler.NewTaxCodeHandler(svc.TaxCode),
+		ExchangeRate:   handler.NewExchangeRateHandler(svc.ExchangeRate),
+		YearEndClose:   handler.NewYearEndCloseHandler(svc.YearEndClose),
 	}
 }
 
@@ -397,6 +412,9 @@ func newGinEngine(cfg *config.Config, rdb *redis.Client, svc services, h handler
 		Approval:       h.Approval,
 		Spending:       h.Spending,
 		Tag:            h.Tag,
+		TaxCode:        h.TaxCode,
+		ExchangeRate:   h.ExchangeRate,
+		YearEndClose:   h.YearEndClose,
 		AuthSvc:        svc.Auth,
 		OrgSvc:         svc.Org,
 		CompanySvc:     svc.Company,

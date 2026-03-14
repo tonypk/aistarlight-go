@@ -48,6 +48,8 @@ func LKStandardCOA() []AccountTemplate {
 		{"3000", "Share Capital", "equity", "capital", "credit", "Issued and paid-up share capital"},
 		{"3100", "Retained Earnings", "equity", "retained", "credit", "Accumulated profits / losses"},
 		{"3200", "Dividends Declared", "equity", "drawings", "debit", "Dividends declared to shareholders"},
+		{"3300", "Opening Balance Equity", "equity", "opening", "credit", "Opening balance adjustments"},
+		{"3900", "Income Summary", "equity", "closing", "credit", "Year-end closing temporary account"},
 
 		// ============================================================
 		// 4xxx — REVENUE (by VAT classification)

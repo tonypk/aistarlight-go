@@ -20,7 +20,7 @@ import (
 type ReceiptService struct {
 	q        *sqlc.Queries
 	ocr      OCRClient
-	supplier *SupplierService
+	vendor *VendorService
 }
 
 // OCRClient is the interface for the OCR microservice.
@@ -36,8 +36,8 @@ type OCRResult struct {
 }
 
 // NewReceiptService creates a ReceiptService.
-func NewReceiptService(q *sqlc.Queries, ocr OCRClient, supplier *SupplierService) *ReceiptService {
-	return &ReceiptService{q: q, ocr: ocr, supplier: supplier}
+func NewReceiptService(q *sqlc.Queries, ocr OCRClient, vendor *VendorService) *ReceiptService {
+	return &ReceiptService{q: q, ocr: ocr, vendor: vendor}
 }
 
 // ParsedField holds a parsed value with confidence.
@@ -127,14 +127,14 @@ func (s *ReceiptService) ProcessBatch(ctx context.Context, companyID, userID uui
 		ImagePath:      nil,
 	})
 
-	// Auto-discover suppliers from parsed receipts
-	if s.supplier != nil {
+	// Auto-discover vendors from parsed receipts
+	if s.vendor != nil {
 		for _, r := range results {
 			tin, _ := r.Parsed.TIN.Value.(string)
 			vendorName, _ := r.Parsed.VendorName.Value.(string)
 			if tin != "" && vendorName != "" {
-				if _, err := s.supplier.FindOrCreate(ctx, companyID, tin, vendorName); err != nil {
-					slog.Warn("auto-create supplier from receipt failed",
+				if _, err := s.vendor.FindOrCreate(ctx, companyID, tin, vendorName); err != nil {
+					slog.Warn("auto-create vendor from receipt failed",
 						"tin", tin, "vendor", vendorName, "error", err)
 				}
 			}

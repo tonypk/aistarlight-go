@@ -52,6 +52,9 @@ type Router struct {
 	Approval       *ApprovalHandler
 	Spending       *SpendingHandler
 	Tag            *TagHandler
+	TaxCode        *TaxCodeHandler
+	ExchangeRate   *ExchangeRateHandler
+	YearEndClose   *YearEndCloseHandler
 
 	AuthSvc    *service.AuthService
 	OrgSvc     *service.OrgService
@@ -299,11 +302,16 @@ func (rt *Router) Setup(r *gin.Engine) {
 		withholding.GET("/certificates", rt.Withholding.ListCertificates)
 		withholding.GET("/certificates/:id", rt.Withholding.GetCertificate)
 		withholding.GET("/certificates/:id/download", rt.Withholding.DownloadCertificate) // frontend compat
-		// Supplier CRUD (stubs for frontend compat)
-		withholding.GET("/suppliers", rt.Withholding.ListSuppliers)
-		withholding.POST("/suppliers", rt.Withholding.CreateSupplier)
-		withholding.PATCH("/suppliers/:id", rt.Withholding.UpdateSupplier)
-		withholding.DELETE("/suppliers/:id", rt.Withholding.DeleteSupplier)
+		// Vendor CRUD
+		withholding.GET("/vendors", rt.Withholding.ListVendors)
+		withholding.POST("/vendors", rt.Withholding.CreateVendor)
+		withholding.PATCH("/vendors/:id", rt.Withholding.UpdateVendor)
+		withholding.DELETE("/vendors/:id", rt.Withholding.DeleteVendor)
+		// Legacy /suppliers routes (frontend compat)
+		withholding.GET("/suppliers", rt.Withholding.ListVendors)
+		withholding.POST("/suppliers", rt.Withholding.CreateVendor)
+		withholding.PATCH("/suppliers/:id", rt.Withholding.UpdateVendor)
+		withholding.DELETE("/suppliers/:id", rt.Withholding.DeleteVendor)
 		// SAWT (stubs for frontend compat)
 		withholding.GET("/sawt", rt.Withholding.GetSAWT)
 		withholding.GET("/sawt/download", rt.Withholding.DownloadSAWT)
@@ -473,6 +481,7 @@ func (rt *Router) Setup(r *gin.Engine) {
 		periods.POST("", rt.Period.Create)
 		periods.GET("", rt.Period.List)
 		periods.POST("/generate", rt.Period.Generate)
+		periods.POST("/year-end-close", rt.YearEndClose.Close)
 		periodByID := periods.Group("/:id")
 		{
 			periodByID.POST("/close", rt.Period.Close)
@@ -506,6 +515,27 @@ func (rt *Router) Setup(r *gin.Engine) {
 	{
 		statements.GET("/balance-sheet", rt.FinStatement.BalanceSheet)
 		statements.GET("/income-statement", rt.FinStatement.IncomeStatement)
+		statements.GET("/cash-flow", rt.FinStatement.CashFlow)
+	}
+
+	// Tax Codes routes
+	taxCodes := api.Group("/tax-codes")
+	taxCodes.Use(authMw)
+	{
+		taxCodes.POST("", rt.TaxCode.Create)
+		taxCodes.GET("", rt.TaxCode.List)
+		taxCodes.GET("/:code", rt.TaxCode.GetByCode)
+		taxCodes.DELETE("/:id", rt.TaxCode.Delete)
+	}
+
+	// Exchange Rates routes
+	exchangeRates := api.Group("/exchange-rates")
+	exchangeRates.Use(authMw)
+	{
+		exchangeRates.POST("", rt.ExchangeRate.Create)
+		exchangeRates.GET("", rt.ExchangeRate.List)
+		exchangeRates.GET("/latest", rt.ExchangeRate.GetLatest)
+		exchangeRates.DELETE("/:id", rt.ExchangeRate.Delete)
 	}
 
 	// Tax bridge (GL → Tax Engine + eBIRForms export)

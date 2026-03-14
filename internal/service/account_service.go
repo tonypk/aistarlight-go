@@ -28,15 +28,18 @@ func NewAccountService(q *sqlc.Queries) *AccountService {
 }
 
 type CreateAccountInput struct {
-	CompanyID     uuid.UUID
-	AccountNumber string
-	Name          string
-	AccountType   domain.AccountType
-	SubType       *string
-	ParentID      *uuid.UUID
-	Description   *string
-	NormalBalance domain.NormalBalance
-	QBOAccountID  *string
+	CompanyID        uuid.UUID
+	AccountNumber    string
+	Name             string
+	AccountType      domain.AccountType
+	SubType          *string
+	ParentID         *uuid.UUID
+	Description      *string
+	NormalBalance    domain.NormalBalance
+	QBOAccountID     *string
+	CurrencyCode     *string
+	DefaultTaxCode   *string
+	CashFlowCategory *string
 }
 
 func (s *AccountService) Create(ctx context.Context, input CreateAccountInput) (*domain.Account, error) {
@@ -55,18 +58,21 @@ func (s *AccountService) Create(ctx context.Context, input CreateAccountInput) (
 	}
 
 	dbAcct, err := s.q.CreateAccount(ctx, sqlc.CreateAccountParams{
-		ID:            uuid.New(),
-		CompanyID:     input.CompanyID,
-		AccountNumber: input.AccountNumber,
-		Name:          input.Name,
-		AccountType:   string(input.AccountType),
-		SubType:       input.SubType,
-		ParentID:      parentID,
-		Description:   input.Description,
-		IsActive:      true,
-		IsSystem:      false,
-		NormalBalance: string(input.NormalBalance),
-		QboAccountID:  input.QBOAccountID,
+		ID:               uuid.New(),
+		CompanyID:        input.CompanyID,
+		AccountNumber:    input.AccountNumber,
+		Name:             input.Name,
+		AccountType:      string(input.AccountType),
+		SubType:          input.SubType,
+		ParentID:         parentID,
+		Description:      input.Description,
+		IsActive:         true,
+		IsSystem:         false,
+		NormalBalance:    string(input.NormalBalance),
+		QboAccountID:     input.QBOAccountID,
+		CurrencyCode:     input.CurrencyCode,
+		DefaultTaxCode:   input.DefaultTaxCode,
+		CashFlowCategory: input.CashFlowCategory,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create account: %w", err)
@@ -105,7 +111,7 @@ func (s *AccountService) List(ctx context.Context, companyID uuid.UUID, p pagina
 	return result, count, nil
 }
 
-func (s *AccountService) Update(ctx context.Context, id uuid.UUID, name *string, subType *string, desc *string, isActive *bool, qboID *string) error {
+func (s *AccountService) Update(ctx context.Context, id uuid.UUID, name *string, subType *string, desc *string, isActive *bool, qboID *string, currencyCode *string, defaultTaxCode *string, cashFlowCategory *string) error {
 	n := ""
 	if name != nil {
 		n = *name
@@ -115,12 +121,15 @@ func (s *AccountService) Update(ctx context.Context, id uuid.UUID, name *string,
 		active = *isActive
 	}
 	err := s.q.UpdateAccount(ctx, sqlc.UpdateAccountParams{
-		ID:           id,
-		Name:         n,
-		SubType:      subType,
-		Description:  desc,
-		IsActive:     active,
-		QboAccountID: qboID,
+		ID:               id,
+		Name:             n,
+		SubType:          subType,
+		Description:      desc,
+		IsActive:         active,
+		QboAccountID:     qboID,
+		CurrencyCode:     currencyCode,
+		DefaultTaxCode:   defaultTaxCode,
+		CashFlowCategory: cashFlowCategory,
 	})
 	if err != nil {
 		return fmt.Errorf("update account: %w", err)
@@ -227,19 +236,22 @@ func ptrStr(s *string) string {
 
 func toAccount(a sqlc.Account) *domain.Account {
 	acct := &domain.Account{
-		ID:            a.ID,
-		CompanyID:     a.CompanyID,
-		AccountNumber: a.AccountNumber,
-		Name:          a.Name,
-		AccountType:   domain.AccountType(a.AccountType),
-		SubType:       a.SubType,
-		Description:   a.Description,
-		IsActive:      a.IsActive,
-		IsSystem:      a.IsSystem,
-		NormalBalance: domain.NormalBalance(a.NormalBalance),
-		QBOAccountID:  a.QboAccountID,
-		CreatedAt:     a.CreatedAt,
-		UpdatedAt:     a.UpdatedAt,
+		ID:               a.ID,
+		CompanyID:        a.CompanyID,
+		AccountNumber:    a.AccountNumber,
+		Name:             a.Name,
+		AccountType:      domain.AccountType(a.AccountType),
+		SubType:          a.SubType,
+		Description:      a.Description,
+		IsActive:         a.IsActive,
+		IsSystem:         a.IsSystem,
+		NormalBalance:    domain.NormalBalance(a.NormalBalance),
+		QBOAccountID:     a.QboAccountID,
+		CurrencyCode:     a.CurrencyCode,
+		DefaultTaxCode:   a.DefaultTaxCode,
+		CashFlowCategory: a.CashFlowCategory,
+		CreatedAt:        a.CreatedAt,
+		UpdatedAt:        a.UpdatedAt,
 	}
 	if a.ParentID.Valid {
 		id := uuid.UUID(a.ParentID.Bytes)

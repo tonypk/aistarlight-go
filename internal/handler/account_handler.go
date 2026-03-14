@@ -106,10 +106,13 @@ func (h *AccountHandler) List(c *gin.Context) {
 }
 
 type updateAccountRequest struct {
-	Name        *string `json:"name"`
-	SubType     *string `json:"sub_type"`
-	Description *string `json:"description"`
-	IsActive    *bool   `json:"is_active"`
+	Name             *string `json:"name"`
+	SubType          *string `json:"sub_type"`
+	Description      *string `json:"description"`
+	IsActive         *bool   `json:"is_active"`
+	CurrencyCode     *string `json:"currency_code"`
+	DefaultTaxCode   *string `json:"default_tax_code"`
+	CashFlowCategory *string `json:"cash_flow_category"`
 }
 
 func (h *AccountHandler) Update(c *gin.Context) {
@@ -125,7 +128,7 @@ func (h *AccountHandler) Update(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.Update(c.Request.Context(), id, req.Name, req.SubType, req.Description, req.IsActive, nil); err != nil {
+	if err := h.svc.Update(c.Request.Context(), id, req.Name, req.SubType, req.Description, req.IsActive, nil, req.CurrencyCode, req.DefaultTaxCode, req.CashFlowCategory); err != nil {
 		response.InternalError(c, err.Error())
 		return
 	}

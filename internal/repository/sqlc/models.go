@@ -13,20 +13,23 @@ import (
 )
 
 type Account struct {
-	ID            uuid.UUID   `json:"id"`
-	CompanyID     uuid.UUID   `json:"company_id"`
-	AccountNumber string      `json:"account_number"`
-	Name          string      `json:"name"`
-	AccountType   string      `json:"account_type"`
-	SubType       *string     `json:"sub_type"`
-	ParentID      pgtype.UUID `json:"parent_id"`
-	Description   *string     `json:"description"`
-	IsActive      bool        `json:"is_active"`
-	IsSystem      bool        `json:"is_system"`
-	NormalBalance string      `json:"normal_balance"`
-	QboAccountID  *string     `json:"qbo_account_id"`
-	CreatedAt     time.Time   `json:"created_at"`
-	UpdatedAt     time.Time   `json:"updated_at"`
+	ID               uuid.UUID   `json:"id"`
+	CompanyID        uuid.UUID   `json:"company_id"`
+	AccountNumber    string      `json:"account_number"`
+	Name             string      `json:"name"`
+	AccountType      string      `json:"account_type"`
+	SubType          *string     `json:"sub_type"`
+	ParentID         pgtype.UUID `json:"parent_id"`
+	Description      *string     `json:"description"`
+	IsActive         bool        `json:"is_active"`
+	IsSystem         bool        `json:"is_system"`
+	NormalBalance    string      `json:"normal_balance"`
+	QboAccountID     *string     `json:"qbo_account_id"`
+	CreatedAt        time.Time   `json:"created_at"`
+	UpdatedAt        time.Time   `json:"updated_at"`
+	CurrencyCode     *string     `json:"currency_code"`
+	DefaultTaxCode   *string     `json:"default_tax_code"`
+	CashFlowCategory *string     `json:"cash_flow_category"`
 }
 
 type AccountingPeriod struct {
@@ -177,6 +180,7 @@ type Company struct {
 	CreatedAt         time.Time   `json:"created_at"`
 	UpdatedAt         time.Time   `json:"updated_at"`
 	Jurisdiction      string      `json:"jurisdiction"`
+	BaseCurrency      string      `json:"base_currency"`
 }
 
 type CompanyApprovalSetting struct {
@@ -251,6 +255,17 @@ type CorrectionRule struct {
 	UpdatedAt             time.Time      `json:"updated_at"`
 }
 
+type ExchangeRate struct {
+	ID            uuid.UUID      `json:"id"`
+	CompanyID     uuid.UUID      `json:"company_id"`
+	FromCurrency  string         `json:"from_currency"`
+	ToCurrency    string         `json:"to_currency"`
+	Rate          pgtype.Numeric `json:"rate"`
+	EffectiveDate pgtype.Date    `json:"effective_date"`
+	Source        *string        `json:"source"`
+	CreatedAt     time.Time      `json:"created_at"`
+}
+
 type FormSchema struct {
 	ID               uuid.UUID `json:"id"`
 	FormType         string    `json:"form_type"`
@@ -284,6 +299,7 @@ type JournalEntry struct {
 	CreatedBy    pgtype.UUID        `json:"created_by"`
 	CreatedAt    time.Time          `json:"created_at"`
 	UpdatedAt    time.Time          `json:"updated_at"`
+	CurrencyCode *string            `json:"currency_code"`
 }
 
 type JournalLine struct {
@@ -294,6 +310,12 @@ type JournalLine struct {
 	Description    *string        `json:"description"`
 	Debit          pgtype.Numeric `json:"debit"`
 	Credit         pgtype.Numeric `json:"credit"`
+	CurrencyCode   *string        `json:"currency_code"`
+	ExchangeRate   pgtype.Numeric `json:"exchange_rate"`
+	HomeDebit      pgtype.Numeric `json:"home_debit"`
+	HomeCredit     pgtype.Numeric `json:"home_credit"`
+	TaxCode        *string        `json:"tax_code"`
+	TaxAmount      pgtype.Numeric `json:"tax_amount"`
 }
 
 type KnowledgeChunk struct {
@@ -480,20 +502,6 @@ type RevokedToken struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
-type Supplier struct {
-	ID              uuid.UUID      `json:"id"`
-	CompanyID       uuid.UUID      `json:"company_id"`
-	Tin             string         `json:"tin"`
-	Name            string         `json:"name"`
-	Address         *string        `json:"address"`
-	SupplierType    string         `json:"supplier_type"`
-	DefaultEwtRate  pgtype.Numeric `json:"default_ewt_rate"`
-	DefaultAtcCode  *string        `json:"default_atc_code"`
-	IsVatRegistered bool           `json:"is_vat_registered"`
-	CreatedAt       time.Time      `json:"created_at"`
-	UpdatedAt       time.Time      `json:"updated_at"`
-}
-
 type Tag struct {
 	ID        uuid.UUID `json:"id"`
 	CompanyID uuid.UUID `json:"company_id"`
@@ -501,6 +509,21 @@ type Tag struct {
 	Color     string    `json:"color"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type TaxCode struct {
+	ID               uuid.UUID      `json:"id"`
+	CompanyID        uuid.UUID      `json:"company_id"`
+	Code             string         `json:"code"`
+	Name             string         `json:"name"`
+	TaxType          string         `json:"tax_type"`
+	Rate             pgtype.Numeric `json:"rate"`
+	IsInclusive      bool           `json:"is_inclusive"`
+	AffectsAccountID pgtype.UUID    `json:"affects_account_id"`
+	Jurisdiction     string         `json:"jurisdiction"`
+	IsActive         bool           `json:"is_active"`
+	CreatedAt        time.Time      `json:"created_at"`
+	UpdatedAt        time.Time      `json:"updated_at"`
 }
 
 type TaxDraft struct {
@@ -559,7 +582,7 @@ type Transaction struct {
 	EwtRate              pgtype.Numeric `json:"ewt_rate"`
 	EwtAmount            pgtype.Numeric `json:"ewt_amount"`
 	AtcCode              *string        `json:"atc_code"`
-	SupplierID           pgtype.UUID    `json:"supplier_id"`
+	VendorID             pgtype.UUID    `json:"vendor_id"`
 	CreatedAt            time.Time      `json:"created_at"`
 	UpdatedAt            time.Time      `json:"updated_at"`
 	JournalEntryID       pgtype.UUID    `json:"journal_entry_id"`
@@ -613,6 +636,27 @@ type ValidationResult struct {
 	ValidatedAt  time.Time `json:"validated_at"`
 }
 
+type Vendor struct {
+	ID               uuid.UUID      `json:"id"`
+	CompanyID        uuid.UUID      `json:"company_id"`
+	Tin              string         `json:"tin"`
+	Name             string         `json:"name"`
+	Address          *string        `json:"address"`
+	VendorType       string         `json:"vendor_type"`
+	DefaultEwtRate   pgtype.Numeric `json:"default_ewt_rate"`
+	DefaultAtcCode   *string        `json:"default_atc_code"`
+	IsVatRegistered  bool           `json:"is_vat_registered"`
+	CreatedAt        time.Time      `json:"created_at"`
+	UpdatedAt        time.Time      `json:"updated_at"`
+	Email            *string        `json:"email"`
+	Phone            *string        `json:"phone"`
+	PaymentTermsDays *int32         `json:"payment_terms_days"`
+	CurrencyCode     *string        `json:"currency_code"`
+	DefaultAccountID pgtype.UUID    `json:"default_account_id"`
+	IsActive         bool           `json:"is_active"`
+	Notes            *string        `json:"notes"`
+}
+
 type VendorPostingPolicy struct {
 	ID                 uuid.UUID          `json:"id"`
 	CompanyID          uuid.UUID          `json:"company_id"`
@@ -636,7 +680,7 @@ type WithholdingCertificate struct {
 	ID           uuid.UUID      `json:"id"`
 	CompanyID    uuid.UUID      `json:"company_id"`
 	SessionID    pgtype.UUID    `json:"session_id"`
-	SupplierID   uuid.UUID      `json:"supplier_id"`
+	VendorID     uuid.UUID      `json:"vendor_id"`
 	Period       string         `json:"period"`
 	Quarter      string         `json:"quarter"`
 	AtcCode      string         `json:"atc_code"`

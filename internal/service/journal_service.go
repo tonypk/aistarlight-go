@@ -118,7 +118,7 @@ func (s *JournalService) Create(ctx context.Context, input CreateJournalEntryInp
 		SourceType:  input.SourceType,
 		SourceID:    sourceID,
 		Memo:        input.Memo,
-		CreatedBy:   pgtype.UUID{Bytes: input.CreatedBy, Valid: true},
+		CreatedBy:   pgtype.UUID{Bytes: input.CreatedBy, Valid: input.CreatedBy != uuid.Nil},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create journal entry: %w", err)

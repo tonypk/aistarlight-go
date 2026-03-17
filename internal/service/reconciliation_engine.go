@@ -2,6 +2,7 @@ package service
 
 import (
 	"math"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -172,12 +173,10 @@ func MatchTransactions(records, bankEntries []map[string]interface{}, amountTole
 		}
 	}
 
-	// Sort by total score descending (greedy best-first)
-	for i := 1; i < len(pairs); i++ {
-		for j := i; j > 0 && pairs[j].score.Total > pairs[j-1].score.Total; j-- {
-			pairs[j], pairs[j-1] = pairs[j-1], pairs[j]
-		}
-	}
+	// Sort by total score descending (greedy best-first); stable for deterministic output
+	sort.SliceStable(pairs, func(i, j int) bool {
+		return pairs[i].score.Total > pairs[j].score.Total
+	})
 
 	// Assign best matches greedily
 	for _, p := range pairs {
@@ -272,6 +271,7 @@ func MatchTransactions(records, bankEntries []map[string]interface{}, amountTole
 			for _, rid := range best.RecordIDs {
 				splitUsedRecs[rid] = true
 			}
+			best.MatchType = "split"
 			splitMatches = append(splitMatches, best)
 		}
 

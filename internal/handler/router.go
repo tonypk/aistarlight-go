@@ -55,6 +55,9 @@ type Router struct {
 	TaxCode        *TaxCodeHandler
 	ExchangeRate   *ExchangeRateHandler
 	YearEndClose   *YearEndCloseHandler
+	Invoice        *InvoiceHandler
+	CAS            *CASHandler
+	OrgDashboard   *OrgDashboardHandler
 
 	AuthSvc    *service.AuthService
 	OrgSvc     *service.OrgService
@@ -116,6 +119,7 @@ func (rt *Router) Setup(r *gin.Engine) {
 			orgByID.GET("", rt.Org.Get)
 			orgByID.GET("/members", rt.Org.ListMembers)
 			orgByID.GET("/companies", rt.Company.ListByOrg)
+			orgByID.GET("/dashboard", rt.OrgDashboard.Dashboard)
 		}
 
 		orgAdmin := orgs.Group("/:orgId")
@@ -126,6 +130,7 @@ func (rt *Router) Setup(r *gin.Engine) {
 			orgAdmin.PATCH("/members/:userId", rt.Org.UpdateMemberRole)
 			orgAdmin.DELETE("/members/:userId", rt.Org.RemoveMember)
 			orgAdmin.POST("/companies", rt.Company.CreateUnderOrg)
+			orgAdmin.POST("/batch/compliance-check", rt.OrgDashboard.BatchComplianceCheck)
 		}
 	}
 
@@ -322,6 +327,7 @@ func (rt *Router) Setup(r *gin.Engine) {
 	dashboard.Use(authMw)
 	{
 		dashboard.GET("/stats", rt.Dashboard.Stats)
+		dashboard.GET("/financial-summary", rt.Dashboard.FinancialSummary)
 		dashboard.GET("/calendar", rt.Dashboard.Calendar)
 		dashboard.GET("/compare", rt.Dashboard.Compare)
 		dashboard.GET("/company", rt.Dashboard.CompanySettings)
@@ -495,6 +501,31 @@ func (rt *Router) Setup(r *gin.Engine) {
 	{
 		gl.GET("/trial-balance", rt.GL.TrialBalance)
 		gl.GET("/account/:id/ledger", rt.GL.AccountLedger)
+	}
+
+	// Invoice routes (EIS)
+	invoices := api.Group("/invoices")
+	invoices.Use(authMw)
+	{
+		invoices.POST("", rt.Invoice.Create)
+		invoices.GET("", rt.Invoice.List)
+		invoiceByID := invoices.Group("/:id")
+		{
+			invoiceByID.GET("", rt.Invoice.Get)
+			invoiceByID.PATCH("/status", rt.Invoice.UpdateStatus)
+			invoiceByID.DELETE("", rt.Invoice.Delete)
+			invoiceByID.GET("/eis-export", rt.Invoice.ExportEIS)
+		}
+	}
+
+	// BIR CAS compliance routes
+	cas := api.Group("/cas")
+	cas.Use(authMw)
+	{
+		cas.POST("/check", rt.CAS.RunCheck)
+		cas.GET("/latest", rt.CAS.GetLatest)
+		cas.GET("/checks", rt.CAS.ListChecks)
+		cas.GET("/subsidiary-ledger", rt.CAS.SubsidiaryLedger)
 	}
 
 	// ---- Pipeline Bridge Routes ----

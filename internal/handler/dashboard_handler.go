@@ -92,6 +92,19 @@ func (h *DashboardHandler) Activity(c *gin.Context) {
 	response.OK(c, data)
 }
 
+// FinancialSummary handles GET /api/v1/dashboard/financial-summary.
+func (h *DashboardHandler) FinancialSummary(c *gin.Context) {
+	companyID := middleware.GetCompanyID(c)
+
+	data, err := h.svc.GetFinancialSummary(c.Request.Context(), companyID)
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	response.OK(c, data)
+}
+
 // CompanySettings handles GET /api/v1/dashboard/company.
 func (h *DashboardHandler) CompanySettings(c *gin.Context) {
 	companyID := middleware.GetCompanyID(c)

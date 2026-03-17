@@ -8,13 +8,17 @@ import (
 	"github.com/google/uuid"
 )
 
+// Common Philippine EWT (Expanded Withholding Tax) rates.
+var ewtRates = [...]float64{0.01, 0.02, 0.05, 0.10, 0.15}
+
 // MatchScore holds the multi-signal score for a record-bank entry pair.
 type MatchScore struct {
 	AmountScore      float64 `json:"amount_score"`      // 0-1, closer amounts = higher
 	DateScore        float64 `json:"date_score"`         // 0-1, closer dates = higher
 	ReferenceScore   float64 `json:"reference_score"`    // 0 or 1, reference number match
-	DescriptionScore float64 `json:"description_score"`  // 0-1, keyword overlap
+	DescriptionScore float64 `json:"description_score"`  // 0-1, keyword + edit distance
 	Total            float64 `json:"total"`              // weighted total
+	MatchType        string  `json:"match_type,omitempty"` // exact|fuzzy|net_of_tax|split
 }
 
 // SplitMatch represents a N:1 match where multiple records sum to one bank entry.
@@ -25,6 +29,7 @@ type SplitMatch struct {
 	RecordTotal  float64   `json:"record_total"`
 	BankAmount   float64   `json:"bank_amount"`
 	Difference   float64   `json:"difference"`
+	MatchType    string    `json:"match_type,omitempty"`
 }
 
 // ScorerConfig holds weights and tolerances for the scoring engine.
@@ -63,18 +68,57 @@ func ScoreMatch(record, bankEntry map[string]interface{}, cfg ScorerConfig) Matc
 	refScore := scoreReference(record, bankEntry)
 	descScore := DescriptionSimilarity(toString(record["description"]), toString(bankEntry["description"]))
 
-	total := cfg.AmountWeight*amountScore +
+	// Check EWT net-of-tax match: bank may have deducted withholding tax
+	ewtScore, isEWT := scoreAmountEWT(recAmount, bankAmount)
+	matchType := classifyMatch(amountScore, isEWT)
+
+	// Use EWT amount score if it's better than the regular amount score
+	effectiveAmountScore := amountScore
+	if isEWT && ewtScore > amountScore {
+		effectiveAmountScore = ewtScore
+	}
+
+	total := cfg.AmountWeight*effectiveAmountScore +
 		cfg.DateWeight*dateScore +
 		cfg.ReferenceWeight*refScore +
 		cfg.DescriptionWeight*descScore
 
 	return MatchScore{
-		AmountScore:      amountScore,
+		AmountScore:      effectiveAmountScore,
 		DateScore:        dateScore,
 		ReferenceScore:   refScore,
 		DescriptionScore: descScore,
 		Total:            total,
+		MatchType:        matchType,
 	}
+}
+
+// scoreAmountEWT checks if the bank amount equals the record amount minus a standard
+// Philippine EWT rate (1%, 2%, 5%, 10%, 15%). Returns score and whether EWT was detected.
+func scoreAmountEWT(recAmount, bankAmount float64) (float64, bool) {
+	if recAmount <= 0 || bankAmount <= 0 || bankAmount >= recAmount {
+		return 0, false
+	}
+	for _, rate := range ewtRates {
+		expected := recAmount * (1 - rate)
+		diff := math.Abs(bankAmount - expected)
+		tolerance := math.Max(0.01, expected*0.001)
+		if diff <= tolerance {
+			return 1.0, true
+		}
+	}
+	return 0, false
+}
+
+// classifyMatch determines the match type based on signal scores.
+func classifyMatch(amountScore float64, isEWT bool) string {
+	if isEWT {
+		return "net_of_tax"
+	}
+	if amountScore >= 1.0 {
+		return "exact"
+	}
+	return "fuzzy"
 }
 
 // FindSplitMatches finds groups of records whose amounts sum to a single bank entry.
@@ -199,12 +243,22 @@ func ExtractReferences(description string) []string {
 	return refs
 }
 
-// DescriptionSimilarity computes keyword overlap (Jaccard-like) between two descriptions.
+// DescriptionSimilarity computes a combined similarity score between two descriptions.
+// It blends Jaccard keyword overlap (60%) with normalized Levenshtein distance (40%)
+// for better fuzzy matching of bank descriptions vs. record descriptions.
 func DescriptionSimilarity(a, b string) float64 {
 	if a == "" || b == "" {
 		return 0
 	}
 
+	jaccard := jaccardSimilarity(a, b)
+	levenshtein := levenshteinSimilarity(strings.ToLower(a), strings.ToLower(b))
+
+	return 0.6*jaccard + 0.4*levenshtein
+}
+
+// jaccardSimilarity computes keyword overlap (Jaccard index) between two strings.
+func jaccardSimilarity(a, b string) float64 {
 	wordsA := tokenize(a)
 	wordsB := tokenize(b)
 	if len(wordsA) == 0 || len(wordsB) == 0 {
@@ -233,6 +287,57 @@ func DescriptionSimilarity(a, b string) float64 {
 	}
 
 	return float64(intersection) / float64(union)
+}
+
+// levenshteinSimilarity computes normalized edit distance similarity (0-1).
+// Uses []rune for multibyte safety (Filipino/CJK descriptions) and O(min(m,n)) space.
+func levenshteinSimilarity(a, b string) float64 {
+	if a == b {
+		return 1.0
+	}
+
+	ra, rb := []rune(a), []rune(b)
+	la, lb := len(ra), len(rb)
+	if la == 0 || lb == 0 {
+		return 0
+	}
+
+	// Limit to first 200 runes to avoid O(n*m) explosion on very long descriptions
+	if la > 200 {
+		ra = ra[:200]
+		la = 200
+	}
+	if lb > 200 {
+		rb = rb[:200]
+		lb = 200
+	}
+
+	// Ensure la <= lb for space efficiency
+	if la > lb {
+		ra, rb = rb, ra
+		la, lb = lb, la
+	}
+
+	prev := make([]int, la+1)
+	curr := make([]int, la+1)
+	for i := 0; i <= la; i++ {
+		prev[i] = i
+	}
+
+	for j := 1; j <= lb; j++ {
+		curr[0] = j
+		for i := 1; i <= la; i++ {
+			cost := 1
+			if ra[i-1] == rb[j-1] {
+				cost = 0
+			}
+			curr[i] = min(curr[i-1]+1, prev[i]+1, prev[i-1]+cost)
+		}
+		prev, curr = curr, prev
+	}
+
+	maxLen := math.Max(float64(la), float64(lb))
+	return 1.0 - float64(prev[la])/maxLen
 }
 
 // --- internal helpers ---

@@ -226,3 +226,11 @@ WHERE company_id = $1 AND date >= $2 AND date <= $3
 GROUP BY COALESCE(NULLIF(description, ''), 'Unknown')::text
 ORDER BY count DESC
 LIMIT 10;
+
+-- name: CountUnmatchedTransactionsByCompany :one
+SELECT COUNT(*) FROM transactions
+WHERE company_id = $1 AND match_status = 'unmatched';
+
+-- name: CountLowConfidenceTransactionsByCompany :one
+SELECT COUNT(*) FROM transactions
+WHERE company_id = $1 AND confidence < 0.5;

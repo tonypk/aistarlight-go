@@ -4,19 +4,23 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 	"github.com/tonypk/aistarlight-go/internal/repository/sqlc"
 )
 
 // DashboardService provides analytics and statistics.
 type DashboardService struct {
-	q *sqlc.Queries
+	q  *sqlc.Queries
+	fs *FinancialStatementService
 }
 
 // NewDashboardService creates a DashboardService.
-func NewDashboardService(q *sqlc.Queries) *DashboardService {
-	return &DashboardService{q: q}
+func NewDashboardService(q *sqlc.Queries, fs *FinancialStatementService) *DashboardService {
+	return &DashboardService{q: q, fs: fs}
 }
 
 // DashboardStats holds summary statistics.
@@ -28,22 +32,47 @@ type DashboardStats struct {
 	BankReconCount  int64          `json:"bank_recon_count"`
 	ReceiptCount    int64          `json:"receipt_count"`
 	VendorCount     int64          `json:"vendor_count"`
+	// Pending action counts for smart quick actions
+	PendingApprovals       int64 `json:"pending_approvals"`
+	UnmatchedTransactions  int64 `json:"unmatched_transactions"`
+	LowConfidenceCount     int64 `json:"low_confidence_count"`
+	DraftReports           int64 `json:"draft_reports"`
 }
 
 // GetStats returns dashboard statistics for a company.
+// Partial failures for individual counts are logged but not fatal — the dashboard
+// degrades gracefully by showing zeroes for unavailable metrics.
 func (s *DashboardService) GetStats(ctx context.Context, companyID uuid.UUID) (*DashboardStats, error) {
-	totalReports, _ := s.q.CountReportsByCompany(ctx, companyID)
-	sessionCount, _ := s.q.CountReconciliationSessionsByCompany(ctx, companyID)
-	bankReconCount, _ := s.q.CountBankReconBatchesByCompany(ctx, companyID)
-	receiptCount, _ := s.q.CountReceiptBatchesByCompany(ctx, companyID)
-	vendorCount, _ := s.q.CountVendorsByCompany(ctx, companyID)
+	logErr := func(field string, err error) {
+		if err != nil {
+			slog.WarnContext(ctx, "dashboard stats: partial failure", "field", field, "error", err)
+		}
+	}
+
+	totalReports, err := s.q.CountReportsByCompany(ctx, companyID)
+	logErr("total_reports", err)
+	sessionCount, err := s.q.CountReconciliationSessionsByCompany(ctx, companyID)
+	logErr("session_count", err)
+	bankReconCount, err := s.q.CountBankReconBatchesByCompany(ctx, companyID)
+	logErr("bank_recon_count", err)
+	receiptCount, err := s.q.CountReceiptBatchesByCompany(ctx, companyID)
+	logErr("receipt_count", err)
+	vendorCount, err := s.q.CountVendorsByCompany(ctx, companyID)
+	logErr("vendor_count", err)
+	pendingApprovals, err := s.q.CountPendingApprovals(ctx, companyID)
+	logErr("pending_approvals", err)
+	unmatchedTxns, err := s.q.CountUnmatchedTransactionsByCompany(ctx, companyID)
+	logErr("unmatched_transactions", err)
+	lowConfCount, err := s.q.CountLowConfidenceTransactionsByCompany(ctx, companyID)
+	logErr("low_confidence_count", err)
 
 	// Get reports by status
-	reports, _ := s.q.ListReportsByCompany(ctx, sqlc.ListReportsByCompanyParams{
+	reports, err := s.q.ListReportsByCompany(ctx, sqlc.ListReportsByCompanyParams{
 		CompanyID: companyID,
 		Limit:     1000,
 		Offset:    0,
 	})
+	logErr("reports_by_status", err)
 
 	byStatus := make(map[string]int)
 	var latestScore *int
@@ -56,14 +85,116 @@ func (s *DashboardService) GetStats(ctx context.Context, companyID uuid.UUID) (*
 	}
 
 	return &DashboardStats{
-		TotalReports:    totalReports,
-		ReportsByStatus: byStatus,
-		ComplianceScore: latestScore,
-		SessionCount:    sessionCount,
-		BankReconCount:  bankReconCount,
-		ReceiptCount:    receiptCount,
-		VendorCount:     vendorCount,
+		TotalReports:           totalReports,
+		ReportsByStatus:        byStatus,
+		ComplianceScore:        latestScore,
+		SessionCount:           sessionCount,
+		BankReconCount:         bankReconCount,
+		ReceiptCount:           receiptCount,
+		VendorCount:            vendorCount,
+		PendingApprovals:       pendingApprovals,
+		UnmatchedTransactions:  unmatchedTxns,
+		LowConfidenceCount:     lowConfCount,
+		DraftReports:           int64(byStatus["draft"]),
 	}, nil
+}
+
+// FinancialSummary holds key financial metrics for the dashboard.
+type FinancialSummary struct {
+	// Current month P&L
+	Revenue      decimal.Decimal `json:"revenue"`
+	Expenses     decimal.Decimal `json:"expenses"`
+	NetIncome    decimal.Decimal `json:"net_income"`
+	GrossProfit  decimal.Decimal `json:"gross_profit"`
+	// Balance sheet totals
+	TotalAssets      decimal.Decimal `json:"total_assets"`
+	TotalLiabilities decimal.Decimal `json:"total_liabilities"`
+	TotalEquity      decimal.Decimal `json:"total_equity"`
+	CashBalance      decimal.Decimal `json:"cash_balance"`
+	// Receivables / Payables
+	AccountsReceivable decimal.Decimal `json:"accounts_receivable"`
+	AccountsPayable    decimal.Decimal `json:"accounts_payable"`
+	// Monthly P&L trend (last 6 months)
+	MonthlyPL []MonthlyPLPoint `json:"monthly_pl"`
+}
+
+// MonthlyPLPoint represents a single month's P&L data.
+type MonthlyPLPoint struct {
+	Month    string          `json:"month"`
+	Revenue  decimal.Decimal `json:"revenue"`
+	Expenses decimal.Decimal `json:"expenses"`
+	Net      decimal.Decimal `json:"net"`
+}
+
+// GetFinancialSummary returns key financial metrics using the FinancialStatementService.
+// Individual statement failures are logged but not fatal — the summary degrades gracefully.
+func (s *DashboardService) GetFinancialSummary(ctx context.Context, companyID uuid.UUID) (*FinancialSummary, error) {
+	now := time.Now()
+	thisMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	summary := &FinancialSummary{}
+
+	// Current month P&L
+	monthEnd := thisMonth.AddDate(0, 1, -1)
+	is, err := s.fs.IncomeStatement(ctx, companyID, thisMonth, monthEnd)
+	if err != nil {
+		slog.WarnContext(ctx, "financial summary: income statement failed", "error", err)
+	} else if is != nil {
+		summary.Revenue = is.TotalRevenue
+		summary.Expenses = is.TotalExpenses.Add(is.TotalCOGS)
+		summary.NetIncome = is.NetIncome
+		summary.GrossProfit = is.GrossProfit
+	}
+
+	// Balance sheet as of today
+	bs, err := s.fs.BalanceSheet(ctx, companyID, now)
+	if err != nil {
+		slog.WarnContext(ctx, "financial summary: balance sheet failed", "error", err)
+	} else if bs != nil {
+		summary.TotalAssets = bs.TotalAssets
+		summary.TotalLiabilities = bs.TotalLiabilities
+		summary.TotalEquity = bs.TotalEquity
+
+		// Extract cash and AR/AP from balance sheet groups
+		for _, grp := range bs.Assets {
+			for _, acct := range grp.Accounts {
+				switch acct.SubType {
+				case "cash":
+					summary.CashBalance = summary.CashBalance.Add(acct.Balance)
+				case "receivable":
+					summary.AccountsReceivable = summary.AccountsReceivable.Add(acct.Balance)
+				}
+			}
+		}
+		for _, grp := range bs.Liabilities {
+			for _, acct := range grp.Accounts {
+				if acct.SubType == "payable" {
+					summary.AccountsPayable = summary.AccountsPayable.Add(acct.Balance)
+				}
+			}
+		}
+	}
+
+	// Monthly P&L trend for last 6 months
+	for i := 5; i >= 0; i-- {
+		mStart := thisMonth.AddDate(0, -i, 0)
+		mEnd := mStart.AddDate(0, 1, -1)
+		mis, err := s.fs.IncomeStatement(ctx, companyID, mStart, mEnd)
+		if err != nil {
+			slog.WarnContext(ctx, "financial summary: monthly P&L failed", "month", mStart.Format("2006-01"), "error", err)
+			summary.MonthlyPL = append(summary.MonthlyPL, MonthlyPLPoint{
+				Month: mStart.Format("2006-01"),
+			})
+			continue
+		}
+		summary.MonthlyPL = append(summary.MonthlyPL, MonthlyPLPoint{
+			Month:    mStart.Format("2006-01"),
+			Revenue:  mis.TotalRevenue,
+			Expenses: mis.TotalExpenses.Add(mis.TotalCOGS),
+			Net:      mis.NetIncome,
+		})
+	}
+
+	return summary, nil
 }
 
 // PeriodComparison holds a field-by-field comparison between two periods.

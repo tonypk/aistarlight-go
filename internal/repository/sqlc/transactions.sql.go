@@ -71,6 +71,18 @@ func (q *Queries) CountCompanyTransactionsFiltered(ctx context.Context, arg Coun
 	return count, err
 }
 
+const countLowConfidenceTransactionsByCompany = `-- name: CountLowConfidenceTransactionsByCompany :one
+SELECT COUNT(*) FROM transactions
+WHERE company_id = $1 AND confidence < 0.5
+`
+
+func (q *Queries) CountLowConfidenceTransactionsByCompany(ctx context.Context, companyID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countLowConfidenceTransactionsByCompany, companyID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countTransactionsByCompany = `-- name: CountTransactionsByCompany :one
 SELECT COUNT(*) FROM transactions WHERE company_id = $1
 `
@@ -124,6 +136,18 @@ func (q *Queries) CountTransactionsBySessionFiltered(ctx context.Context, arg Co
 		arg.Column6,
 		arg.Column7,
 	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countUnmatchedTransactionsByCompany = `-- name: CountUnmatchedTransactionsByCompany :one
+SELECT COUNT(*) FROM transactions
+WHERE company_id = $1 AND match_status = 'unmatched'
+`
+
+func (q *Queries) CountUnmatchedTransactionsByCompany(ctx context.Context, companyID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countUnmatchedTransactionsByCompany, companyID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err

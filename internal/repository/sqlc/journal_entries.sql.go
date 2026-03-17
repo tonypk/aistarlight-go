@@ -271,7 +271,7 @@ func (q *Queries) CountJournalEntriesByDateRange(ctx context.Context, arg CountJ
 const createJournalEntry = `-- name: CreateJournalEntry :one
 INSERT INTO journal_entries (id, company_id, period_id, entry_date, reference, description, source_type, source_id, status, memo, created_by, created_at, updated_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft', $9, $10, NOW(), NOW())
-RETURNING id, company_id, period_id, entry_number, entry_date, reference, description, source_type, source_id, status, posted_by, posted_at, reversed_by_id, reverses_id, memo, created_by, created_at, updated_at, currency_code
+RETURNING id, company_id, period_id, entry_number, entry_date, reference, description, source_type, source_id, status, posted_by, posted_at, reversed_by_id, reverses_id, memo, created_by, created_at, updated_at, currency_code, company_seq_no, entry_hash, prev_hash, journal_book
 `
 
 type CreateJournalEntryParams struct {
@@ -321,6 +321,10 @@ func (q *Queries) CreateJournalEntry(ctx context.Context, arg CreateJournalEntry
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CurrencyCode,
+		&i.CompanySeqNo,
+		&i.EntryHash,
+		&i.PrevHash,
+		&i.JournalBook,
 	)
 	return i, err
 }
@@ -371,7 +375,7 @@ func (q *Queries) CreateJournalLine(ctx context.Context, arg CreateJournalLinePa
 }
 
 const getJournalEntryByID = `-- name: GetJournalEntryByID :one
-SELECT id, company_id, period_id, entry_number, entry_date, reference, description, source_type, source_id, status, posted_by, posted_at, reversed_by_id, reverses_id, memo, created_by, created_at, updated_at, currency_code FROM journal_entries WHERE id = $1
+SELECT id, company_id, period_id, entry_number, entry_date, reference, description, source_type, source_id, status, posted_by, posted_at, reversed_by_id, reverses_id, memo, created_by, created_at, updated_at, currency_code, company_seq_no, entry_hash, prev_hash, journal_book FROM journal_entries WHERE id = $1
 `
 
 func (q *Queries) GetJournalEntryByID(ctx context.Context, id uuid.UUID) (JournalEntry, error) {
@@ -397,12 +401,16 @@ func (q *Queries) GetJournalEntryByID(ctx context.Context, id uuid.UUID) (Journa
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CurrencyCode,
+		&i.CompanySeqNo,
+		&i.EntryHash,
+		&i.PrevHash,
+		&i.JournalBook,
 	)
 	return i, err
 }
 
 const listJournalEntries = `-- name: ListJournalEntries :many
-SELECT id, company_id, period_id, entry_number, entry_date, reference, description, source_type, source_id, status, posted_by, posted_at, reversed_by_id, reverses_id, memo, created_by, created_at, updated_at, currency_code FROM journal_entries
+SELECT id, company_id, period_id, entry_number, entry_date, reference, description, source_type, source_id, status, posted_by, posted_at, reversed_by_id, reverses_id, memo, created_by, created_at, updated_at, currency_code, company_seq_no, entry_hash, prev_hash, journal_book FROM journal_entries
 WHERE company_id = $1
 ORDER BY entry_date DESC, entry_number DESC
 LIMIT $2 OFFSET $3
@@ -443,6 +451,10 @@ func (q *Queries) ListJournalEntries(ctx context.Context, arg ListJournalEntries
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.CurrencyCode,
+			&i.CompanySeqNo,
+			&i.EntryHash,
+			&i.PrevHash,
+			&i.JournalBook,
 		); err != nil {
 			return nil, err
 		}
@@ -455,7 +467,7 @@ func (q *Queries) ListJournalEntries(ctx context.Context, arg ListJournalEntries
 }
 
 const listJournalEntriesByDateRange = `-- name: ListJournalEntriesByDateRange :many
-SELECT id, company_id, period_id, entry_number, entry_date, reference, description, source_type, source_id, status, posted_by, posted_at, reversed_by_id, reverses_id, memo, created_by, created_at, updated_at, currency_code FROM journal_entries
+SELECT id, company_id, period_id, entry_number, entry_date, reference, description, source_type, source_id, status, posted_by, posted_at, reversed_by_id, reverses_id, memo, created_by, created_at, updated_at, currency_code, company_seq_no, entry_hash, prev_hash, journal_book FROM journal_entries
 WHERE company_id = $1
     AND entry_date >= $2
     AND entry_date <= $3
@@ -506,6 +518,10 @@ func (q *Queries) ListJournalEntriesByDateRange(ctx context.Context, arg ListJou
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.CurrencyCode,
+			&i.CompanySeqNo,
+			&i.EntryHash,
+			&i.PrevHash,
+			&i.JournalBook,
 		); err != nil {
 			return nil, err
 		}

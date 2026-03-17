@@ -163,6 +163,9 @@ type services struct {
 	TaxCode        *service.TaxCodeService
 	ExchangeRate   *service.ExchangeRateService
 	YearEndClose   *service.YearEndCloseService
+	Invoice        *service.InvoiceService
+	CAS            *service.CASService
+	OrgDashboard   *service.OrgDashboardService
 }
 
 func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxpool.Pool) services {
@@ -221,7 +224,7 @@ func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxp
 		Analyzer:    service.NewCorrectionAnalyzer(q),
 		Vendor:      vendorSvc,
 		Withholding: service.NewWithholdingService(q, vendorSvc),
-		Dashboard:   service.NewDashboardService(q),
+		Dashboard:   service.NewDashboardService(q, fsSvc),
 		Receipt:     service.NewReceiptService(q, ocrclient.NewClient(cfg.OCR.ServiceURL), vendorSvc, ai),
 		Audit:       service.NewAuditService(q),
 		Memory:      service.NewMemoryService(q),
@@ -250,6 +253,9 @@ func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxp
 		TaxCode:       taxCodeSvc,
 		ExchangeRate:  exchangeRateSvc,
 		YearEndClose:  yearEndCloseSvc,
+		Invoice:       service.NewInvoiceService(q),
+		CAS:           service.NewCASService(q, pool),
+		OrgDashboard:  service.NewOrgDashboardService(q, fsSvc, service.NewCASService(q, pool)),
 	}
 }
 
@@ -297,6 +303,9 @@ type handlers struct {
 	TaxCode        *handler.TaxCodeHandler
 	ExchangeRate   *handler.ExchangeRateHandler
 	YearEndClose   *handler.YearEndCloseHandler
+	Invoice        *handler.InvoiceHandler
+	CAS            *handler.CASHandler
+	OrgDashboard   *handler.OrgDashboardHandler
 }
 
 func newAgentRuntime(ai *oai.Client, q *sqlc.Queries, chatSvc *service.ChatService) *agent.Runtime {
@@ -352,6 +361,9 @@ func newHandlers(svc services, cfg *config.Config, ai *oai.Client, q *sqlc.Queri
 		TaxCode:        handler.NewTaxCodeHandler(svc.TaxCode),
 		ExchangeRate:   handler.NewExchangeRateHandler(svc.ExchangeRate),
 		YearEndClose:   handler.NewYearEndCloseHandler(svc.YearEndClose),
+		Invoice:        handler.NewInvoiceHandler(svc.Invoice, svc.Company),
+		CAS:            handler.NewCASHandler(svc.CAS),
+		OrgDashboard:   handler.NewOrgDashboardHandler(svc.OrgDashboard),
 	}
 }
 
@@ -415,6 +427,9 @@ func newGinEngine(cfg *config.Config, rdb *redis.Client, svc services, h handler
 		TaxCode:        h.TaxCode,
 		ExchangeRate:   h.ExchangeRate,
 		YearEndClose:   h.YearEndClose,
+		Invoice:        h.Invoice,
+		CAS:            h.CAS,
+		OrgDashboard:   h.OrgDashboard,
 		AuthSvc:        svc.Auth,
 		OrgSvc:         svc.Org,
 		CompanySvc:     svc.Company,

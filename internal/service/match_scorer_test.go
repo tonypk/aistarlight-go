@@ -111,8 +111,10 @@ func TestDescriptionSimilarity_Overlap(t *testing.T) {
 
 func TestDescriptionSimilarity_NoOverlap(t *testing.T) {
 	score := DescriptionSimilarity("XYZ Corp", "Alpha Beta Gamma")
-	if score != 0 {
-		t.Errorf("expected 0 for completely different descriptions, got %f", score)
+	// Jaccard gives 0 (no word overlap), but Levenshtein gives a small non-zero value
+	// for character-level similarity. Score should be very low but not necessarily zero.
+	if score > 0.10 {
+		t.Errorf("expected very low score for completely different descriptions, got %f", score)
 	}
 }
 

@@ -116,6 +116,10 @@ type AuditLog struct {
 	Changes    []byte      `json:"changes"`
 	Comment    *string     `json:"comment"`
 	CreatedAt  time.Time   `json:"created_at"`
+	EntryHash  *string     `json:"entry_hash"`
+	PrevHash   *string     `json:"prev_hash"`
+	IpAddress  *string     `json:"ip_address"`
+	UserAgent  *string     `json:"user_agent"`
 }
 
 type BankReconciliationBatch struct {
@@ -136,6 +140,29 @@ type BankReconciliationBatch struct {
 	ErrorMessage      *string        `json:"error_message"`
 	CreatedAt         time.Time      `json:"created_at"`
 	UpdatedAt         time.Time      `json:"updated_at"`
+}
+
+type CasComplianceCheck struct {
+	ID                    uuid.UUID   `json:"id"`
+	CompanyID             uuid.UUID   `json:"company_id"`
+	CheckDate             time.Time   `json:"check_date"`
+	OverallPass           bool        `json:"overall_pass"`
+	SequentialNumberingOk bool        `json:"sequential_numbering_ok"`
+	HashChainIntact       bool        `json:"hash_chain_intact"`
+	DoubleEntryBalanced   bool        `json:"double_entry_balanced"`
+	PeriodsProperlyClosed bool        `json:"periods_properly_closed"`
+	AuditTrailComplete    bool        `json:"audit_trail_complete"`
+	SubsidiaryLedgersOk   bool        `json:"subsidiary_ledgers_ok"`
+	Details               []byte      `json:"details"`
+	CheckedBy             pgtype.UUID `json:"checked_by"`
+	CreatedAt             time.Time   `json:"created_at"`
+}
+
+type CasSequence struct {
+	CompanyID    uuid.UUID `json:"company_id"`
+	SequenceType string    `json:"sequence_type"`
+	LastNumber   int64     `json:"last_number"`
+	Prefix       string    `json:"prefix"`
 }
 
 type ChatMessage struct {
@@ -280,6 +307,114 @@ type FormSchema struct {
 	Jurisdiction     string    `json:"jurisdiction"`
 }
 
+type GlMappingRule struct {
+	ID              uuid.UUID   `json:"id"`
+	CompanyID       uuid.UUID   `json:"company_id"`
+	Jurisdiction    string      `json:"jurisdiction"`
+	SourceDimension string      `json:"source_dimension"`
+	SourceValue     string      `json:"source_value"`
+	TargetAccountID uuid.UUID   `json:"target_account_id"`
+	DebitCredit     string      `json:"debit_credit"`
+	Priority        int32       `json:"priority"`
+	EffectiveFrom   pgtype.Date `json:"effective_from"`
+	EffectiveTo     pgtype.Date `json:"effective_to"`
+	IsActive        bool        `json:"is_active"`
+	CreatedAt       time.Time   `json:"created_at"`
+	UpdatedAt       time.Time   `json:"updated_at"`
+}
+
+type HrPayee struct {
+	ID             uuid.UUID `json:"id"`
+	CompanyID      uuid.UUID `json:"company_id"`
+	HrEmployeeID   int64     `json:"hr_employee_id"`
+	HrEmployeeNo   string    `json:"hr_employee_no"`
+	FirstName      string    `json:"first_name"`
+	LastName       string    `json:"last_name"`
+	Email          *string   `json:"email"`
+	Tin            *string   `json:"tin"`
+	Sss            *string   `json:"sss"`
+	Philhealth     *string   `json:"philhealth"`
+	Pagibig        *string   `json:"pagibig"`
+	DepartmentName *string   `json:"department_name"`
+	PositionTitle  *string   `json:"position_title"`
+	Jurisdiction   string    `json:"jurisdiction"`
+	Status         string    `json:"status"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+type IntegrationEventInbox struct {
+	ID           uuid.UUID          `json:"id"`
+	CompanyID    uuid.UUID          `json:"company_id"`
+	SourceSystem string             `json:"source_system"`
+	EventID      string             `json:"event_id"`
+	EventType    string             `json:"event_type"`
+	Payload      []byte             `json:"payload"`
+	Status       string             `json:"status"`
+	ErrorMessage *string            `json:"error_message"`
+	ProcessedAt  pgtype.Timestamptz `json:"processed_at"`
+	CreatedAt    time.Time          `json:"created_at"`
+}
+
+type IntegrationSource struct {
+	ID              uuid.UUID          `json:"id"`
+	CompanyID       uuid.UUID          `json:"company_id"`
+	SourceSystem    string             `json:"source_system"`
+	RemoteCompanyID string             `json:"remote_company_id"`
+	ApiKeyHash      string             `json:"api_key_hash"`
+	WebhookSecret   string             `json:"webhook_secret"`
+	Status          string             `json:"status"`
+	LastEventAt     pgtype.Timestamptz `json:"last_event_at"`
+	CreatedAt       time.Time          `json:"created_at"`
+	UpdatedAt       time.Time          `json:"updated_at"`
+}
+
+type Invoice struct {
+	ID              uuid.UUID          `json:"id"`
+	CompanyID       uuid.UUID          `json:"company_id"`
+	InvoiceNumber   string             `json:"invoice_number"`
+	InvoiceType     string             `json:"invoice_type"`
+	Status          string             `json:"status"`
+	CustomerName    string             `json:"customer_name"`
+	CustomerTin     *string            `json:"customer_tin"`
+	CustomerAddress *string            `json:"customer_address"`
+	InvoiceDate     pgtype.Date        `json:"invoice_date"`
+	DueDate         pgtype.Date        `json:"due_date"`
+	Subtotal        pgtype.Numeric     `json:"subtotal"`
+	VatAmount       pgtype.Numeric     `json:"vat_amount"`
+	DiscountAmount  pgtype.Numeric     `json:"discount_amount"`
+	TotalAmount     pgtype.Numeric     `json:"total_amount"`
+	VatableSales    pgtype.Numeric     `json:"vatable_sales"`
+	VatExemptSales  pgtype.Numeric     `json:"vat_exempt_sales"`
+	ZeroRatedSales  pgtype.Numeric     `json:"zero_rated_sales"`
+	EisSubmissionID *string            `json:"eis_submission_id"`
+	EisStatus       *string            `json:"eis_status"`
+	EisSubmittedAt  pgtype.Timestamptz `json:"eis_submitted_at"`
+	EisResponse     []byte             `json:"eis_response"`
+	ReferenceNumber *string            `json:"reference_number"`
+	Notes           *string            `json:"notes"`
+	VendorID        pgtype.UUID        `json:"vendor_id"`
+	CreatedBy       pgtype.UUID        `json:"created_by"`
+	CreatedAt       time.Time          `json:"created_at"`
+	UpdatedAt       time.Time          `json:"updated_at"`
+}
+
+type InvoiceItem struct {
+	ID          uuid.UUID      `json:"id"`
+	InvoiceID   uuid.UUID      `json:"invoice_id"`
+	LineNumber  int32          `json:"line_number"`
+	Description string         `json:"description"`
+	Quantity    pgtype.Numeric `json:"quantity"`
+	UnitPrice   pgtype.Numeric `json:"unit_price"`
+	Amount      pgtype.Numeric `json:"amount"`
+	VatType     string         `json:"vat_type"`
+	VatRate     pgtype.Numeric `json:"vat_rate"`
+	VatAmount   pgtype.Numeric `json:"vat_amount"`
+	Discount    pgtype.Numeric `json:"discount"`
+	AtcCode     *string        `json:"atc_code"`
+	CreatedAt   time.Time      `json:"created_at"`
+}
+
 type JournalEntry struct {
 	ID           uuid.UUID          `json:"id"`
 	CompanyID    uuid.UUID          `json:"company_id"`
@@ -300,6 +435,14 @@ type JournalEntry struct {
 	CreatedAt    time.Time          `json:"created_at"`
 	UpdatedAt    time.Time          `json:"updated_at"`
 	CurrencyCode *string            `json:"currency_code"`
+	// Per-company sequential number, gap-free, for BIR CAS compliance
+	CompanySeqNo *int64 `json:"company_seq_no"`
+	// SHA-256 hash of entry data for tamper detection
+	EntryHash *string `json:"entry_hash"`
+	// Hash of the previous entry in the chain (per company)
+	PrevHash *string `json:"prev_hash"`
+	// BIR journal classification: sales_journal, purchases_journal, cash_receipts, cash_disbursements, general_journal
+	JournalBook *string `json:"journal_book"`
 }
 
 type JournalLine struct {

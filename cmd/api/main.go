@@ -166,6 +166,10 @@ type services struct {
 	Invoice        *service.InvoiceService
 	CAS            *service.CASService
 	OrgDashboard   *service.OrgDashboardService
+	// HR Integration
+	GLMapping      *service.GLMappingService
+	HRIntegration  *service.HRIntegrationService
+	HRInbox        *service.HRInboxProcessor
 }
 
 func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxpool.Pool) services {
@@ -203,6 +207,11 @@ func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxp
 
 	journalSvc := service.NewJournalService(q, pool, publisher)
 	fsSvc := service.NewFinancialStatementService(q)
+
+	// HR Integration services
+	glMappingSvc := service.NewGLMappingService(q)
+	hrIntSvc := service.NewHRIntegrationService(q, glMappingSvc, journalSvc, slog.Default())
+	hrInbox := service.NewHRInboxProcessor(q, hrIntSvc, slog.Default())
 	taxCodeSvc := service.NewTaxCodeService(q)
 	exchangeRateSvc := service.NewExchangeRateService(q)
 	yearEndCloseSvc := service.NewYearEndCloseService(q, journalSvc, accountSvc)
@@ -256,6 +265,9 @@ func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxp
 		Invoice:       service.NewInvoiceService(q),
 		CAS:           service.NewCASService(q, pool),
 		OrgDashboard:  service.NewOrgDashboardService(q, fsSvc, service.NewCASService(q, pool)),
+		GLMapping:     glMappingSvc,
+		HRIntegration: hrIntSvc,
+		HRInbox:       hrInbox,
 	}
 }
 
@@ -306,6 +318,9 @@ type handlers struct {
 	Invoice        *handler.InvoiceHandler
 	CAS            *handler.CASHandler
 	OrgDashboard   *handler.OrgDashboardHandler
+	// HR Integration
+	GLMapping      *handler.GLMappingHandler
+	Webhook        *handler.WebhookHandler
 }
 
 func newAgentRuntime(ai *oai.Client, q *sqlc.Queries, chatSvc *service.ChatService) *agent.Runtime {
@@ -364,6 +379,8 @@ func newHandlers(svc services, cfg *config.Config, ai *oai.Client, q *sqlc.Queri
 		Invoice:        handler.NewInvoiceHandler(svc.Invoice, svc.Company),
 		CAS:            handler.NewCASHandler(svc.CAS),
 		OrgDashboard:   handler.NewOrgDashboardHandler(svc.OrgDashboard),
+		GLMapping:      handler.NewGLMappingHandler(svc.GLMapping),
+		Webhook:        handler.NewWebhookHandler(q, slog.Default()),
 	}
 }
 
@@ -430,6 +447,8 @@ func newGinEngine(cfg *config.Config, rdb *redis.Client, svc services, h handler
 		Invoice:        h.Invoice,
 		CAS:            h.CAS,
 		OrgDashboard:   h.OrgDashboard,
+		GLMapping:      h.GLMapping,
+		Webhook:        h.Webhook,
 		AuthSvc:        svc.Auth,
 		OrgSvc:         svc.Org,
 		CompanySvc:     svc.Company,
@@ -454,7 +473,7 @@ func newGinEngine(cfg *config.Config, rdb *redis.Client, svc services, h handler
 	return r
 }
 
-func startServer(lc fx.Lifecycle, cfg *config.Config, r *gin.Engine) {
+func startServer(lc fx.Lifecycle, cfg *config.Config, r *gin.Engine, svc services) {
 	srv := &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
 		Handler:           r,
@@ -473,6 +492,11 @@ func startServer(lc fx.Lifecycle, cfg *config.Config, r *gin.Engine) {
 					os.Exit(1)
 				}
 			}()
+
+			// Start HR inbox processor
+			if svc.HRInbox != nil {
+				go svc.HRInbox.Run(context.Background())
+			}
 
 			go func() {
 				quit := make(chan os.Signal, 1)

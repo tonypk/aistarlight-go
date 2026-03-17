@@ -58,6 +58,9 @@ type Router struct {
 	Invoice        *InvoiceHandler
 	CAS            *CASHandler
 	OrgDashboard   *OrgDashboardHandler
+	// HR Integration
+	GLMapping      *GLMappingHandler
+	Webhook        *WebhookHandler
 
 	AuthSvc    *service.AuthService
 	OrgSvc     *service.OrgService
@@ -626,6 +629,30 @@ func (rt *Router) Setup(r *gin.Engine) {
 			qboGroup.POST("/disconnect", rt.QBO.Disconnect)
 			qboGroup.POST("/sync/accounts", rt.QBO.SyncAccounts)
 			qboGroup.GET("/sync/logs", rt.QBO.SyncLogs)
+		}
+	}
+
+	// ---- HR Integration Routes ----
+
+	// Webhook endpoint (no auth middleware — uses HMAC signature verification)
+	if rt.Webhook != nil {
+		webhooks := api.Group("/webhooks")
+		{
+			webhooks.POST("/aigonhr", rt.Webhook.ReceiveAIGoNHR)
+		}
+	}
+
+	// GL Mapping rules (authenticated)
+	if rt.GLMapping != nil {
+		glMappings := api.Group("/gl-mappings")
+		glMappings.Use(authMw)
+		{
+			glMappings.GET("", rt.GLMapping.List)
+			glMappings.POST("", rt.GLMapping.Create)
+			glMappings.POST("/seed", rt.GLMapping.SeedDefaults)
+			glMappings.GET("/:id", rt.GLMapping.Get)
+			glMappings.PUT("/:id", rt.GLMapping.Update)
+			glMappings.DELETE("/:id", rt.GLMapping.Delete)
 		}
 	}
 }

@@ -571,6 +571,43 @@ func (q *Queries) ListIntegrationSources(ctx context.Context, companyID uuid.UUI
 	return items, nil
 }
 
+const listIntegrationSourcesBySystem = `-- name: ListIntegrationSourcesBySystem :many
+SELECT id, company_id, source_system, remote_company_id, api_key_hash, webhook_secret, status, last_event_at, created_at, updated_at FROM integration_sources
+WHERE source_system = $1
+ORDER BY created_at DESC
+`
+
+func (q *Queries) ListIntegrationSourcesBySystem(ctx context.Context, sourceSystem string) ([]IntegrationSource, error) {
+	rows, err := q.db.Query(ctx, listIntegrationSourcesBySystem, sourceSystem)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []IntegrationSource{}
+	for rows.Next() {
+		var i IntegrationSource
+		if err := rows.Scan(
+			&i.ID,
+			&i.CompanyID,
+			&i.SourceSystem,
+			&i.RemoteCompanyID,
+			&i.ApiKeyHash,
+			&i.WebhookSecret,
+			&i.Status,
+			&i.LastEventAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPendingInboxEvents = `-- name: ListPendingInboxEvents :many
 SELECT id, company_id, source_system, event_id, event_type, payload, status, error_message, processed_at, created_at FROM integration_event_inbox
 WHERE status IN ('received', 'failed')

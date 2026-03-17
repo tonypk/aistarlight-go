@@ -32,6 +32,11 @@ SELECT * FROM integration_sources
 WHERE company_id = $1
 ORDER BY created_at DESC;
 
+-- name: ListIntegrationSourcesBySystem :many
+SELECT * FROM integration_sources
+WHERE source_system = $1
+ORDER BY created_at DESC;
+
 -- name: InsertEventInbox :one
 INSERT INTO integration_event_inbox (
     company_id, source_system, event_id, event_type, payload

@@ -179,6 +179,15 @@ GROUP BY a.id, a.account_number, a.name, a.account_type, a.sub_type, a.normal_ba
 HAVING COALESCE(SUM(jl.debit), 0) > 0 OR COALESCE(SUM(jl.credit), 0) > 0
 ORDER BY a.account_number ASC;
 
+-- name: FindJournalEntryBySourceRef :one
+SELECT * FROM journal_entries
+WHERE company_id = $1
+    AND source_type = $2
+    AND reference = $3
+    AND status IN ('draft', 'posted')
+ORDER BY created_at DESC
+LIMIT 1;
+
 -- name: PeriodAllAccountBalances :many
 -- Returns aggregated balances for ALL active accounts within a date range (for income statement).
 SELECT

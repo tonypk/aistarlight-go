@@ -59,8 +59,9 @@ type Router struct {
 	CAS            *CASHandler
 	OrgDashboard   *OrgDashboardHandler
 	// HR Integration
-	GLMapping      *GLMappingHandler
-	Webhook        *WebhookHandler
+	GLMapping   *GLMappingHandler
+	Webhook     *WebhookHandler
+	Integration *IntegrationHandler
 
 	AuthSvc    *service.AuthService
 	OrgSvc     *service.OrgService
@@ -639,6 +640,17 @@ func (rt *Router) Setup(r *gin.Engine) {
 		webhooks := api.Group("/webhooks")
 		{
 			webhooks.POST("/aigonhr", rt.Webhook.ReceiveAIGoNHR)
+		}
+	}
+
+	// Integration management routes (authenticated)
+	if rt.Integration != nil {
+		integrations := api.Group("/integrations")
+		integrations.Use(authMw)
+		{
+			integrations.GET("/sources", rt.Integration.ListSources)
+			integrations.GET("/sources/:id", rt.Integration.GetSource)
+			integrations.GET("/events", rt.Integration.ListEvents)
 		}
 	}
 

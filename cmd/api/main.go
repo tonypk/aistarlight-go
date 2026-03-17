@@ -210,7 +210,8 @@ func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxp
 
 	// HR Integration services
 	glMappingSvc := service.NewGLMappingService(q)
-	hrIntSvc := service.NewHRIntegrationService(q, glMappingSvc, journalSvc, slog.Default())
+	payrollTaxBridge := service.NewPayrollTaxBridge(q, slog.Default())
+	hrIntSvc := service.NewHRIntegrationService(q, glMappingSvc, journalSvc, payrollTaxBridge, slog.Default())
 	hrInbox := service.NewHRInboxProcessor(q, hrIntSvc, slog.Default())
 	taxCodeSvc := service.NewTaxCodeService(q)
 	exchangeRateSvc := service.NewExchangeRateService(q)
@@ -319,8 +320,9 @@ type handlers struct {
 	CAS            *handler.CASHandler
 	OrgDashboard   *handler.OrgDashboardHandler
 	// HR Integration
-	GLMapping      *handler.GLMappingHandler
-	Webhook        *handler.WebhookHandler
+	GLMapping   *handler.GLMappingHandler
+	Webhook     *handler.WebhookHandler
+	Integration *handler.IntegrationHandler
 }
 
 func newAgentRuntime(ai *oai.Client, q *sqlc.Queries, chatSvc *service.ChatService) *agent.Runtime {
@@ -381,6 +383,7 @@ func newHandlers(svc services, cfg *config.Config, ai *oai.Client, q *sqlc.Queri
 		OrgDashboard:   handler.NewOrgDashboardHandler(svc.OrgDashboard),
 		GLMapping:      handler.NewGLMappingHandler(svc.GLMapping),
 		Webhook:        handler.NewWebhookHandler(q, slog.Default()),
+		Integration:    handler.NewIntegrationHandler(q),
 	}
 }
 
@@ -449,6 +452,7 @@ func newGinEngine(cfg *config.Config, rdb *redis.Client, svc services, h handler
 		OrgDashboard:   h.OrgDashboard,
 		GLMapping:      h.GLMapping,
 		Webhook:        h.Webhook,
+		Integration:    h.Integration,
 		AuthSvc:        svc.Auth,
 		OrgSvc:         svc.Org,
 		CompanySvc:     svc.Company,

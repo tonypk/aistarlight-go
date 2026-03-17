@@ -374,6 +374,53 @@ func (q *Queries) CreateJournalLine(ctx context.Context, arg CreateJournalLinePa
 	return i, err
 }
 
+const findJournalEntryBySourceRef = `-- name: FindJournalEntryBySourceRef :one
+SELECT id, company_id, period_id, entry_number, entry_date, reference, description, source_type, source_id, status, posted_by, posted_at, reversed_by_id, reverses_id, memo, created_by, created_at, updated_at, currency_code, company_seq_no, entry_hash, prev_hash, journal_book FROM journal_entries
+WHERE company_id = $1
+    AND source_type = $2
+    AND reference = $3
+    AND status IN ('draft', 'posted')
+ORDER BY created_at DESC
+LIMIT 1
+`
+
+type FindJournalEntryBySourceRefParams struct {
+	CompanyID  uuid.UUID `json:"company_id"`
+	SourceType *string   `json:"source_type"`
+	Reference  *string   `json:"reference"`
+}
+
+func (q *Queries) FindJournalEntryBySourceRef(ctx context.Context, arg FindJournalEntryBySourceRefParams) (JournalEntry, error) {
+	row := q.db.QueryRow(ctx, findJournalEntryBySourceRef, arg.CompanyID, arg.SourceType, arg.Reference)
+	var i JournalEntry
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.PeriodID,
+		&i.EntryNumber,
+		&i.EntryDate,
+		&i.Reference,
+		&i.Description,
+		&i.SourceType,
+		&i.SourceID,
+		&i.Status,
+		&i.PostedBy,
+		&i.PostedAt,
+		&i.ReversedByID,
+		&i.ReversesID,
+		&i.Memo,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CurrencyCode,
+		&i.CompanySeqNo,
+		&i.EntryHash,
+		&i.PrevHash,
+		&i.JournalBook,
+	)
+	return i, err
+}
+
 const getJournalEntryByID = `-- name: GetJournalEntryByID :one
 SELECT id, company_id, period_id, entry_number, entry_date, reference, description, source_type, source_id, status, posted_by, posted_at, reversed_by_id, reverses_id, memo, created_by, created_at, updated_at, currency_code, company_seq_no, entry_hash, prev_hash, journal_book FROM journal_entries WHERE id = $1
 `

@@ -139,6 +139,11 @@ RETURNING *;
 SELECT * FROM hr_payees
 WHERE company_id = $1 AND hr_employee_id = $2;
 
+-- name: TerminateHRPayee :exec
+UPDATE hr_payees
+SET status = 'terminated', updated_at = NOW()
+WHERE company_id = $1 AND hr_employee_id = $2;
+
 -- name: ListHRPayees :many
 SELECT * FROM hr_payees
 WHERE company_id = $1

@@ -238,7 +238,7 @@ func (s *JournalService) Post(ctx context.Context, id uuid.UUID, postedBy uuid.U
 
 	if err := s.q.PostJournalEntry(ctx, sqlc.PostJournalEntryParams{
 		ID:       id,
-		PostedBy: pgtype.UUID{Bytes: postedBy, Valid: true},
+		PostedBy: pgtype.UUID{Bytes: postedBy, Valid: postedBy != uuid.Nil},
 	}); err != nil {
 		return err
 	}
@@ -307,7 +307,7 @@ func (s *JournalService) Reverse(ctx context.Context, id uuid.UUID, reversedBy u
 		SourceType:  entry.SourceType,
 		SourceID:    pgtype.UUID{},
 		Memo:        nil,
-		CreatedBy:   pgtype.UUID{Bytes: reversedBy, Valid: true},
+		CreatedBy:   pgtype.UUID{Bytes: reversedBy, Valid: reversedBy != uuid.Nil},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create reversing entry: %w", err)
@@ -345,7 +345,7 @@ func (s *JournalService) Reverse(ctx context.Context, id uuid.UUID, reversedBy u
 	// Post the reversing entry immediately
 	err = qtx.PostJournalEntry(ctx, sqlc.PostJournalEntryParams{
 		ID:       reversingEntry.ID,
-		PostedBy: pgtype.UUID{Bytes: reversedBy, Valid: true},
+		PostedBy: pgtype.UUID{Bytes: reversedBy, Valid: reversedBy != uuid.Nil},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("post reversing entry: %w", err)

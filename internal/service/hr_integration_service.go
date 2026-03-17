@@ -19,6 +19,7 @@ type HRIntegrationService struct {
 	q          *sqlc.Queries
 	glMapping  *GLMappingService
 	journalSvc *JournalService
+	taxBridge  *PayrollTaxBridge
 	logger     *slog.Logger
 }
 
@@ -27,12 +28,14 @@ func NewHRIntegrationService(
 	q *sqlc.Queries,
 	glMapping *GLMappingService,
 	journalSvc *JournalService,
+	taxBridge *PayrollTaxBridge,
 	logger *slog.Logger,
 ) *HRIntegrationService {
 	return &HRIntegrationService{
 		q:          q,
 		glMapping:  glMapping,
 		journalSvc: journalSvc,
+		taxBridge:  taxBridge,
 		logger:     logger,
 	}
 }
@@ -216,6 +219,14 @@ func (s *HRIntegrationService) handlePayrollRunCompleted(ctx context.Context, ev
 		"payroll_run_id", payrollEvt.PayrollRunID,
 		"lines", len(lines),
 	)
+
+	// Auto-fill tax drafts (1601C + 2316 YTD) — best-effort, don't fail the event
+	if s.taxBridge != nil {
+		if err := s.taxBridge.ProcessPayrollForTax(ctx, evt.CompanyID, &payrollEvt); err != nil {
+			s.logger.Warn("tax bridge processing failed", "error", err, "payroll_run_id", payrollEvt.PayrollRunID)
+		}
+	}
+
 	return nil
 }
 
@@ -265,15 +276,92 @@ func (s *HRIntegrationService) handleEmployeeUpserted(ctx context.Context, evt s
 	return nil
 }
 
-// handlePayrollRunReversed — placeholder for future implementation.
+// handlePayrollRunReversed reverses the journal entry created by a payroll run.
 func (s *HRIntegrationService) handlePayrollRunReversed(ctx context.Context, evt sqlc.IntegrationEventInbox) error {
-	s.logger.Info("payroll reversal event received (not yet implemented)", "event_id", evt.EventID)
+	var wrapper struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(evt.Payload, &wrapper); err != nil {
+		return fmt.Errorf("unmarshal wrapper: %w", err)
+	}
+
+	var revEvt integration.PayrollRunReversedEvent
+	data := wrapper.Data
+	if data == nil {
+		data = evt.Payload
+	}
+	if err := json.Unmarshal(data, &revEvt); err != nil {
+		return fmt.Errorf("unmarshal reversal event: %w", err)
+	}
+
+	// Find the original journal entry by source reference
+	sourceType := "payroll_run"
+	ref := fmt.Sprintf("PR-%d", revEvt.PayrollRunID)
+	original, err := s.q.FindJournalEntryBySourceRef(ctx, sqlc.FindJournalEntryBySourceRefParams{
+		CompanyID:  evt.CompanyID,
+		SourceType: &sourceType,
+		Reference:  &ref,
+	})
+	if err != nil {
+		return fmt.Errorf("find original journal for PR-%d: %w", revEvt.PayrollRunID, err)
+	}
+
+	// Use system user for the reversal
+	systemUser := uuid.Nil
+
+	// If draft, post it first so we can reverse it
+	if original.Status == "draft" {
+		if err := s.journalSvc.Post(ctx, original.ID, systemUser); err != nil {
+			return fmt.Errorf("post draft journal before reversal: %w", err)
+		}
+	}
+
+	reversal, err := s.journalSvc.Reverse(ctx, original.ID, systemUser)
+	if err != nil {
+		return fmt.Errorf("reverse journal entry: %w", err)
+	}
+
+	s.logger.Info("payroll journal reversed",
+		"original_journal_id", original.ID,
+		"reversal_journal_id", reversal.ID,
+		"payroll_run_id", revEvt.PayrollRunID,
+		"reason", revEvt.ReversalReason,
+	)
+
 	return nil
 }
 
-// handleEmployeeTerminated — placeholder for future implementation.
+// handleEmployeeTerminated marks an HR payee as terminated.
 func (s *HRIntegrationService) handleEmployeeTerminated(ctx context.Context, evt sqlc.IntegrationEventInbox) error {
-	s.logger.Info("employee terminated event received (not yet implemented)", "event_id", evt.EventID)
+	var wrapper struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(evt.Payload, &wrapper); err != nil {
+		return fmt.Errorf("unmarshal wrapper: %w", err)
+	}
+
+	var termEvt integration.EmployeeTerminatedEvent
+	data := wrapper.Data
+	if data == nil {
+		data = evt.Payload
+	}
+	if err := json.Unmarshal(data, &termEvt); err != nil {
+		return fmt.Errorf("unmarshal termination event: %w", err)
+	}
+
+	if err := s.q.TerminateHRPayee(ctx, sqlc.TerminateHRPayeeParams{
+		CompanyID:    evt.CompanyID,
+		HrEmployeeID: termEvt.EmployeeID,
+	}); err != nil {
+		return fmt.Errorf("terminate hr payee: %w", err)
+	}
+
+	s.logger.Info("hr payee terminated",
+		"employee_id", termEvt.EmployeeID,
+		"employee_no", termEvt.EmployeeNo,
+		"company_id", evt.CompanyID,
+		"reason", termEvt.Reason,
+	)
 	return nil
 }
 

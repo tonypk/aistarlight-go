@@ -674,6 +674,22 @@ func (q *Queries) MarkInboxProcessed(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
+const terminateHRPayee = `-- name: TerminateHRPayee :exec
+UPDATE hr_payees
+SET status = 'terminated', updated_at = NOW()
+WHERE company_id = $1 AND hr_employee_id = $2
+`
+
+type TerminateHRPayeeParams struct {
+	CompanyID    uuid.UUID `json:"company_id"`
+	HrEmployeeID int64     `json:"hr_employee_id"`
+}
+
+func (q *Queries) TerminateHRPayee(ctx context.Context, arg TerminateHRPayeeParams) error {
+	_, err := q.db.Exec(ctx, terminateHRPayee, arg.CompanyID, arg.HrEmployeeID)
+	return err
+}
+
 const updateGLMappingRule = `-- name: UpdateGLMappingRule :one
 UPDATE gl_mapping_rules
 SET target_account_id = $3,

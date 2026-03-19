@@ -95,6 +95,14 @@ func main() {
 	}
 	srv := worker.NewServer(redisOpt, q, svc, cfg.UploadDir)
 
+	// HR Integration inbox processor (polls integration_event_inbox).
+	glMappingSvc := service.NewGLMappingService(q)
+	taxBridgeLogger := slog.Default().With("component", "tax-bridge")
+	payrollTaxBridge := service.NewPayrollTaxBridge(q, taxBridgeLogger)
+	integrationLogger := slog.Default().With("component", "hr-integration")
+	hrIntegrationSvc := service.NewHRIntegrationService(q, glMappingSvc, svc.Journal, payrollTaxBridge, integrationLogger)
+	inboxProcessor := service.NewHRInboxProcessor(q, hrIntegrationSvc, slog.Default().With("component", "inbox-processor"))
+
 	// Register periodic tasks.
 	scheduler := asynq.NewScheduler(redisOpt, nil)
 
@@ -115,12 +123,17 @@ func main() {
 		}
 	}()
 
+	// Start HR inbox processor in background.
+	inboxCtx, inboxCancel := context.WithCancel(context.Background())
+	go inboxProcessor.Run(inboxCtx)
+
 	// Graceful shutdown.
 	go func() {
 		quit := make(chan os.Signal, 1)
 		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 		<-quit
 		slog.Info("shutting down worker...")
+		inboxCancel()
 		srv.Shutdown()
 		scheduler.Shutdown()
 	}()

@@ -272,6 +272,34 @@ func (q *Queries) GetHRPayeeByEmployeeID(ctx context.Context, arg GetHRPayeeByEm
 	return i, err
 }
 
+const getInboxEvent = `-- name: GetInboxEvent :one
+SELECT id, company_id, source_system, event_id, event_type, payload, status, error_message, processed_at, created_at FROM integration_event_inbox
+WHERE id = $1 AND company_id = $2
+`
+
+type GetInboxEventParams struct {
+	ID        uuid.UUID `json:"id"`
+	CompanyID uuid.UUID `json:"company_id"`
+}
+
+func (q *Queries) GetInboxEvent(ctx context.Context, arg GetInboxEventParams) (IntegrationEventInbox, error) {
+	row := q.db.QueryRow(ctx, getInboxEvent, arg.ID, arg.CompanyID)
+	var i IntegrationEventInbox
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.SourceSystem,
+		&i.EventID,
+		&i.EventType,
+		&i.Payload,
+		&i.Status,
+		&i.ErrorMessage,
+		&i.ProcessedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getIntegrationSource = `-- name: GetIntegrationSource :one
 SELECT id, company_id, source_system, remote_company_id, api_key_hash, webhook_secret, status, last_event_at, created_at, updated_at FROM integration_sources
 WHERE company_id = $1 AND source_system = $2
@@ -307,6 +335,34 @@ WHERE id = $1
 
 func (q *Queries) GetIntegrationSourceByID(ctx context.Context, id uuid.UUID) (IntegrationSource, error) {
 	row := q.db.QueryRow(ctx, getIntegrationSourceByID, id)
+	var i IntegrationSource
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.SourceSystem,
+		&i.RemoteCompanyID,
+		&i.ApiKeyHash,
+		&i.WebhookSecret,
+		&i.Status,
+		&i.LastEventAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getIntegrationSourceByRemoteCompany = `-- name: GetIntegrationSourceByRemoteCompany :one
+SELECT id, company_id, source_system, remote_company_id, api_key_hash, webhook_secret, status, last_event_at, created_at, updated_at FROM integration_sources
+WHERE source_system = $1 AND remote_company_id = $2 AND status = 'active'
+`
+
+type GetIntegrationSourceByRemoteCompanyParams struct {
+	SourceSystem    string `json:"source_system"`
+	RemoteCompanyID string `json:"remote_company_id"`
+}
+
+func (q *Queries) GetIntegrationSourceByRemoteCompany(ctx context.Context, arg GetIntegrationSourceByRemoteCompanyParams) (IntegrationSource, error) {
+	row := q.db.QueryRow(ctx, getIntegrationSourceByRemoteCompany, arg.SourceSystem, arg.RemoteCompanyID)
 	var i IntegrationSource
 	err := row.Scan(
 		&i.ID,
@@ -671,6 +727,36 @@ WHERE id = $1
 
 func (q *Queries) MarkInboxProcessed(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.Exec(ctx, markInboxProcessed, id)
+	return err
+}
+
+const replayAllFailedInboxEvents = `-- name: ReplayAllFailedInboxEvents :execrows
+UPDATE integration_event_inbox
+SET status = 'received', error_message = NULL
+WHERE company_id = $1 AND status = 'failed'
+`
+
+func (q *Queries) ReplayAllFailedInboxEvents(ctx context.Context, companyID uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, replayAllFailedInboxEvents, companyID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const replayInboxEvent = `-- name: ReplayInboxEvent :exec
+UPDATE integration_event_inbox
+SET status = 'received', error_message = NULL
+WHERE id = $1 AND company_id = $2 AND status = 'failed'
+`
+
+type ReplayInboxEventParams struct {
+	ID        uuid.UUID `json:"id"`
+	CompanyID uuid.UUID `json:"company_id"`
+}
+
+func (q *Queries) ReplayInboxEvent(ctx context.Context, arg ReplayInboxEventParams) error {
+	_, err := q.db.Exec(ctx, replayInboxEvent, arg.ID, arg.CompanyID)
 	return err
 }
 

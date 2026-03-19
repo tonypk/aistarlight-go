@@ -37,6 +37,10 @@ SELECT * FROM integration_sources
 WHERE source_system = $1
 ORDER BY created_at DESC;
 
+-- name: GetIntegrationSourceByRemoteCompany :one
+SELECT * FROM integration_sources
+WHERE source_system = $1 AND remote_company_id = $2 AND status = 'active';
+
 -- name: InsertEventInbox :one
 INSERT INTO integration_event_inbox (
     company_id, source_system, event_id, event_type, payload
@@ -150,3 +154,17 @@ WHERE company_id = $1
   AND (status = $2 OR $2 = '')
 ORDER BY last_name, first_name
 LIMIT $3 OFFSET $4;
+
+-- name: ReplayInboxEvent :exec
+UPDATE integration_event_inbox
+SET status = 'received', error_message = NULL
+WHERE id = $1 AND company_id = $2 AND status = 'failed';
+
+-- name: ReplayAllFailedInboxEvents :execrows
+UPDATE integration_event_inbox
+SET status = 'received', error_message = NULL
+WHERE company_id = $1 AND status = 'failed';
+
+-- name: GetInboxEvent :one
+SELECT * FROM integration_event_inbox
+WHERE id = $1 AND company_id = $2;

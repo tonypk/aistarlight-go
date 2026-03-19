@@ -19,23 +19,31 @@ import (
 )
 
 var (
-	ErrEmailTaken       = errors.New("email already registered")
-	ErrInvalidCreds     = errors.New("invalid email or password")
-	ErrUserInactive     = errors.New("user account is inactive")
-	ErrTokenRevoked     = errors.New("token has been revoked")
-	ErrInvalidToken     = errors.New("invalid or expired token")
-	ErrCompanyNotFound  = errors.New("company not found")
-	ErrNoAccess         = errors.New("no access to this company")
+	ErrEmailTaken            = errors.New("email already registered")
+	ErrInvalidCreds          = errors.New("invalid email or password")
+	ErrUserInactive          = errors.New("user account is inactive")
+	ErrTokenRevoked          = errors.New("token has been revoked")
+	ErrInvalidToken          = errors.New("invalid or expired token")
+	ErrCompanyNotFound       = errors.New("company not found")
+	ErrNoAccess              = errors.New("no access to this company")
 	ErrTelegramUsernameTaken = errors.New("telegram username already linked to another account")
+	ErrSSONotConfigured      = errors.New("SSO integration not configured")
+	ErrSSONoLink             = errors.New("no active integration link for this HR company")
 )
 
 type AuthService struct {
-	q   *sqlc.Queries
-	cfg config.JWTConfig
+	q                *sqlc.Queries
+	cfg              config.JWTConfig
+	integrationSecret string
 }
 
 func NewAuthService(q *sqlc.Queries, cfg config.JWTConfig) *AuthService {
 	return &AuthService{q: q, cfg: cfg}
+}
+
+// SetIntegrationSecret sets the shared secret for cross-app SSO tokens.
+func (s *AuthService) SetIntegrationSecret(secret string) {
+	s.integrationSecret = secret
 }
 
 type RegisterInput struct {
@@ -407,6 +415,123 @@ func (s *AuthService) ResolveAPIKey(ctx context.Context, key string) (*middlewar
 // IsRevoked implements middleware.TokenRevokeChecker.
 func (s *AuthService) IsRevoked(ctx context.Context, jti string) (bool, error) {
 	return s.q.IsTokenRevoked(ctx, jti)
+}
+
+// CrossAppClaims represents the claims from an AIGoNHR cross-app SSO token.
+type CrossAppClaims struct {
+	jwt.RegisteredClaims
+	HRCompanyID int64  `json:"hr_company_id"`
+	HRUserID    int64  `json:"hr_user_id"`
+	Email       string `json:"email"`
+	Role        string `json:"role"`
+	FirstName   string `json:"first_name,omitempty"`
+	LastName    string `json:"last_name,omitempty"`
+}
+
+// SSOLogin validates a cross-app JWT from AIGoNHR and returns local tokens.
+// It looks up the integration_sources by remote_company_id, finds or creates
+// a local user by email, and issues a standard AIStarlight token pair.
+func (s *AuthService) SSOLogin(ctx context.Context, ssoToken string) (*TokenPair, *uuid.UUID, string, error) {
+	if s.integrationSecret == "" {
+		return nil, nil, "", ErrSSONotConfigured
+	}
+
+	// Validate the cross-app JWT
+	token, err := jwt.ParseWithClaims(ssoToken, &CrossAppClaims{}, func(t *jwt.Token) (interface{}, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+		}
+		return []byte(s.integrationSecret), nil
+	})
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("invalid SSO token: %w", err)
+	}
+
+	claims, ok := token.Claims.(*CrossAppClaims)
+	if !ok || !token.Valid {
+		return nil, nil, "", ErrInvalidToken
+	}
+
+	// Look up integration source by remote company ID
+	remoteID := fmt.Sprintf("%d", claims.HRCompanyID)
+	source, err := s.q.GetIntegrationSourceByRemoteCompany(ctx, sqlc.GetIntegrationSourceByRemoteCompanyParams{
+		SourceSystem:    "aigonhr",
+		RemoteCompanyID: remoteID,
+	})
+	if err != nil {
+		return nil, nil, "", ErrSSONoLink
+	}
+
+	companyID := source.CompanyID
+
+	// Get company details for jurisdiction
+	company, err := s.q.GetCompanyByID(ctx, companyID)
+	if err != nil {
+		return nil, nil, "", ErrCompanyNotFound
+	}
+
+	// Find or create user by email
+	var userID uuid.UUID
+	var userEmail string
+
+	dbUser, err := s.q.GetUserByEmail(ctx, claims.Email)
+	if err != nil {
+		// User doesn't exist — auto-create
+		fullName := fmt.Sprintf("%s %s", claims.FirstName, claims.LastName)
+		userID = uuid.New()
+		randomPW := make([]byte, 32)
+		_, _ = rand.Read(randomPW)
+		hashed, hashErr := bcrypt.GenerateFromPassword(randomPW, bcrypt.DefaultCost)
+		if hashErr != nil {
+			return nil, nil, "", fmt.Errorf("hash password: %w", hashErr)
+		}
+
+		created, createErr := s.q.CreateUser(ctx, sqlc.CreateUserParams{
+			ID:             userID,
+			Email:          claims.Email,
+			HashedPassword: string(hashed),
+			FullName:       &fullName,
+			IsActive:       true,
+		})
+		if createErr != nil {
+			return nil, nil, "", fmt.Errorf("create SSO user: %w", createErr)
+		}
+		userEmail = created.Email
+
+		// Map HR role to local role
+		localRole := string(domain.CompanyRoleMember)
+		if claims.Role == "admin" || claims.Role == "super_admin" {
+			localRole = string(domain.CompanyRoleAdmin)
+		}
+
+		_ = s.q.AddCompanyMember(ctx, sqlc.AddCompanyMemberParams{
+			CompanyID: companyID,
+			UserID:    userID,
+			Role:      localRole,
+		})
+	} else {
+		userID = dbUser.ID
+		userEmail = dbUser.Email
+	}
+
+	// Resolve effective role
+	role := string(domain.CompanyRoleMember)
+	effectiveRole, err := s.q.GetEffectiveRole(ctx, sqlc.GetEffectiveRoleParams{
+		UserID:    userID,
+		CompanyID: companyID,
+	})
+	if err == nil && effectiveRole != nil {
+		if r, ok := effectiveRole.(string); ok {
+			role = r
+		}
+	}
+
+	tokens, err := s.generateTokenPair(userID, companyID, userEmail, role, company.Jurisdiction)
+	if err != nil {
+		return nil, nil, "", err
+	}
+
+	return tokens, &companyID, company.Jurisdiction, nil
 }
 
 func (s *AuthService) generateTokenPair(userID, companyID uuid.UUID, email, role, jurisdiction string) (*TokenPair, error) {

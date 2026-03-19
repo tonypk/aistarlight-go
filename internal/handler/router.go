@@ -92,6 +92,7 @@ func (rt *Router) Setup(r *gin.Engine) {
 		auth.POST("/register", rt.Auth.Register)
 		auth.POST("/login", rt.Auth.Login)
 		auth.POST("/refresh", rt.Auth.Refresh)
+		auth.POST("/sso", rt.Auth.SSOLogin)
 	}
 
 	// Auth middleware for all remaining routes
@@ -650,7 +651,11 @@ func (rt *Router) Setup(r *gin.Engine) {
 		{
 			integrations.GET("/sources", rt.Integration.ListSources)
 			integrations.GET("/sources/:id", rt.Integration.GetSource)
+			integrations.POST("/sources", rt.Integration.CreateSource)
+			integrations.DELETE("/sources/:id", rt.Integration.DeleteSource)
 			integrations.GET("/events", rt.Integration.ListEvents)
+			integrations.POST("/events/:id/replay", rt.Integration.ReplayEvent)
+			integrations.POST("/events/replay-all-failed", rt.Integration.ReplayAllFailed)
 		}
 	}
 

@@ -22,8 +22,9 @@ type Config struct {
 	Log        LogConfig
 	QBO        QBOConfig
 	Encryption EncryptionConfig
-	Telegram   TelegramConfig
-	UploadDir  string
+	Telegram    TelegramConfig
+	Integration IntegrationConfig
+	UploadDir   string
 }
 
 type ServerConfig struct {
@@ -123,6 +124,10 @@ type QBOConfig struct {
 
 type EncryptionConfig struct {
 	Key string // 32-byte hex-encoded AES-256 key
+}
+
+type IntegrationConfig struct {
+	JWTSecret string // Shared secret for cross-app SSO tokens (INTEGRATION_JWT_SECRET)
 }
 
 type TelegramConfig struct {
@@ -230,6 +235,9 @@ func Load() (*Config, error) {
 			BotUsername: v.GetString("TELEGRAM_BOT_USERNAME"),
 			Projects:    parseProjects(v.GetString("BOT_PROJECTS")),
 			BaseURL:     strings.TrimRight(v.GetString("BASE_URL"), "/"),
+		},
+		Integration: IntegrationConfig{
+			JWTSecret: v.GetString("INTEGRATION_JWT_SECRET"),
 		},
 		UploadDir: v.GetString("UPLOAD_DIR"),
 	}

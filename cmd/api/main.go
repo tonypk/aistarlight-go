@@ -217,8 +217,11 @@ func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxp
 	exchangeRateSvc := service.NewExchangeRateService(q)
 	yearEndCloseSvc := service.NewYearEndCloseService(q, journalSvc, accountSvc)
 
+	authSvc := service.NewAuthService(q, cfg.JWT)
+	authSvc.SetIntegrationSecret(cfg.Integration.JWTSecret)
+
 	return services{
-		Auth:        service.NewAuthService(q, cfg.JWT),
+		Auth:        authSvc,
 		Org:         service.NewOrgService(q),
 		Company:     service.NewCompanyService(q),
 		Report:      service.NewReportService(q, complianceSvc),

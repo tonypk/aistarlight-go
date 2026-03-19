@@ -49,6 +49,48 @@ func PHDefaultMappings() []DefaultMapping {
 	}
 }
 
+// LKDefaultMappings returns the default GL mappings for Sri Lanka jurisdiction.
+func LKDefaultMappings() []DefaultMapping {
+	return []DefaultMapping{
+		// Earnings → Expense accounts (Debit)
+		{"6100", "Salary Expense", "expense", "debit", "earning", "basic_pay", "debit"},
+		{"6110", "Overtime Expense", "expense", "debit", "earning", "ot_pay", "debit"},
+		{"6140", "Bonus Expense", "expense", "debit", "earning", "bonus_pay", "debit"},
+
+		// Employee deductions → Payable accounts (Credit)
+		{"2310", "EPF Payable", "liability", "credit", "deduction", "epf_employee", "credit"},
+		{"2340", "APIT Payable", "liability", "credit", "deduction", "apit", "credit"},
+
+		// Employer contributions → Expense accounts (Debit)
+		{"6300", "EPF Employer Expense", "expense", "debit", "contribution", "epf_employer", "debit"},
+		{"6310", "ETF Employer Expense", "expense", "debit", "contribution", "etf_employer", "debit"},
+
+		// Net pay → Cash/Bank (Credit)
+		{"1010", "Cash - Payroll Bank", "asset", "debit", "net_pay", "cash", "credit"},
+	}
+}
+
+// SGDefaultMappings returns the default GL mappings for Singapore jurisdiction.
+func SGDefaultMappings() []DefaultMapping {
+	return []DefaultMapping{
+		// Earnings → Expense accounts (Debit)
+		{"6100", "Salary Expense", "expense", "debit", "earning", "basic_pay", "debit"},
+		{"6110", "Overtime Expense", "expense", "debit", "earning", "ot_pay", "debit"},
+		{"6140", "Bonus Expense", "expense", "debit", "earning", "bonus_pay", "debit"},
+
+		// Employee deductions → Payable accounts (Credit)
+		{"2410", "CPF Employee Payable", "liability", "credit", "deduction", "cpf_employee", "credit"},
+		{"2440", "Income Tax Payable", "liability", "credit", "deduction", "withholding_tax", "credit"},
+
+		// Employer contributions → Expense accounts (Debit)
+		{"6400", "CPF Employer Expense", "expense", "debit", "contribution", "cpf_employer", "debit"},
+		{"6410", "SDL Expense", "expense", "debit", "contribution", "sdl_employer", "debit"},
+
+		// Net pay → Cash/Bank (Credit)
+		{"1010", "Cash - Payroll Bank", "asset", "debit", "net_pay", "cash", "credit"},
+	}
+}
+
 // SeedResult contains the outcome of a seed operation.
 type SeedResult struct {
 	AccountsCreated int `json:"accounts_created"`
@@ -63,6 +105,10 @@ func (s *GLMappingService) SeedDefaults(ctx context.Context, companyID uuid.UUID
 	switch jurisdiction {
 	case "PH":
 		defaults = PHDefaultMappings()
+	case "LK":
+		defaults = LKDefaultMappings()
+	case "SG":
+		defaults = SGDefaultMappings()
 	default:
 		return nil, fmt.Errorf("no default mappings for jurisdiction %s", jurisdiction)
 	}

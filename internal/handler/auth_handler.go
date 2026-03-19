@@ -65,6 +65,42 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	response.Created(c, user)
 }
 
+type ssoLoginRequest struct {
+	SSOToken string `json:"sso_token" binding:"required"`
+}
+
+// SSOLogin handles POST /api/v1/auth/sso — validates a cross-app JWT from AIGoNHR.
+func (h *AuthHandler) SSOLogin(c *gin.Context) {
+	var req ssoLoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	tokens, companyID, jurisdiction, err := h.auth.SSOLogin(c.Request.Context(), req.SSOToken)
+	if err != nil {
+		if errors.Is(err, service.ErrSSONotConfigured) {
+			response.InternalError(c, "SSO integration not configured")
+			return
+		}
+		if errors.Is(err, service.ErrSSONoLink) {
+			response.NotFound(c, "no active integration link for this HR company")
+			return
+		}
+		response.Unauthorized(c, "invalid or expired SSO token")
+		return
+	}
+
+	response.OK(c, gin.H{
+		"access_token":  tokens.AccessToken,
+		"refresh_token": tokens.RefreshToken,
+		"token_type":    tokens.TokenType,
+		"company_id":    companyID,
+		"tenant_id":     companyID,
+		"jurisdiction":  jurisdiction,
+	})
+}
+
 type loginRequest struct {
 	Email    string `json:"email" binding:"required,email"`
 	Password string `json:"password" binding:"required"`

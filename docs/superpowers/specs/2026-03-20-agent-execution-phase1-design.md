@@ -6,7 +6,7 @@
 
 ## Problem
 
-AIStarlight's 8 specialized agents (general, classifier, journal, compliance, filing, recon, audit, setup) are chat-only. They can answer questions and look up tax rules, but cannot execute operations like classifying transactions, creating journal entries, or generating reports. Users must manually switch to the relevant page and perform actions themselves, breaking the conversational flow.
+AIStarlight's specialized agents (general, classifier, journal, compliance, filing, recon, audit) are chat-only. They can answer questions and look up tax rules, but cannot execute operations like classifying transactions, creating journal entries, or generating reports. Users must manually switch to the relevant page and perform actions themselves, breaking the conversational flow.
 
 ## Goal
 
@@ -18,6 +18,7 @@ Make agents execution-capable: they can perform real operations (classify, creat
 - Workflow templates / one-click automation (Phase 3)
 - LLM provider abstraction (separate effort)
 - New agent creation UI
+- Changes to the existing `/api/v1/chat/stream` endpoint (backward compatible, no ActionPlan there)
 
 ---
 
@@ -25,7 +26,9 @@ Make agents execution-capable: they can perform real operations (classify, creat
 
 ### 1. Tool Registry
 
-A centralized registry replaces the current hardcoded tool definitions.
+A centralized registry replaces the current hardcoded tool definitions. This replaces the existing `ToolExecuteFunc` in `runtime.go` and the `ChatService.ExecuteTool` switch statement. The 13 existing tools in `ChatService` are migrated into the new registry as individual `ToolDef` implementations.
+
+The existing `Registry` in `internal/agent/registry.go` (for agent definitions) is renamed to `AgentRegistry` for clarity.
 
 **Location:** `internal/agent/tool_registry.go`
 
@@ -36,13 +39,22 @@ const (
     RiskHigh RiskLevel = "high"
 )
 
+type ToolContext struct {
+    Ctx          context.Context
+    CompanyID    uuid.UUID
+    UserID       uuid.UUID
+    Jurisdiction string  // "PH", "SG", "LK"
+    AgentID      string
+}
+
 type ToolDef struct {
     Name        string
     Description string              // For LLM function-calling schema
     Parameters  json.RawMessage     // JSON Schema for parameters
     RiskLevel   RiskLevel
     AgentIDs    []string            // Which agents may invoke this tool
-    Execute     func(ctx context.Context, companyID uuid.UUID, userID uuid.UUID, args json.RawMessage) (json.RawMessage, error)
+    SummaryTmpl string              // Template for generating human-readable summary
+    Execute     func(tc ToolContext, args json.RawMessage) (json.RawMessage, error)
 }
 
 type ToolRegistry struct {
@@ -53,6 +65,10 @@ func (r *ToolRegistry) Register(t *ToolDef)
 func (r *ToolRegistry) ForAgent(agentID string) []*ToolDef
 func (r *ToolRegistry) Get(name string) *ToolDef
 ```
+
+### Migration from ChatService.ExecuteTool
+
+The existing `ChatService.executeTool` switch statement (handling `generate_report`, `update_transaction`, `delete_transaction`, `lookup_tax_rule`, etc.) is decomposed: each case becomes a `ToolDef` registered in the `ToolRegistry`. The `ChatService` no longer owns tool execution — the `ToolExecutor` does. The existing chat endpoint (`/api/v1/chat/stream`) is updated to use the `ToolRegistry` but **without** the ActionPlan confirmation flow (all tools execute directly, preserving backward compatibility).
 
 ### 2. Tool Inventory
 
@@ -97,6 +113,22 @@ func (r *ToolRegistry) Get(name string) *ToolDef
 | `suggest_fixes` | low | Get AI-generated fix suggestions |
 | `apply_fix` | **high** | Apply an auto-fix to a compliance violation |
 
+#### Audit Agent
+| Tool | Risk | Description |
+|------|------|-------------|
+| `scan_duplicates` | low | Scan for duplicate transactions (existing) |
+| `scan_missing_receipts` | low | Scan for missing receipt records (existing) |
+| `scan_classification_issues` | low | Scan for classification anomalies (existing) |
+
+#### General Agent
+| Tool | Risk | Description |
+|------|------|-------------|
+| `generate_report` | **high** | Generate a tax report (shared with Filing Agent) |
+| `lookup_tax_rule` | low | Search tax regulations via RAG (existing) |
+| `get_user_preferences` | low | Get user preferences (existing) |
+| `search_knowledge` | low | Search knowledge base by query |
+| `get_company_stats` | low | Get company financial summary |
+
 #### Shared Tools (all agents)
 | Tool | Risk | Description |
 |------|------|-------------|
@@ -105,7 +137,9 @@ func (r *ToolRegistry) Get(name string) *ToolDef
 | `get_company_stats` | low | Get company financial summary (revenue, expenses, etc.) |
 | `get_user_preferences` | low | Get user preferences (existing) |
 
-**Totals:** 23 tools (15 low-risk, 8 high-risk)
+**Totals:** 25 unique tools (16 low-risk, 9 high-risk)
+
+**Note:** `generate_report` is high-risk for both General and Filing agents. The existing behavior where General agent could execute it without confirmation changes — it now requires ActionPlan confirmation via the agent endpoints.
 
 ### 3. Tool Implementation Files
 
@@ -116,6 +150,7 @@ internal/agent/tools/
 ├── reconciliation.go   // list_anomalies, get_anomaly_detail, resolve_anomaly, run_reconciliation
 ├── reporting.go        // list_reports, get_report_detail, generate_report, validate_report, get_filing_calendar
 ├── compliance.go       // run_compliance_check, suggest_fixes, apply_fix
+├── audit.go            // scan_duplicates, scan_missing_receipts, scan_classification_issues
 └── shared.go           // lookup_tax_rule, search_knowledge, get_company_stats, get_user_preferences
 ```
 
@@ -135,12 +170,13 @@ CREATE TABLE action_plans (
     tool_name TEXT NOT NULL,
     tool_args JSONB NOT NULL,
     summary TEXT NOT NULL,
-    impact JSONB,
+    impact JSONB DEFAULT '{}',
     status TEXT NOT NULL DEFAULT 'pending'
-        CHECK (status IN ('pending', 'confirmed', 'cancelled', 'executed', 'failed')),
+        CHECK (status IN ('pending', 'confirmed', 'cancelled', 'executed', 'failed', 'timeout')),
     result JSONB,
     error_message TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     confirmed_at TIMESTAMPTZ,
     executed_at TIMESTAMPTZ
 );
@@ -149,42 +185,65 @@ CREATE INDEX idx_action_plans_thread ON action_plans(thread_id);
 CREATE INDEX idx_action_plans_status ON action_plans(status) WHERE status = 'pending';
 ```
 
-#### Execution Flow
+**Down migration:**
+```sql
+DROP TABLE IF EXISTS action_plans;
+```
+
+**Impact field contract:**
+```json
+{
+  "affected_count": 26,
+  "details": ["15 transactions → Input VAT (Sales)", "8 transactions → Services (Exempt)"]
+}
+```
+
+All tool implementations must populate `affected_count` (integer) and `details` (string array) to ensure consistent frontend rendering.
+
+#### Two-Phase Execution Flow (No Long-Lived SSE)
+
+When a high-risk tool is called, the SSE stream **closes** instead of pausing. This avoids holding goroutines/connections open for minutes and survives server restarts.
 
 ```
-Agent calls tool via LLM function-calling
-         │
-    ToolExecutor checks RiskLevel
-         │
-    ┌────┴────┐
-    │         │
-  Low       High
-    │         │
- Execute    Create ActionPlan
- directly   (status: pending)
-    │         │
- Return     Push SSE event
- result     "action_plan"
- to Agent     │
-              │
-         User sees
-         ActionPlanCard
-              │
-    ┌────────┴────────┐
-    │                 │
- Confirm           Cancel
-    │                 │
- Execute tool    Set status
-    │            "cancelled"
- Set status         │
- "executed"    Return cancel
-    │          signal to Agent
- Push SSE
- "action_result"
-    │
- Agent continues
- with result
+Phase 1: Agent Stream
+─────────────────────
+User sends message → SSE stream opens
+  → Agent reasons → calls high-risk tool
+  → Runtime creates ActionPlan (status: pending)
+  → SSE emits "action_plan" event
+  → Agent emits final message: "I've prepared the action. Please confirm."
+  → SSE emits "message_end" with awaiting_confirmation: true
+  → SSE stream closes
+
+Phase 2: Confirm + Resume
+─────────────────────────
+User clicks [Confirm] → POST /actions/:planId/confirm
+  → Server executes tool (within DB transaction)
+  → Returns ActionPlanResult (status: executed, result: {...})
+  → Frontend displays result in ActionPlanCard
+  → Frontend auto-sends follow-up message to agent:
+    "[System] Action executed: classify_transactions completed. 26 transactions classified."
+  → New SSE stream opens → Agent responds to the result
+
+Cancel flow:
+User clicks [Cancel] → POST /actions/:planId/cancel
+  → Server sets status to "cancelled"
+  → Frontend auto-sends: "[System] Action cancelled by user: classify_transactions"
+  → New SSE stream opens → Agent acknowledges cancellation
 ```
+
+This eliminates long-lived connections and survives nginx restarts / server deployments.
+
+#### Summary Generation
+
+The `summary` field is generated **server-side** using the tool's `SummaryTmpl` template combined with the tool arguments. This is more reliable than depending on the LLM to include a `confirmation_summary` parameter.
+
+Example templates:
+- `classify_transactions`: "Classify {count} transactions in session {session_id}"
+- `create_journal_entries`: "Create journal entries from session {session_id}"
+- `resolve_anomaly`: "Resolve anomaly {anomaly_id} as {status}"
+
+The tool executor calls a `GenerateSummary(toolDef, args)` function that fills the template from args.
 
 #### ActionPlan Manager
 
@@ -192,17 +251,24 @@ Agent calls tool via LLM function-calling
 
 ```go
 type ActionPlanManager struct {
-    queries *sqlc.Queries
+    queries  *sqlc.Queries
+    pool     *pgxpool.Pool
     registry *ToolRegistry
 }
 
-func (m *ActionPlanManager) Create(ctx, threadID, agentID, companyID, userID, toolName string, toolArgs json.RawMessage) (*ActionPlan, error)
-func (m *ActionPlanManager) Confirm(ctx, planID, userID uuid.UUID) (*ActionPlanResult, error)
-func (m *ActionPlanManager) Cancel(ctx, planID, userID uuid.UUID) error
+func (m *ActionPlanManager) Create(ctx, threadID, agentID, companyID, userID uuid.UUID, toolName string, toolArgs json.RawMessage, impact json.RawMessage) (*ActionPlan, error)
+func (m *ActionPlanManager) Confirm(ctx, planID, companyID, userID uuid.UUID) (*ActionPlanResult, error)
+func (m *ActionPlanManager) Cancel(ctx, planID, companyID, userID uuid.UUID) error
 func (m *ActionPlanManager) GetPending(ctx, threadID uuid.UUID) ([]ActionPlan, error)
+func (m *ActionPlanManager) TimeoutExpired(ctx context.Context) (int, error)  // cleanup cron
 ```
 
-The `summary` field is generated by the LLM as part of the tool call. When the Agent calls a high-risk tool, it must include a `confirmation_summary` parameter describing the action in human-readable terms. The runtime extracts this to populate the ActionPlan summary.
+**Confirm authorization rules:**
+1. `company_id` must match the authenticated user's company
+2. `user_id` must match the plan creator OR the confirming user must have `admin`/`owner` role
+3. Plan `status` must be `pending` — uses `SELECT ... FOR UPDATE` to prevent double-confirm race conditions
+4. If `status` is already `executed`, return the existing result (idempotent)
+5. Maximum 1 pending action per thread (reject new high-risk tool calls if one is pending)
 
 #### API Endpoints
 
@@ -211,6 +277,8 @@ POST /api/v1/agents/:agentId/actions/:planId/confirm
 POST /api/v1/agents/:agentId/actions/:planId/cancel
 GET  /api/v1/agents/:agentId/threads/:threadId/pending-actions
 ```
+
+All endpoints require JWT auth and enforce company_id scoping.
 
 ### 5. Runtime Changes
 
@@ -226,15 +294,28 @@ Current flow:
 New flow (changes at step 4):
 1-3. Same as current
 4. If tool call:
-   a. Look up tool in registry
-   b. If low-risk → execute directly → add result → continue
-   c. If high-risk → create ActionPlan → push `action_plan` SSE event → **pause**
-   d. When user confirms → execute tool → push `action_result` SSE event → resume LLM with tool result
-   e. When user cancels → push cancel → resume LLM with "User cancelled this action"
+   a. Look up tool in ToolRegistry
+   b. If low-risk → execute directly → add result → continue LLM loop
+   c. If high-risk:
+      - Check if thread already has a pending action → reject with message
+      - Create ActionPlan → emit `action_plan` SSE event
+      - Let LLM finish its response (it should acknowledge the pending action)
+      - Close SSE stream with `awaiting_confirmation: true`
+5. When confirm endpoint is called → execute tool → return result
+6. Frontend sends follow-up message with result → new SSE stream → Agent continues
 
-The "pause" mechanism: the SSE stream stays open. The runtime waits on a channel for the confirmation/cancellation signal. A goroutine listens for the HTTP confirm/cancel request and signals the channel. Timeout after 5 minutes → auto-cancel.
+### 6. ActionPlan Persistence in Chat History
 
-### 6. SSE Event Extensions
+ActionPlan events are persisted as special messages in `chat_messages` using `message_type = 'action_plan'` (column exists from migration 000024). When loading thread history, the frontend reconstructs ActionPlanCards from these records.
+
+Saved fields in `chat_messages`:
+- `message_type`: `'action_plan'`
+- `content`: the summary text
+- `action_results_json`: `{ "plan_id": "...", "status": "executed|cancelled|...", "impact": {...}, "result": {...} }`
+
+This ensures ActionPlan cards appear correctly when users reload a conversation.
+
+### 7. SSE Event Extensions
 
 Current events: `message_start`, `content_delta`, `tool_call`, `message_end`
 
@@ -257,19 +338,23 @@ New events:
     }
   }
 }
+```
 
-// Action execution completed
+The `message_end` event is extended with an optional field:
+```json
 {
-  "event": "action_result",
+  "event": "message_end",
   "data": {
-    "plan_id": "uuid",
-    "status": "executed",
-    "result": { "classified_count": 26, "success": true }
+    "done": true,
+    "awaiting_confirmation": true,
+    "pending_plan_id": "uuid"
   }
 }
 ```
 
-### 7. Frontend Changes
+Note: `action_result` is not an SSE event — the confirm endpoint returns the result directly via HTTP response, since the SSE stream is already closed.
+
+### 8. Frontend Changes
 
 #### New Component: `ActionPlanCard.vue`
 
@@ -277,9 +362,10 @@ New events:
 
 Renders inside the Agent chat message list as a special card:
 - Header: tool name icon + summary text
-- Body: impact details as a bullet list
-- Footer: [Confirm] [Cancel] buttons
-- States: pending → confirming (loading) → executed (success) / failed (error) / cancelled
+- Body: impact details as a bullet list (`affected_count` + `details` array)
+- Footer: [Confirm] [Cancel] buttons (only when status is `pending`)
+- States: pending → confirming (loading) → executed (success) / failed (error) / cancelled / timeout
+- Timeout state: shown when the plan has `status: timeout` (cleaned up by server cron)
 
 #### Agent Store Extensions
 
@@ -288,17 +374,31 @@ Renders inside the Agent chat message list as a special card:
 New state:
 ```typescript
 pendingActions: Map<string, ActionPlan>  // planId → ActionPlan
+awaitingConfirmation: boolean            // true when SSE closed with awaiting_confirmation
 ```
 
 New methods:
 ```typescript
-confirmAction(planId: string): Promise<void>
-cancelAction(planId: string): Promise<void>
+async confirmAction(planId: string): Promise<void>
+  // 1. Call confirmAction API
+  // 2. Update ActionPlanCard to show result
+  // 3. Auto-send follow-up message: "[System] Action executed: {tool_name} completed."
+  // 4. This triggers a new SSE stream where Agent responds to the result
+
+async cancelAction(planId: string): Promise<void>
+  // 1. Call cancelAction API
+  // 2. Update ActionPlanCard to show cancelled
+  // 3. Auto-send follow-up message: "[System] Action cancelled by user: {tool_name}"
+  // 4. This triggers a new SSE stream where Agent acknowledges
 ```
 
 SSE parsing additions in `sendMessage`:
-- Parse `action_plan` event → add to `pendingActions`, render ActionPlanCard
-- Parse `action_result` event → update action status, show result
+- Parse `action_plan` event → add to messages as ActionPlanCard, store in `pendingActions`
+- Parse `message_end` with `awaiting_confirmation` → set `awaitingConfirmation = true`
+
+On page reload:
+- When loading thread messages, reconstruct ActionPlanCards from `message_type = 'action_plan'` messages
+- Check `pending-actions` endpoint for any still-pending actions
 
 #### API Module
 
@@ -306,23 +406,26 @@ SSE parsing additions in `sendMessage`:
 
 New functions:
 ```typescript
-confirmAction(agentId: string, planId: string): Promise<void>
+confirmAction(agentId: string, planId: string): Promise<ActionPlanResult>
 cancelAction(agentId: string, planId: string): Promise<void>
+getPendingActions(agentId: string, threadId: string): Promise<ActionPlan[]>
 ```
 
-### 8. Agent Definition Updates
+### 9. Agent Definition Updates
 
 Each agent's system prompt is updated to describe available tools and instruct the agent to:
 1. Prefer querying/previewing before suggesting modifications
 2. Always explain what a high-risk tool will do before calling it
-3. Include a clear `confirmation_summary` parameter for high-risk tools
-4. Handle cancellation gracefully (acknowledge and suggest alternatives)
+3. Handle the response after a high-risk tool call gracefully (the system will request user confirmation)
+4. When receiving a `[System] Action executed:` message, summarize the result and suggest next steps
+5. When receiving a `[System] Action cancelled:` message, acknowledge and suggest alternatives
 
 Example addition to classifier agent system prompt:
 ```
 You have tools to classify transactions. Always preview first using preview_classification,
-then explain the results to the user. If they want to proceed, call classify_transactions
-with a clear confirmation_summary explaining what will change.
+then explain the results to the user. If they want to proceed, call classify_transactions.
+The system will ask the user for confirmation before executing. After execution, you will
+receive the result — summarize it and suggest next steps.
 ```
 
 ---
@@ -332,49 +435,56 @@ with a clear confirmation_summary explaining what will change.
 ### New Files
 | File | Purpose |
 |------|---------|
-| `internal/agent/tool_registry.go` | Centralized tool registration |
-| `internal/agent/tool_executor.go` | Tool execution with risk checking |
-| `internal/agent/action_plan.go` | ActionPlan CRUD and confirmation flow |
+| `internal/agent/tool_registry.go` | Centralized tool registration and lookup |
+| `internal/agent/tool_executor.go` | Tool execution with risk checking and ActionPlan creation |
+| `internal/agent/action_plan.go` | ActionPlan CRUD, confirmation with authorization |
 | `internal/agent/tools/classification.go` | Classification tool implementations |
 | `internal/agent/tools/journal.go` | Journal entry tool implementations |
 | `internal/agent/tools/reconciliation.go` | Reconciliation tool implementations |
 | `internal/agent/tools/reporting.go` | Reporting tool implementations |
 | `internal/agent/tools/compliance.go` | Compliance tool implementations |
-| `internal/agent/tools/shared.go` | Shared tool implementations |
-| `db/migrations/NNNNNN_action_plans.up.sql` | ActionPlan table migration |
-| `db/query/action_plans.sql` | sqlc queries for action_plans |
+| `internal/agent/tools/audit.go` | Audit scanning tool implementations |
+| `internal/agent/tools/shared.go` | Shared tool implementations (knowledge, stats) |
+| `migrations/NNNNNN_action_plans.up.sql` | ActionPlan table migration |
+| `migrations/NNNNNN_action_plans.down.sql` | ActionPlan table down migration |
+| `queries/action_plans.sql` | sqlc queries for action_plans |
 | `frontend/src/components/ai/ActionPlanCard.vue` | Confirmation card component |
 
 ### Modified Files
 | File | Changes |
 |------|---------|
-| `internal/agent/runtime.go` | Integrate ToolRegistry, ActionPlan pause/resume flow |
-| `internal/agent/agents/*.go` | Update tool lists and system prompts for all 8 agents |
-| `internal/handler/agent_handler.go` | Add confirm/cancel endpoints |
+| `internal/agent/runtime.go` | Integrate ToolRegistry, two-phase ActionPlan flow |
+| `internal/agent/registry.go` | Rename `Registry` → `AgentRegistry` for clarity |
+| `internal/agent/agents/*.go` | Update tool lists and system prompts for all 7 agents |
+| `internal/handler/agent_handler.go` | Add confirm/cancel/pending-actions endpoints |
 | `internal/handler/router.go` | Register new agent action routes |
 | `internal/app/bootstrap.go` | Initialize ToolRegistry, ActionPlanManager |
+| `internal/service/chat_service.go` | Remove ExecuteTool switch, delegate to ToolRegistry |
 | `frontend/src/stores/agent.ts` | Add pendingActions state, confirm/cancel methods, SSE parsing |
-| `frontend/src/api/agent.ts` | Add confirmAction, cancelAction API calls |
-| `frontend/src/components/ai/AIPanel.vue` | Render ActionPlanCard in message list |
+| `frontend/src/api/agent.ts` | Add confirmAction, cancelAction, getPendingActions API calls |
+| `frontend/src/components/ai/AIPanel.vue` | Render ActionPlanCard in message list, handle awaiting state |
 
 ---
 
 ## Testing Strategy
 
 ### Unit Tests
-- Tool registry: registration, lookup, agent filtering
+- Tool registry: registration, lookup, agent filtering, summary template generation
 - Tool executor: risk level routing (low → execute, high → ActionPlan)
-- ActionPlan manager: create, confirm, cancel, timeout
+- ActionPlan manager: create, confirm (with SELECT FOR UPDATE), cancel, timeout, idempotent confirm
+- Authorization: company_id mismatch rejected, user_id mismatch without admin role rejected
 - Each tool implementation: correct service method called with correct args
 
 ### Integration Tests
-- Full SSE flow: message → tool call → action_plan event → confirm → action_result event
-- Cancel flow: action_plan → cancel → agent receives cancellation
-- Timeout flow: action_plan → 5 min timeout → auto-cancel
+- Full flow: message → tool call → action_plan SSE event → stream closes → confirm HTTP → result
+- Cancel flow: action_plan → cancel HTTP → follow-up message → agent acknowledges
+- Idempotent confirm: confirm twice → second returns same result, no double execution
+- Thread reload: action plan persisted in chat_messages, reconstructed on load
 
 ### E2E Tests
-- User asks agent to classify → sees ActionPlanCard → confirms → sees result
+- User asks agent to classify → sees ActionPlanCard → confirms → sees result → agent summarizes
 - User asks agent to classify → sees ActionPlanCard → cancels → agent acknowledges
+- User reloads page with pending action → ActionPlanCard shows with buttons
 
 ---
 
@@ -382,18 +492,20 @@ with a clear confirmation_summary explaining what will change.
 
 | Risk | Mitigation |
 |------|------------|
-| SSE connection drops during ActionPlan wait | Frontend reconnects and checks `pending-actions` endpoint |
-| User closes browser with pending action | 5-minute timeout auto-cancels |
-| Tool execution fails after confirmation | ActionPlan status set to `failed`, error shown in card |
-| LLM generates bad tool arguments | Validate args against JSON Schema before execution |
+| Server restarts with pending action | Two-phase design: ActionPlan persisted in DB, confirm endpoint is stateless |
+| User closes browser with pending action | Background cron sets `status = 'timeout'` after 30 minutes |
+| Tool execution fails after confirmation | ActionPlan status set to `failed`, error shown in card, user can retry |
+| LLM generates bad tool arguments | Validate args against JSON Schema before ActionPlan creation |
 | Agent calls wrong tool for context | System prompt instructions + tool parameter validation |
+| Double-click confirm button | SELECT FOR UPDATE + idempotent confirm (return existing result if executed) |
+| Concurrent actions on same thread | Max 1 pending action per thread enforced at creation time |
 
 ---
 
 ## Future Phases
 
 **Phase 2 — Multi-step Action Plans:**
-Agent generates a plan with multiple sequential tool calls. User confirms the entire plan at once. Runtime executes tools in sequence, reporting progress via SSE.
+Agent generates a plan with multiple sequential tool calls. User confirms the entire plan at once. Runtime executes tools in sequence, reporting progress. Built on top of the ActionPlan infrastructure from Phase 1.
 
 **Phase 3 — Workflow Templates:**
 Pre-defined workflow templates (e.g., "Monthly Tax Filing") that chain multiple agent actions. One-click trigger from sidebar or dashboard. Pause at human-confirmation checkpoints.

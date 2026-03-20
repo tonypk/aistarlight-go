@@ -329,7 +329,7 @@ type handlers struct {
 }
 
 func newAgentRuntime(ai *oai.Client, q *sqlc.Queries, chatSvc *service.ChatService) *agent.Runtime {
-	registry := agent.NewRegistry()
+	registry := agent.NewAgentRegistry()
 	agents.RegisterAll(registry)
 	toolExec := agent.NewToolExecutor(chatSvc)
 	return agent.NewRuntime(registry, ai, q, toolExec.MakeExecuteFunc())

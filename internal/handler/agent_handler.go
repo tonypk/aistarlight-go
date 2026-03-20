@@ -37,9 +37,9 @@ func (h *AgentHandler) ListAgents(c *gin.Context) {
 	workflowType := c.Query("workflow_type")
 	var agents []agent.AgentInfo
 	if workflowType != "" {
-		agents = h.runtime.Registry().ListForWorkflow(workflowType)
+		agents = h.runtime.AgentRegistry().ListForWorkflow(workflowType)
 	} else {
-		agents = h.runtime.Registry().ListAll()
+		agents = h.runtime.AgentRegistry().ListAll()
 	}
 	response.OK(c, agents)
 }
@@ -47,7 +47,7 @@ func (h *AgentHandler) ListAgents(c *gin.Context) {
 // GetAgent handles GET /api/v1/agents/:agentId.
 func (h *AgentHandler) GetAgent(c *gin.Context) {
 	agentID := c.Param("agentId")
-	def, ok := h.runtime.Registry().Get(agentID)
+	def, ok := h.runtime.AgentRegistry().Get(agentID)
 	if !ok {
 		response.NotFound(c, "agent not found")
 		return

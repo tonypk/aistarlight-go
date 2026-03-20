@@ -15,14 +15,14 @@ import (
 
 // Runtime executes agent interactions using the shared LLM client.
 type Runtime struct {
-	registry *Registry
+	registry *AgentRegistry
 	ai       *openai.Client
 	q        *sqlc.Queries
 	execTool ToolExecuteFunc
 }
 
 // NewRuntime creates an agent runtime.
-func NewRuntime(registry *Registry, ai *openai.Client, q *sqlc.Queries, execTool ToolExecuteFunc) *Runtime {
+func NewRuntime(registry *AgentRegistry, ai *openai.Client, q *sqlc.Queries, execTool ToolExecuteFunc) *Runtime {
 	return &Runtime{
 		registry: registry,
 		ai:       ai,
@@ -31,8 +31,8 @@ func NewRuntime(registry *Registry, ai *openai.Client, q *sqlc.Queries, execTool
 	}
 }
 
-// Registry returns the agent registry.
-func (rt *Runtime) Registry() *Registry {
+// AgentRegistry returns the agent registry.
+func (rt *Runtime) AgentRegistry() *AgentRegistry {
 	return rt.registry
 }
 

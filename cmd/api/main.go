@@ -29,6 +29,7 @@ import (
 	rd "github.com/tonypk/aistarlight-go/internal/platform/redis"
 	"github.com/tonypk/aistarlight-go/internal/agent"
 	"github.com/tonypk/aistarlight-go/internal/agent/agents"
+	"github.com/tonypk/aistarlight-go/internal/agent/tools"
 	"github.com/tonypk/aistarlight-go/internal/repository/sqlc"
 	"github.com/tonypk/aistarlight-go/internal/service"
 )
@@ -328,15 +329,46 @@ type handlers struct {
 	Integration *handler.IntegrationHandler
 }
 
-func newAgentRuntime(ai *oai.Client, q *sqlc.Queries, chatSvc *service.ChatService) *agent.Runtime {
-	registry := agent.NewAgentRegistry()
-	agents.RegisterAll(registry)
-	toolExec := agent.NewToolExecutor(chatSvc)
-	return agent.NewRuntime(registry, ai, q, toolExec.MakeExecuteFunc())
+func newAgentRuntime(ai *oai.Client, q *sqlc.Queries, pool *pgxpool.Pool, chatSvc *service.ChatService, svc services) *agent.Runtime {
+	// Agent registry
+	agentRegistry := agent.NewAgentRegistry()
+	agents.RegisterAll(agentRegistry)
+
+	// Tool registry — register all tools
+	toolRegistry := agent.NewToolRegistry()
+	tools.RegisterShared(toolRegistry, svc.Knowledge, svc.Dashboard, q)
+	tools.RegisterClassification(toolRegistry, svc.Session, svc.Classifier)
+	tools.RegisterJournal(toolRegistry, svc.Journal, svc.Account, svc.JournalGen)
+	tools.RegisterReconciliation(toolRegistry, svc.Session)
+	tools.RegisterReporting(toolRegistry, svc.Report, svc.Compliance)
+	tools.RegisterCompliance(toolRegistry, svc.Compliance, svc.Report)
+	tools.RegisterAudit(toolRegistry)
+
+	// ActionPlan manager
+	actionPlanMgr := agent.NewActionPlanManager(pool, q, toolRegistry)
+
+	// Tool executor (with ChatService fallback for unmigrated tools)
+	toolExecutor := agent.NewToolExecutor(toolRegistry, actionPlanMgr, chatSvc)
+
+	return agent.NewRuntime(agentRegistry, toolRegistry, ai, q, toolExecutor, actionPlanMgr)
 }
 
-func newHandlers(svc services, cfg *config.Config, ai *oai.Client, q *sqlc.Queries) handlers {
-	agentRuntime := newAgentRuntime(ai, q, svc.Chat)
+func newHandlers(svc services, cfg *config.Config, ai *oai.Client, q *sqlc.Queries, pool *pgxpool.Pool) handlers {
+	agentRuntime := newAgentRuntime(ai, q, pool, svc.Chat, svc)
+
+	// Background cleanup of expired action plans
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			if n, err := agentRuntime.ActionPlans().TimeoutExpired(context.Background()); err != nil {
+				slog.Error("action plan timeout cleanup failed", "error", err)
+			} else if n > 0 {
+				slog.Info("timed out expired action plans", "count", n)
+			}
+		}
+	}()
+
 	return handlers{
 		Auth:           handler.NewAuthHandler(svc.Auth, svc.Company, q, cfg.Telegram.BotUsername),
 		Org:            handler.NewOrgHandler(svc.Org),

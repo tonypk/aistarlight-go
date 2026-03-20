@@ -208,6 +208,9 @@ func (rt *Router) Setup(r *gin.Engine) {
 			agentGroup.POST("/:agentId/stream", rt.Agent.Stream)
 			agentGroup.GET("/:agentId/threads", rt.Agent.ListThreads)
 			agentGroup.GET("/:agentId/threads/:threadId/messages", rt.Agent.ThreadMessages)
+			agentGroup.POST("/:agentId/actions/:planId/confirm", rt.Agent.ConfirmAction)
+			agentGroup.POST("/:agentId/actions/:planId/cancel", rt.Agent.CancelAction)
+			agentGroup.GET("/:agentId/threads/:threadId/pending-actions", rt.Agent.PendingActions)
 		}
 	}
 

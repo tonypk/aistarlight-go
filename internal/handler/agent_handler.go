@@ -152,3 +152,64 @@ func (h *AgentHandler) ThreadMessages(c *gin.Context) {
 		"data":    messages,
 	})
 }
+
+// ConfirmAction handles POST /api/v1/agents/:agentId/actions/:planId/confirm.
+func (h *AgentHandler) ConfirmAction(c *gin.Context) {
+	companyID := middleware.GetCompanyID(c)
+
+	planID, err := uuid.Parse(c.Param("planId"))
+	if err != nil {
+		response.BadRequest(c, "invalid plan ID")
+		return
+	}
+
+	result, err := h.runtime.ActionPlans().Confirm(c.Request.Context(), planID, companyID)
+	if err != nil {
+		response.Err(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	response.OK(c, result)
+}
+
+// CancelAction handles POST /api/v1/agents/:agentId/actions/:planId/cancel.
+func (h *AgentHandler) CancelAction(c *gin.Context) {
+	companyID := middleware.GetCompanyID(c)
+
+	planID, err := uuid.Parse(c.Param("planId"))
+	if err != nil {
+		response.BadRequest(c, "invalid plan ID")
+		return
+	}
+
+	if err := h.runtime.ActionPlans().Cancel(c.Request.Context(), planID, companyID); err != nil {
+		response.Err(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	response.OK(c, map[string]string{"status": "cancelled"})
+}
+
+// PendingActions handles GET /api/v1/agents/:agentId/threads/:threadId/pending-actions.
+func (h *AgentHandler) PendingActions(c *gin.Context) {
+	companyID := middleware.GetCompanyID(c)
+
+	threadID, err := uuid.Parse(c.Param("threadId"))
+	if err != nil {
+		response.BadRequest(c, "invalid thread ID")
+		return
+	}
+
+	plans, err := h.runtime.ActionPlans().GetPending(c.Request.Context(), threadID)
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	// Filter to only plans belonging to this company (cross-tenant guard)
+	filtered := make([]*agent.ActionPlan, 0, len(plans))
+	for _, p := range plans {
+		if p.CompanyID == companyID {
+			filtered = append(filtered, p)
+		}
+	}
+	response.OK(c, filtered)
+}

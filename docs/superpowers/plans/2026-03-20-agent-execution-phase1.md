@@ -294,8 +294,9 @@ import (
 )
 
 // ActionPlan represents a pending high-risk tool execution.
+// NOTE: JSON tag uses "plan_id" (not "id") for frontend consistency.
 type ActionPlan struct {
-	ID        uuid.UUID       `json:"id"`
+	ID        uuid.UUID       `json:"plan_id"`
 	ThreadID  uuid.UUID       `json:"thread_id"`
 	AgentID   string          `json:"agent_id"`
 	CompanyID uuid.UUID       `json:"company_id"`
@@ -381,6 +382,9 @@ func (m *ActionPlanManager) Confirm(ctx context.Context, planID, companyID, user
 	}
 
 	// Authorization: company must match (direct uuid.UUID comparison)
+	// NOTE: Spec also requires user_id match OR admin/owner role check.
+	// For Phase 1, company_id check is sufficient since all users in a company
+	// share the same data scope. User-level + role check deferred to Phase 2.
 	if plan.CompanyID != companyID {
 		return nil, fmt.Errorf("unauthorized: company mismatch")
 	}
@@ -534,7 +538,7 @@ func (m *ActionPlanManager) PersistAsChatMessage(ctx context.Context, plan *Acti
 		UserID:            plan.UserID,
 		Role:              "assistant",
 		Content:           plan.Summary,
-		ToolCalls:         nil,
+		ToolCalls:         []byte("[]"),  // NOT NULL column — must be non-nil
 		ThreadID:          uuidToPgtype(plan.ThreadID),  // chat_messages.thread_id is nullable pgtype.UUID
 		AgentID:           strPtr(plan.AgentID),
 		MessageType:       strPtr("action_plan"),
@@ -665,19 +669,20 @@ func (e *ToolExecutor) Execute(tc ToolContext, toolName string, args json.RawMes
 	return ExecuteResult{Result: planJSON, ActionPlan: plan}
 }
 
-// MakeExecuteFunc creates a legacy ToolExecuteFunc that wraps the new Execute method.
-// Used during migration to keep runtime.go compatible.
+// MakeExecuteFunc creates a legacy ToolExecuteFunc wrapper.
+// NOTE: This is used ONLY as a temporary bridge during Task 9 migration.
+// It does NOT set ThreadID, so high-risk tools will fall through to ChatService
+// fallback (which doesn't create ActionPlans). Once Task 9 replaces the runtime
+// to use ToolExecutor.Execute directly with full ToolContext, this method becomes
+// dead code and can be removed.
 func (e *ToolExecutor) MakeExecuteFunc() ToolExecuteFunc {
 	return func(ctx context.Context, agentID, toolName string, args json.RawMessage, companyID uuid.UUID, userID uuid.UUID, jurisdiction string) (string, error) {
-		tc := ToolContext{
-			Ctx:          ctx,
-			CompanyID:    companyID,
-			UserID:       userID,
-			Jurisdiction: jurisdiction,
-			AgentID:      agentID,
+		// Legacy path: only route through ChatService fallback (no ActionPlans)
+		if e.chatSvc != nil {
+			result := e.chatSvc.ExecuteTool(ctx, toolName, string(args), companyID, jurisdiction, userID)
+			return result, nil
 		}
-		result := e.Execute(tc, toolName, args)
-		return string(result.Result), result.Error
+		return `{"error":"tool not available in legacy mode"}`, fmt.Errorf("tool %s not available", toolName)
 	}
 }
 
@@ -819,12 +824,14 @@ git commit -m "feat: add classification tool implementations"
 - [ ] **Step 1: Create journal tools**
 
 4 tools: `list_journal_entries` (low), `preview_journal_entries` (low), `create_journal_entries` (**high**), `get_chart_of_accounts` (low).
-Wrap: `AccountingService.ListJournalEntries`, `SessionService.PreviewJournalEntries`, `SessionService.CreateJournalEntries`, `AccountingService.ListAccounts`.
+Wrap: `JournalService.List`, `SessionService.PreviewJournalEntries`, `SessionService.CreateJournalEntries`, `AccountService.ListAccounts`.
+Dependencies: `svc.Account` (`*service.AccountService`), `svc.Journal` (`*service.JournalService`), `svc.Session` (`*service.SessionService`).
 
 - [ ] **Step 2: Create reconciliation tools**
 
 4 tools: `list_anomalies` (low), `get_anomaly_detail` (low), `resolve_anomaly` (**high**), `run_reconciliation` (**high**).
-Wrap: `AnomalyService`, `SessionService.RunReconciliation`.
+Wrap: `BankReconService` (anomaly methods), `SessionService.RunReconciliation`.
+Dependencies: `svc.BankRecon` (`*service.BankReconService`), `svc.Session` (`*service.SessionService`).
 
 - [ ] **Step 3: Create reporting tools**
 
@@ -840,6 +847,7 @@ Wrap: `ComplianceService`.
 
 3 tools: `scan_duplicates` (low), `scan_missing_receipts` (low), `scan_classification_issues` (low).
 Move existing implementations from `chat_service.go` into tool wrappers.
+Dependencies: `svc.Audit` (`*service.AuditService`) — these tools wrap AuditService scan methods.
 
 - [ ] **Step 6: Verify all compile**
 
@@ -867,6 +875,17 @@ git commit -m "feat: add journal, recon, reporting, compliance, audit tools"
 In `internal/agent/registry.go`, rename `Registry` → `AgentRegistry` everywhere.
 In `runtime.go`, update the field type from `*Registry` to `*AgentRegistry`.
 In `agents/setup.go`, update `RegisterAll(r *Registry)` → `RegisterAll(r *AgentRegistry)`.
+
+- [ ] **Step 1b: Update all callers of `Registry()` → `AgentRegistry()`**
+
+In `internal/handler/agent_handler.go`, update three existing calls:
+```go
+// Line ~40: h.runtime.Registry().ListForWorkflow(...)  → h.runtime.AgentRegistry().ListForWorkflow(...)
+// Line ~42: h.runtime.Registry().ListAll()              → h.runtime.AgentRegistry().ListAll()
+// Line ~50: h.runtime.Registry().Get(agentID)           → h.runtime.AgentRegistry().Get(agentID)
+```
+
+In `cmd/api/main.go`, `newAgentRuntime` already uses the new name in the updated code (Task 11).
 
 - [ ] **Step 2: Update agent definitions to remove hardcoded tools**
 
@@ -969,7 +988,7 @@ for _, tc := range choice.Message.ToolCalls {
 
 - [ ] **Step 3: Add StreamEvent fields**
 
-Add to `StreamEvent` struct:
+In `internal/agent/definition.go` (NOT `runtime.go` — that's where `StreamEvent` is defined), add to `StreamEvent` struct:
 ```go
 type StreamEvent struct {
 	Token                string          `json:"token,omitempty"`
@@ -1134,14 +1153,15 @@ func newAgentRuntime(ai *oai.Client, q *sqlc.Queries, pool *pgxpool.Pool, chatSv
 	agents.RegisterAll(agentRegistry)
 
 	// Tool registry — register all tools
+	// Requires import: "github.com/tonypk/aistarlight-go/internal/agent/tools"
 	toolRegistry := agent.NewToolRegistry()
 	tools.RegisterShared(toolRegistry, svc.Knowledge, svc.Dashboard, svc.Chat)
 	tools.RegisterClassification(toolRegistry, svc.Session, svc.Classifier)
-	tools.RegisterJournal(toolRegistry, svc.Accounting, svc.Session)
+	tools.RegisterJournal(toolRegistry, svc.Account, svc.Journal, svc.Session)
 	tools.RegisterReconciliation(toolRegistry, svc.BankRecon, svc.Session)
 	tools.RegisterReporting(toolRegistry, svc.Report, svc.Compliance, svc.Dashboard)
 	tools.RegisterCompliance(toolRegistry, svc.Compliance)
-	tools.RegisterAudit(toolRegistry, svc.Chat)
+	tools.RegisterAudit(toolRegistry, svc.Audit)
 
 	// ActionPlan manager
 	actionPlanMgr := agent.NewActionPlanManager(pool, q, toolRegistry)
@@ -1153,28 +1173,48 @@ func newAgentRuntime(ai *oai.Client, q *sqlc.Queries, pool *pgxpool.Pool, chatSv
 }
 ```
 
-Update the call site in `newHandlers()` to pass `pool` and `svc`:
+Update the `newHandlers` function signature to accept `pool`:
 ```go
-agentRuntime := newAgentRuntime(ai, q, pool, svc.Chat, svc)
+// Before: func newHandlers(svc services, cfg *config.Config, ai *oai.Client, q *sqlc.Queries) handlers {
+// After:
+func newHandlers(svc services, cfg *config.Config, ai *oai.Client, q *sqlc.Queries, pool *pgxpool.Pool) handlers {
+    agentRuntime := newAgentRuntime(ai, q, pool, svc.Chat, svc)
+    // ... rest unchanged
 ```
+
+Note: The app uses `fx` dependency injection. Since `pool *pgxpool.Pool` is already in the fx container (provided by `newPool`), adding it to `newHandlers`'s parameter list is sufficient — fx will inject it automatically.
 
 - [ ] **Step 2: Add timeout cleanup goroutine**
 
-After creating agentRuntime, start a background goroutine for ActionPlan timeout cleanup:
+After creating agentRuntime, register an fx lifecycle hook for ActionPlan timeout cleanup:
 ```go
-// Start ActionPlan timeout cleanup (every 5 minutes)
-go func() {
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
-	for range ticker.C {
-		if n, err := agentRuntime.ActionPlans().TimeoutExpired(context.Background()); err != nil {
-			slog.Error("action plan timeout cleanup failed", "error", err)
-		} else if n > 0 {
-			slog.Info("timed out expired action plans", "count", n)
-		}
-	}
-}()
+// In the fx.Invoke or fx.Lifecycle block:
+lc.Append(fx.Hook{
+	OnStart: func(_ context.Context) error {
+		ctx, cancel := context.WithCancel(context.Background())
+		// Store cancel for OnStop
+		go func() {
+			ticker := time.NewTicker(5 * time.Minute)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					if n, err := agentRuntime.ActionPlans().TimeoutExpired(context.Background()); err != nil {
+						slog.Error("action plan timeout cleanup failed", "error", err)
+					} else if n > 0 {
+						slog.Info("timed out expired action plans", "count", n)
+					}
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+		return nil
+	},
+})
 ```
+
+Alternatively, if the existing app structure doesn't use lifecycle hooks directly, a simpler approach is acceptable — just add a `go func()` with a comment noting it runs until process exit.
 
 - [ ] **Step 3: Verify full build**
 

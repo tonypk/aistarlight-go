@@ -46,6 +46,25 @@ type AccountingPeriod struct {
 	UpdatedAt  time.Time          `json:"updated_at"`
 }
 
+type ActionPlan struct {
+	ID           uuid.UUID          `json:"id"`
+	ThreadID     uuid.UUID          `json:"thread_id"`
+	AgentID      string             `json:"agent_id"`
+	CompanyID    uuid.UUID          `json:"company_id"`
+	UserID       uuid.UUID          `json:"user_id"`
+	ToolName     string             `json:"tool_name"`
+	ToolArgs     []byte             `json:"tool_args"`
+	Summary      string             `json:"summary"`
+	Impact       []byte             `json:"impact"`
+	Status       string             `json:"status"`
+	Result       []byte             `json:"result"`
+	ErrorMessage *string            `json:"error_message"`
+	CreatedAt    time.Time          `json:"created_at"`
+	UpdatedAt    time.Time          `json:"updated_at"`
+	ConfirmedAt  pgtype.Timestamptz `json:"confirmed_at"`
+	ExecutedAt   pgtype.Timestamptz `json:"executed_at"`
+}
+
 type AgentActionLog struct {
 	ID           uuid.UUID   `json:"id"`
 	ThreadID     pgtype.UUID `json:"thread_id"`

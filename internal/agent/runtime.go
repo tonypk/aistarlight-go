@@ -210,6 +210,7 @@ func (rt *Runtime) ProcessStream(ctx context.Context, req AgentRequest) (<-chan 
 						}
 					}
 				}
+				rt.saveMessage(context.WithoutCancel(ctx), req.CompanyID, req.UserID, threadID, req.AgentID, "assistant", fullContent, toolResults)
 				ch <- StreamEvent{
 					Done:                 true,
 					Content:              fullContent,
@@ -217,15 +218,14 @@ func (rt *Runtime) ProcessStream(ctx context.Context, req AgentRequest) (<-chan 
 					AwaitingConfirmation: true,
 					PendingPlanID:        pendingPlanID,
 				}
-				rt.saveMessage(ctx, req.CompanyID, req.UserID, threadID, req.AgentID, "assistant", fullContent, toolResults)
 				return
 			}
 		} else if choice.Message.Content != "" {
 			// No tool calls, direct response
 			content := choice.Message.Content
 			ch <- StreamEvent{Token: content}
+			rt.saveMessage(context.WithoutCancel(ctx), req.CompanyID, req.UserID, threadID, req.AgentID, "assistant", content, toolResults)
 			ch <- StreamEvent{Done: true, Content: content, ThreadID: tid}
-			rt.saveMessage(ctx, req.CompanyID, req.UserID, threadID, req.AgentID, "assistant", content, toolResults)
 			return
 		}
 
@@ -244,8 +244,8 @@ func (rt *Runtime) ProcessStream(ctx context.Context, req AgentRequest) (<-chan 
 		}
 		fullContent := buf.String()
 
+		rt.saveMessage(context.WithoutCancel(ctx), req.CompanyID, req.UserID, threadID, req.AgentID, "assistant", fullContent, toolResults)
 		ch <- StreamEvent{Done: true, Content: fullContent, ThreadID: tid}
-		rt.saveMessage(ctx, req.CompanyID, req.UserID, threadID, req.AgentID, "assistant", fullContent, toolResults)
 	}()
 
 	return ch, nil

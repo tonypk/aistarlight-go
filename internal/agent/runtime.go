@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -15,25 +16,34 @@ import (
 
 // Runtime executes agent interactions using the shared LLM client.
 type Runtime struct {
-	registry *AgentRegistry
-	ai       *openai.Client
-	q        *sqlc.Queries
-	execTool ToolExecuteFunc
+	agentRegistry *AgentRegistry
+	toolRegistry  *ToolRegistry
+	ai            *openai.Client
+	q             *sqlc.Queries
+	executor      *ToolExecutor
+	actionPlans   *ActionPlanManager
 }
 
 // NewRuntime creates an agent runtime.
-func NewRuntime(registry *AgentRegistry, ai *openai.Client, q *sqlc.Queries, execTool ToolExecuteFunc) *Runtime {
+func NewRuntime(agentRegistry *AgentRegistry, toolRegistry *ToolRegistry, ai *openai.Client, q *sqlc.Queries, executor *ToolExecutor, actionPlans *ActionPlanManager) *Runtime {
 	return &Runtime{
-		registry: registry,
-		ai:       ai,
-		q:        q,
-		execTool: execTool,
+		agentRegistry: agentRegistry,
+		toolRegistry:  toolRegistry,
+		ai:            ai,
+		q:             q,
+		executor:      executor,
+		actionPlans:   actionPlans,
 	}
 }
 
 // AgentRegistry returns the agent registry.
 func (rt *Runtime) AgentRegistry() *AgentRegistry {
-	return rt.registry
+	return rt.agentRegistry
+}
+
+// ActionPlans returns the action plan manager.
+func (rt *Runtime) ActionPlans() *ActionPlanManager {
+	return rt.actionPlans
 }
 
 // ToolCallResult holds the result of executing a tool.
@@ -50,7 +60,7 @@ func (rt *Runtime) ProcessStream(ctx context.Context, req AgentRequest) (<-chan 
 	}
 
 	// Resolve agent
-	agentDef, ok := rt.registry.Get(req.AgentID)
+	agentDef, ok := rt.agentRegistry.Get(req.AgentID)
 	if !ok {
 		return nil, fmt.Errorf("unknown agent: %s", req.AgentID)
 	}
@@ -73,7 +83,9 @@ func (rt *Runtime) ProcessStream(ctx context.Context, req AgentRequest) (<-chan 
 
 	// Build messages with context injection
 	messages := rt.buildMessages(agentDef, req.Jurisdiction, req.Context, history, req.Content)
-	tools := agentDef.ToolsFor(req.Jurisdiction)
+	tools := rt.toolRegistry.ForAgent(req.AgentID)
+	// Merge with agent definition's jurisdiction-specific tools (for unmigrated tools like audit)
+	tools = append(tools, agentDef.ToolsFor(req.Jurisdiction)...)
 
 	// Save user message
 	rt.saveMessage(ctx, req.CompanyID, req.UserID, threadID, req.AgentID, "user", req.Content, nil)
@@ -115,30 +127,50 @@ func (rt *Runtime) ProcessStream(ctx context.Context, req AgentRequest) (<-chan 
 		// Execute tool calls if present
 		if choice.FinishReason == oai.FinishReasonToolCalls && len(choice.Message.ToolCalls) > 0 {
 			messages = append(messages, choice.Message)
+			awaitingConfirmation := false
+
 			for _, tc := range choice.Message.ToolCalls {
 				// Send executing event for each tool
 				execEvt, _ := json.Marshal([]map[string]string{{"tool_name": tc.Function.Name, "status": "executing"}})
 				ch <- StreamEvent{ToolCalls: execEvt}
 
-				result, execErr := rt.execTool(ctx, req.AgentID, tc.Function.Name, json.RawMessage(tc.Function.Arguments), req.CompanyID, req.UserID, req.Jurisdiction)
+				toolCtx := ToolContext{
+					Ctx:          ctx,
+					CompanyID:    req.CompanyID,
+					UserID:       req.UserID,
+					Jurisdiction: req.Jurisdiction,
+					AgentID:      req.AgentID,
+					ThreadID:     threadID,
+				}
+
+				result := rt.executor.Execute(toolCtx, tc.Function.Name, json.RawMessage(tc.Function.Arguments))
+
 				status := "success"
-				if execErr != nil {
-					result = jsonError(execErr.Error())
+				if result.Error != nil {
 					status = "error"
 				}
+
 				toolResults = append(toolResults, ToolCallResult{
 					ToolName: tc.Function.Name,
 					ToolID:   tc.ID,
-					Result:   result,
+					Result:   string(result.Result),
 				})
 				messages = append(messages, oai.ChatCompletionMessage{
 					Role:       oai.ChatMessageRoleTool,
-					Content:    result,
+					Content:    string(result.Result),
 					ToolCallID: tc.ID,
 				})
 
 				// Log action to audit table
-				rt.logAction(ctx, threadID, req.CompanyID, req.UserID, req.AgentID, tc.Function.Name, tc.Function.Arguments, result, status)
+				rt.logAction(ctx, threadID, req.CompanyID, req.UserID, req.AgentID, tc.Function.Name, tc.Function.Arguments, string(result.Result), status)
+
+				if result.ActionPlan != nil {
+					// High-risk: emit action_plan event
+					planEvt, _ := json.Marshal(result.ActionPlan)
+					ch <- StreamEvent{ActionPlan: planEvt}
+					awaitingConfirmation = true
+					break
+				}
 			}
 
 			// Send completed tool_calls event
@@ -151,6 +183,42 @@ func (rt *Runtime) ProcessStream(ctx context.Context, req AgentRequest) (<-chan 
 				if actJSON, err := json.Marshal(actions); err == nil {
 					ch <- StreamEvent{Actions: actJSON}
 				}
+			}
+
+			if awaitingConfirmation {
+				// Stream a follow-up LLM response about the pending action
+				stream, streamErr := rt.ai.ChatCompletionStream(ctx, messages)
+				if streamErr != nil {
+					ch <- StreamEvent{Error: streamErr.Error()}
+					return
+				}
+				tokenCh := openai.StreamTokens(stream)
+				var buf strings.Builder
+				for token := range tokenCh {
+					buf.WriteString(token)
+					ch <- StreamEvent{Token: token}
+				}
+				fullContent := buf.String()
+				// Emit done with awaiting_confirmation flag
+				pendingPlanID := ""
+				if len(toolResults) > 0 {
+					// Extract plan_id from the last tool result
+					var resultData map[string]interface{}
+					if err := json.Unmarshal([]byte(toolResults[len(toolResults)-1].Result), &resultData); err == nil {
+						if pid, ok := resultData["plan_id"].(string); ok {
+							pendingPlanID = pid
+						}
+					}
+				}
+				ch <- StreamEvent{
+					Done:                 true,
+					Content:              fullContent,
+					ThreadID:             tid,
+					AwaitingConfirmation: true,
+					PendingPlanID:        pendingPlanID,
+				}
+				rt.saveMessage(ctx, req.CompanyID, req.UserID, threadID, req.AgentID, "assistant", fullContent, toolResults)
+				return
 			}
 		} else if choice.Message.Content != "" {
 			// No tool calls, direct response
@@ -169,11 +237,12 @@ func (rt *Runtime) ProcessStream(ctx context.Context, req AgentRequest) (<-chan 
 		}
 
 		tokenCh := openai.StreamTokens(stream)
-		var fullContent string
+		var buf strings.Builder
 		for token := range tokenCh {
-			fullContent += token
+			buf.WriteString(token)
 			ch <- StreamEvent{Token: token}
 		}
+		fullContent := buf.String()
 
 		ch <- StreamEvent{Done: true, Content: fullContent, ThreadID: tid}
 		rt.saveMessage(ctx, req.CompanyID, req.UserID, threadID, req.AgentID, "assistant", fullContent, toolResults)
@@ -389,7 +458,3 @@ func extractActions(results []ToolCallResult) []ActionButton {
 	return actions
 }
 
-func jsonError(msg string) string {
-	result, _ := json.Marshal(map[string]string{"error": msg})
-	return string(result)
-}

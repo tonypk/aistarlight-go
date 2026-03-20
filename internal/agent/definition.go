@@ -69,14 +69,17 @@ func (d *AgentDefinition) Info() AgentInfo {
 
 // StreamEvent represents a single event in the SSE stream.
 type StreamEvent struct {
-	Token      string          `json:"token,omitempty"`
-	Done       bool            `json:"done,omitempty"`
-	Content    string          `json:"content,omitempty"`
-	Error      string          `json:"error,omitempty"`
-	ThreadID   string          `json:"thread_id,omitempty"`
-	ToolCalls  json.RawMessage `json:"tool_calls,omitempty"`
-	Actions    json.RawMessage `json:"actions,omitempty"`
-	Citations  json.RawMessage `json:"citations,omitempty"`
+	Token                string          `json:"token,omitempty"`
+	Done                 bool            `json:"done,omitempty"`
+	Content              string          `json:"content,omitempty"`
+	Error                string          `json:"error,omitempty"`
+	ThreadID             string          `json:"thread_id,omitempty"`
+	ToolCalls            json.RawMessage `json:"tool_calls,omitempty"`
+	Actions              json.RawMessage `json:"actions,omitempty"`
+	Citations            json.RawMessage `json:"citations,omitempty"`
+	ActionPlan           json.RawMessage `json:"action_plan,omitempty"`
+	AwaitingConfirmation bool            `json:"awaiting_confirmation,omitempty"`
+	PendingPlanID        string          `json:"pending_plan_id,omitempty"`
 }
 
 // AgentRequest is the input for an agent interaction.

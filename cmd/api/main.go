@@ -418,7 +418,7 @@ func newHandlers(svc services, cfg *config.Config, ai *oai.Client, q *sqlc.Queri
 		OrgDashboard:   handler.NewOrgDashboardHandler(svc.OrgDashboard),
 		GLMapping:      handler.NewGLMappingHandler(svc.GLMapping),
 		Webhook:        handler.NewWebhookHandler(q, slog.Default()),
-		Integration:    handler.NewIntegrationHandler(q),
+		Integration:    handler.NewIntegrationHandler(q, cfg.Integration.JWTSecret),
 	}
 }
 

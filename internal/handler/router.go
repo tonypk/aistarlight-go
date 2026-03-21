@@ -659,6 +659,7 @@ func (rt *Router) Setup(r *gin.Engine) {
 			integrations.GET("/events", rt.Integration.ListEvents)
 			integrations.POST("/events/:id/replay", rt.Integration.ReplayEvent)
 			integrations.POST("/events/replay-all-failed", rt.Integration.ReplayAllFailed)
+			integrations.GET("/hr/sso-token", rt.Integration.GetHRSSOToken)
 		}
 	}
 

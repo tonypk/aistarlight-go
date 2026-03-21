@@ -3,8 +3,12 @@ package handler
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
+	"os"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 
 	"github.com/tonypk/aistarlight-go/internal/handler/middleware"
@@ -15,12 +19,79 @@ import (
 
 // IntegrationHandler handles integration source and event inbox endpoints.
 type IntegrationHandler struct {
-	q *sqlc.Queries
+	q         *sqlc.Queries
+	jwtSecret string
 }
 
 // NewIntegrationHandler creates a new integration handler.
-func NewIntegrationHandler(q *sqlc.Queries) *IntegrationHandler {
-	return &IntegrationHandler{q: q}
+func NewIntegrationHandler(q *sqlc.Queries, jwtSecret string) *IntegrationHandler {
+	return &IntegrationHandler{q: q, jwtSecret: jwtSecret}
+}
+
+// financeToHRClaims defines the JWT claims for Finance→HR SSO tokens.
+type financeToHRClaims struct {
+	jwt.RegisteredClaims
+	Email            string `json:"email"`
+	FinanceCompanyID string `json:"finance_company_id"`
+	FinanceUserID    string `json:"finance_user_id"`
+}
+
+// GetHRSSOToken generates a short-lived JWT for SSO into the HR system.
+func (h *IntegrationHandler) GetHRSSOToken(c *gin.Context) {
+	if h.jwtSecret == "" {
+		response.InternalError(c, "SSO integration not configured")
+		return
+	}
+
+	companyID := middleware.GetCompanyID(c)
+	userID := middleware.GetUserID(c)
+	// Get email from context (middleware stores it with key "email")
+	emailVal, _ := c.Get("email")
+	email, _ := emailVal.(string)
+
+	// Check that an active HR integration source exists for this company
+	source, err := h.q.GetIntegrationSource(c.Request.Context(), sqlc.GetIntegrationSourceParams{
+		CompanyID:    companyID,
+		SourceSystem: "aigonhr",
+	})
+	if err != nil {
+		response.NotFound(c, "no HR integration configured for this company")
+		return
+	}
+	if source.Status != "active" {
+		response.NotFound(c, "HR integration is not active")
+		return
+	}
+
+	now := time.Now()
+	claims := &financeToHRClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "aistarlight",
+			ExpiresAt: jwt.NewNumericDate(now.Add(5 * time.Minute)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			ID:        fmt.Sprintf("sso-%s-%d", userID.String(), now.UnixMilli()),
+		},
+		Email:            email,
+		FinanceCompanyID: companyID.String(),
+		FinanceUserID:    userID.String(),
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenStr, err := token.SignedString([]byte(h.jwtSecret))
+	if err != nil {
+		response.InternalError(c, "failed to generate SSO token")
+		return
+	}
+
+	targetURL := os.Getenv("HR_BASE_URL")
+	if targetURL == "" {
+		targetURL = "https://hr.halaos.com"
+	}
+
+	response.OK(c, gin.H{
+		"sso_token":  tokenStr,
+		"target_url": targetURL,
+	})
 }
 
 // ListSources returns integration sources for the current company.

@@ -24,6 +24,8 @@ const (
 	SourceReconciliation JournalSourceType = "reconciliation"
 	SourceOpeningBalance JournalSourceType = "opening_balance"
 	SourceYearEndClose   JournalSourceType = "year_end_close"
+	SourceExpenseReimbursement JournalSourceType = "expense_reimbursement"
+	SourceExpensePayment       JournalSourceType = "expense_payment"
 )
 
 type JournalEntry struct {

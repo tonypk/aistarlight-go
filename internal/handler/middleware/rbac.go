@@ -82,8 +82,10 @@ type OrgAccessChecker interface {
 func roleLevel(r domain.CompanyRole) int {
 	switch r {
 	case domain.CompanyRoleAdmin:
-		return 3
+		return 4
 	case domain.CompanyRoleAccountant:
+		return 3
+	case domain.CompanyRoleMember:
 		return 2
 	case domain.CompanyRoleViewer:
 		return 1

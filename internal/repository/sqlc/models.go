@@ -312,6 +312,89 @@ type ExchangeRate struct {
 	CreatedAt     time.Time      `json:"created_at"`
 }
 
+type ExpenseApprover struct {
+	ID             uuid.UUID      `json:"id"`
+	CompanyID      uuid.UUID      `json:"company_id"`
+	DepartmentName string         `json:"department_name"`
+	ApproverUserID uuid.UUID      `json:"approver_user_id"`
+	MaxAmount      pgtype.Numeric `json:"max_amount"`
+	Priority       int32          `json:"priority"`
+	IsActive       bool           `json:"is_active"`
+	CreatedAt      time.Time      `json:"created_at"`
+	UpdatedAt      time.Time      `json:"updated_at"`
+}
+
+type ExpenseAuditLog struct {
+	ID              uuid.UUID   `json:"id"`
+	ExpenseReportID pgtype.UUID `json:"expense_report_id"`
+	Action          string      `json:"action"`
+	ActorUserID     pgtype.UUID `json:"actor_user_id"`
+	ActorType       string      `json:"actor_type"`
+	Details         []byte      `json:"details"`
+	CreatedAt       time.Time   `json:"created_at"`
+}
+
+type ExpenseItem struct {
+	ID                   uuid.UUID      `json:"id"`
+	ExpenseReportID      uuid.UUID      `json:"expense_report_id"`
+	Category             string         `json:"category"`
+	Description          string         `json:"description"`
+	Amount               pgtype.Numeric `json:"amount"`
+	Currency             string         `json:"currency"`
+	MerchantName         *string        `json:"merchant_name"`
+	TransactionDate      pgtype.Date    `json:"transaction_date"`
+	ReceiptUrl           *string        `json:"receipt_url"`
+	ReceiptOcrData       []byte         `json:"receipt_ocr_data"`
+	AiCategoryConfidence pgtype.Numeric `json:"ai_category_confidence"`
+	GlAccountID          pgtype.UUID    `json:"gl_account_id"`
+	PolicyID             pgtype.UUID    `json:"policy_id"`
+	CreatedAt            time.Time      `json:"created_at"`
+	UpdatedAt            time.Time      `json:"updated_at"`
+}
+
+type ExpensePolicy struct {
+	ID                   uuid.UUID      `json:"id"`
+	CompanyID            uuid.UUID      `json:"company_id"`
+	Name                 string         `json:"name"`
+	Category             string         `json:"category"`
+	MaxAmount            pgtype.Numeric `json:"max_amount"`
+	RequiresReceiptAbove pgtype.Numeric `json:"requires_receipt_above"`
+	AutoApproveBelow     pgtype.Numeric `json:"auto_approve_below"`
+	AiAutoApprove        bool           `json:"ai_auto_approve"`
+	Description          *string        `json:"description"`
+	IsActive             bool           `json:"is_active"`
+	CreatedAt            time.Time      `json:"created_at"`
+	UpdatedAt            time.Time      `json:"updated_at"`
+}
+
+type ExpenseReport struct {
+	ID                    uuid.UUID          `json:"id"`
+	CompanyID             uuid.UUID          `json:"company_id"`
+	SubmitterUserID       uuid.UUID          `json:"submitter_user_id"`
+	HrPayeeID             pgtype.UUID        `json:"hr_payee_id"`
+	ReportNumber          string             `json:"report_number"`
+	Title                 string             `json:"title"`
+	Status                string             `json:"status"`
+	TotalAmount           pgtype.Numeric     `json:"total_amount"`
+	Currency              string             `json:"currency"`
+	SubmittedAt           pgtype.Timestamptz `json:"submitted_at"`
+	AiReviewedAt          pgtype.Timestamptz `json:"ai_reviewed_at"`
+	AiRiskScore           *int32             `json:"ai_risk_score"`
+	AiDecision            *string            `json:"ai_decision"`
+	AiDecisionReason      *string            `json:"ai_decision_reason"`
+	ApproverUserID        pgtype.UUID        `json:"approver_user_id"`
+	ApprovedAt            pgtype.Timestamptz `json:"approved_at"`
+	RejectionReason       *string            `json:"rejection_reason"`
+	ReviewerUserID        pgtype.UUID        `json:"reviewer_user_id"`
+	PaidAt                pgtype.Timestamptz `json:"paid_at"`
+	PaymentReference      *string            `json:"payment_reference"`
+	AccrualJournalEntryID pgtype.UUID        `json:"accrual_journal_entry_id"`
+	PaymentJournalEntryID pgtype.UUID        `json:"payment_journal_entry_id"`
+	Notes                 *string            `json:"notes"`
+	CreatedAt             time.Time          `json:"created_at"`
+	UpdatedAt             time.Time          `json:"updated_at"`
+}
+
 type FormSchema struct {
 	ID               uuid.UUID `json:"id"`
 	FormType         string    `json:"form_type"`

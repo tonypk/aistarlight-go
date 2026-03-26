@@ -41,16 +41,32 @@ All employees access finance.halaos.com:
 
 ### Permission Model
 
-Extends existing RBAC (company_admin / accountant / member / viewer):
+Extends existing RBAC (company_admin / accountant / member / viewer).
+
+**Pre-requisite fix**: The existing `roleLevel()` function in `internal/handler/middleware/rbac.go` maps `member` to level 0 (below `viewer` at 1). This must be corrected before implementing expense routes:
+
+```
+company_admin = 4
+accountant    = 3
+member        = 2
+viewer        = 1
+```
+
+**Expense permissions**:
 
 | Role | Can Submit | Can Approve | Can Mark Paid | Can Manage Policies |
 |------|-----------|-------------|---------------|-------------------|
-| company_admin | Yes | Yes | Yes | Yes |
-| accountant | Yes | No | Yes | No |
-| member | Yes | No | No | No |
+| company_admin | Yes | Via expense_approvers | Yes | Yes |
+| accountant | Yes | Via expense_approvers | Yes | No |
+| member | Yes | Via expense_approvers | No | No |
 | viewer | No | No | No | No |
 
-Approval is role-independent — configured per department via `expense_approvers` table. A `member` who is listed as a department approver can approve expenses for that department.
+Approval is configured per department via `expense_approvers` table. Any user (member, accountant, or admin) listed in `expense_approvers` can approve expenses for that department, subject to the self-approval prevention rule (see Approval Flow).
+
+### Segregation of Duties
+
+- **Self-approval prevention**: A user MUST NOT approve their own expense report. Approver resolution skips any `expense_approvers` row where `approver_user_id = submitter_user_id`. If no eligible approver remains, escalate to `company_admin` (who is also not the submitter). If no eligible admin exists, hold report in `pending_approval` and notify all `company_admin` users.
+- **Admin safeguard**: When a `company_admin` submits an expense, a different `company_admin` or designated approver must approve it. Single-admin companies must designate at least one other approver.
 
 ## Data Model
 
@@ -88,7 +104,7 @@ CREATE TABLE expense_reports (
     hr_payee_id UUID REFERENCES hr_payees(id),  -- links to HR employee record
     report_number TEXT NOT NULL,                  -- auto-generated: EXP-YYYYMM-XXXX
     title TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'draft',          -- draft/submitted/ai_reviewed/pending_approval/approved/rejected/paid
+    status TEXT NOT NULL DEFAULT 'draft',          -- draft/submitted/pending_approval/approved/rejected/paid
     total_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
     currency TEXT NOT NULL DEFAULT 'PHP',
     submitted_at TIMESTAMPTZ,
@@ -99,17 +115,37 @@ CREATE TABLE expense_reports (
     approver_user_id UUID REFERENCES users(id),    -- who approved/rejected
     approved_at TIMESTAMPTZ,
     rejection_reason TEXT,
-    reviewer_user_id UUID REFERENCES users(id),    -- finance reviewer
+    reviewer_user_id UUID REFERENCES users(id),    -- finance reviewer who marked paid
     paid_at TIMESTAMPTZ,
     payment_reference TEXT,                         -- check number, transfer ref, etc.
-    journal_entry_id UUID,                          -- FK to journal_entries after GL posting
+    accrual_journal_entry_id UUID REFERENCES journal_entries(id),  -- DR Expense / CR Payable
+    payment_journal_entry_id UUID REFERENCES journal_entries(id),  -- DR Payable / CR Cash
     notes TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_expense_report_number UNIQUE (company_id, report_number),
+    CHECK (currency = 'PHP')
 );
 CREATE INDEX idx_expense_reports_company_status ON expense_reports(company_id, status);
 CREATE INDEX idx_expense_reports_submitter ON expense_reports(submitter_user_id, created_at DESC);
 ```
+
+**Report number generation**: Use a per-company sequence via advisory lock:
+```sql
+SELECT pg_advisory_xact_lock(company_id_bigint);
+SELECT COALESCE(MAX(CAST(SUBSTRING(report_number FROM 'EXP-\d{6}-(\d+)') AS INT)), 0) + 1
+FROM expense_reports WHERE company_id = $1 AND report_number LIKE 'EXP-' || to_char(now(), 'YYYYMM') || '-%';
+```
+Format: `EXP-202603-0001`
+
+**Status transitions** (only these are valid):
+- `draft` → `submitted` (via submit endpoint)
+- `submitted` → `pending_approval` (AI says needs_review or high_risk)
+- `submitted` → `approved` (AI auto-approves)
+- `pending_approval` → `approved` (human approves)
+- `pending_approval` → `rejected` (human rejects)
+- `rejected` → `draft` (employee revises and resubmits)
+- `approved` → `paid` (finance marks paid)
 
 ### expense_items
 
@@ -121,8 +157,8 @@ CREATE TABLE expense_items (
     expense_report_id UUID NOT NULL REFERENCES expense_reports(id) ON DELETE CASCADE,
     category TEXT NOT NULL,                 -- meals/transport/office/travel/entertainment/other
     description TEXT NOT NULL,
-    amount NUMERIC(12,2) NOT NULL,
-    currency TEXT NOT NULL DEFAULT 'PHP',
+    amount NUMERIC(12,2) NOT NULL CHECK (amount > 0),
+    currency TEXT NOT NULL DEFAULT 'PHP' CHECK (currency = 'PHP'),
     merchant_name TEXT,
     transaction_date DATE NOT NULL,
     receipt_url TEXT,                       -- file path or S3 URL
@@ -135,6 +171,10 @@ CREATE TABLE expense_items (
 );
 CREATE INDEX idx_expense_items_report ON expense_items(expense_report_id);
 ```
+
+**Item state gating**: `PUT /items/:id` and `DELETE /items/:id` MUST return 409 Conflict if the parent report status is not `draft`. Items are frozen once submitted.
+
+**Company ownership**: All item endpoints MUST verify company ownership by joining through `expense_reports.company_id`. There is no direct `company_id` on items to avoid denormalization.
 
 ### expense_approvers
 
@@ -149,19 +189,21 @@ CREATE TABLE expense_approvers (
     max_amount NUMERIC(12,2),              -- can approve up to this amount (NULL = unlimited)
     priority INTEGER NOT NULL DEFAULT 0,   -- lower = first choice
     is_active BOOLEAN NOT NULL DEFAULT true,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_expense_approver UNIQUE (company_id, department_name, approver_user_id)
 );
 CREATE INDEX idx_expense_approvers_dept ON expense_approvers(company_id, department_name) WHERE is_active;
 ```
 
 ### expense_audit_log
 
-Immutable audit trail for all expense actions.
+Immutable audit trail for all expense actions. Uses `ON DELETE SET NULL` to preserve audit entries if a report is deleted.
 
 ```sql
 CREATE TABLE expense_audit_log (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    expense_report_id UUID NOT NULL REFERENCES expense_reports(id) ON DELETE CASCADE,
+    expense_report_id UUID REFERENCES expense_reports(id) ON DELETE SET NULL,
     action TEXT NOT NULL,                   -- created/submitted/ai_reviewed/approved/rejected/paid/edited
     actor_user_id UUID REFERENCES users(id),
     actor_type TEXT NOT NULL DEFAULT 'user', -- user/ai/system
@@ -181,21 +223,22 @@ All endpoints under `/api/v1/expenses/`. Requires JWT authentication.
 POST   /reports              Create new expense report (draft)
 GET    /reports              List my reports (paginated, filterable by status/date)
 GET    /reports/:id          Get report detail with items + audit log
-PUT    /reports/:id          Update draft report (title, notes)
-DELETE /reports/:id          Delete draft report
-POST   /reports/:id/items    Add expense item to report
-PUT    /items/:id            Update expense item
-DELETE /items/:id            Delete expense item
-POST   /items/:id/receipt    Upload receipt image (triggers OCR)
-POST   /reports/:id/submit   Submit report for approval
+PUT    /reports/:id          Update draft report (title, notes). Returns 409 if not draft.
+DELETE /reports/:id          Soft-delete draft report. Returns 409 if not draft.
+POST   /reports/:id/items    Add expense item to draft report. Returns 409 if not draft.
+PUT    /items/:id            Update expense item. Returns 409 if parent report not draft.
+DELETE /items/:id            Delete expense item. Returns 409 if parent report not draft.
+POST   /items/:id/receipt    Upload receipt image (triggers OCR). Max 10MB, JPEG/PNG/PDF.
+GET    /receipts/:item_id    Serve receipt file (auth-protected, streams file)
+POST   /reports/:id/submit   Submit report for approval. Returns 422 if 0 items.
 ```
 
 ### Approval Endpoints
 
 ```
 GET    /approvals            List reports pending my approval
-POST   /reports/:id/approve  Approve report
-POST   /reports/:id/reject   Reject report (with reason)
+POST   /reports/:id/approve  Approve report. Returns 403 if self-approval.
+POST   /reports/:id/reject   Reject report (with reason). Returns 403 if self-approval.
 ```
 
 ### Finance Endpoints
@@ -209,17 +252,34 @@ GET    /finance/summary      Spending summary (by period, category, department)
 ### Admin Endpoints
 
 ```
-CRUD   /policies             Manage expense policies
-CRUD   /approvers            Manage department approvers
+POST   /policies             Create expense policy
+GET    /policies             List expense policies
+GET    /policies/:id         Get policy detail
+PUT    /policies/:id         Update expense policy
+DELETE /policies/:id         Deactivate expense policy (soft delete)
+POST   /approvers            Add department approver
+GET    /approvers            List department approvers
+PUT    /approvers/:id        Update approver config
+DELETE /approvers/:id        Remove department approver
 GET    /analytics            Spending analytics dashboard data
 ```
+
+### Validation Rules
+
+- **Submit**: Reject with 422 if report has 0 items
+- **Submit**: Recompute `total_amount` from SUM of items within a `SELECT ... FOR UPDATE` transaction
+- **Item create/edit/delete**: Reject with 409 if parent report status is not `draft`
+- **Report delete**: Only allowed when status is `draft`
+- **Approve/reject**: Reject with 403 if `approver_user_id = submitter_user_id`
+- **Receipt upload**: Validate file magic bytes (not just extension). Max 10MB. Accept only JPEG/PNG/PDF.
+- **Limits**: Max 50 items per report, 1 receipt per item, 100MB total per report
 
 ### Request/Response Patterns
 
 Follow AIStarlight-Go existing patterns:
 - Responses wrapped in `{"success": true, "data": {...}}` envelope
 - Pagination: `?page=1&page_size=20`, response includes `meta.total`
-- Errors: `{"success": false, "error": {"code": "...", "message": "..."}}`
+- Errors: `{"success": false, "error": "message string"}`
 
 ## AI Features
 
@@ -228,21 +288,22 @@ Follow AIStarlight-Go existing patterns:
 **Trigger**: `POST /items/:id/receipt` with image upload.
 
 **Flow**:
-1. Save image to disk/S3 → set `receipt_url`
-2. Send image to Claude Vision API with prompt:
+1. Validate file: check magic bytes, enforce 10MB limit
+2. Save image to disk → set `receipt_url`
+3. Send image to Claude Vision API with prompt:
    ```
    Extract from this receipt: merchant_name, total_amount, currency, date, items/description.
    Return JSON with confidence scores.
    ```
-3. Parse response → auto-fill `merchant_name`, `amount`, `transaction_date`, `category`
-4. Store raw OCR in `receipt_ocr_data` JSONB
-5. Set `ai_category_confidence` based on Claude's confidence
+4. Parse response → auto-fill `merchant_name`, `amount`, `transaction_date`, `category`
+5. Store raw OCR in `receipt_ocr_data` JSONB
+6. Set `ai_category_confidence` based on Claude's confidence
 
-**Error handling**: If OCR fails or confidence < 0.5, leave fields empty for manual entry. Never block submission on OCR failure.
+**Error handling**: If OCR fails or confidence < 0.5, leave fields empty for manual entry. Never block submission on OCR failure. Log OCR errors for monitoring.
 
 ### AI Policy Agent
 
-**Trigger**: `POST /reports/:id/submit` — runs after status changes to `submitted`.
+**Trigger**: `POST /reports/:id/submit` — runs synchronously after validation passes.
 
 **Flow**:
 1. Load company's `expense_policies`
@@ -265,70 +326,86 @@ Follow AIStarlight-Go existing patterns:
    - `risk_score > 70` → `high_risk` (route to approver + flag for finance)
 5. Write `expense_audit_log` entry with actor_type=`ai`
 6. Update report: `ai_risk_score`, `ai_decision`, `ai_decision_reason`, `ai_reviewed_at`
+7. Set status: `approved` (if auto_approved) or `pending_approval` (if needs_review/high_risk)
 
 ### Intelligent Classification
 
 When creating expense items, suggest category based on merchant name:
-- Maintain a `merchant_category_cache` (in-memory or Redis) built from company history
+- Use Redis hash `expense:merchants:{company_id}` mapping merchant → category (built from company history, TTL 7 days)
 - If unknown merchant, use Claude to classify based on merchant name
-- Suggest GL account mapping via existing `gl_mapping_rules`
+- Suggest GL account mapping via existing `gl_mapping_rules` (source_dimension=`expense`, source_value=category)
+- Cache rebuilt on miss: query recent expense_items for same merchant pattern
 
 ## Approval Flow
 
 ```
 Employee creates draft
     ↓ (adds items, uploads receipts)
-Employee submits
+Employee submits (recomputes total in transaction)
     ↓
 AI Policy Agent evaluates
     ├─ auto_approved (risk < 30, all under threshold)
     │   ↓ status = approved, audit_log: actor_type=ai
-    │   ↓ auto-generate GL journal entry
+    │   ↓ auto-generate accrual GL journal entry
     │   ↓ add to finance payment queue
     │
     ├─ needs_review (risk 30-70)
     │   ↓ status = pending_approval
     │   ↓ notify department approver
-    │   ↓ approver approves/rejects
-    │       ├─ approved → generate GL → finance queue
-    │       └─ rejected → notify employee (with reason)
+    │   ↓ approver approves/rejects (self-approval blocked)
+    │       ├─ approved → generate accrual GL → finance queue
+    │       └─ rejected → notify employee (with reason) → status back to draft
     │
     └─ high_risk (risk > 70)
         ↓ status = pending_approval (flagged)
         ↓ notify approver + finance
-        ↓ approver approves/rejects
-            ├─ approved → generate GL → finance queue
-            └─ rejected → notify employee
+        ↓ approver approves/rejects (self-approval blocked)
+            ├─ approved → generate accrual GL → finance queue
+            └─ rejected → notify employee → status back to draft
 
 Finance marks paid
+    ↓ generate payment GL journal entry
     ↓ status = paid, payment_reference recorded
 ```
 
 **Approver resolution**:
 1. Look up `expense_approvers` by submitter's `department_name` (from `hr_payees`)
-2. Filter by `max_amount >= report.total_amount`
-3. Pick by `priority` (lowest first)
-4. Fallback: any `company_admin`
+2. Exclude rows where `approver_user_id = submitter_user_id` (self-approval prevention)
+3. Filter by `max_amount IS NULL OR max_amount >= report.total_amount`
+4. Pick by `priority` (lowest first)
+5. Fallback: any `company_admin` who is not the submitter
+6. If no eligible approver exists, hold in `pending_approval` and notify all `company_admin` users
 
 ## GL Journal Entry Generation
 
+### On Approval (Accrual Entry)
+
 When a report reaches `approved` status:
 
-1. Group items by `gl_account_id` (mapped from category via `gl_mapping_rules`)
-2. Create journal entry:
+1. Verify all items have `gl_account_id` set. If any item has NULL `gl_account_id`:
+   - Attempt auto-mapping via `gl_mapping_rules` (source_dimension=`expense`, source_value=category)
+   - If no mapping found, use a configurable default suspense account (`EXPENSE_SUSPENSE_ACCOUNT_ID` env var)
+   - If no suspense account configured, block GL posting — hold report in `approved` with `accrual_journal_entry_id = NULL`, surface in finance queue with "GL mapping required" flag
+2. Group items by `gl_account_id`
+3. Create journal entry:
    ```
    DR  Expense accounts (per category)     amount per group
      CR  Employee Reimbursement Payable     total_amount
    ```
-3. Use existing `CreateJournalEntry` service method
-4. Link: `expense_reports.journal_entry_id = journal_entry.id`
-5. Journal memo: `"Expense Report {report_number}: {title}"`
+4. Use existing `CreateJournalEntry` service method with `source_type = 'expense_reimbursement'`, `source_id = expense_report.id`
+5. Link: `expense_reports.accrual_journal_entry_id = journal_entry.id`
+6. Journal memo: `"Expense Report {report_number}: {title}"`
+
+### On Payment (Payment Entry)
 
 When marked `paid`:
 ```
 DR  Employee Reimbursement Payable    total_amount
   CR  Cash / Bank account             total_amount
 ```
+- Use `source_type = 'expense_payment'`, `source_id = expense_report.id`
+- Link: `expense_reports.payment_journal_entry_id = journal_entry.id`
+- Journal memo: `"Payment: Expense Report {report_number}"`
 
 ## Frontend Pages
 
@@ -367,9 +444,10 @@ Add "Expenses" to the main sidebar in `AppLayout.vue`, between existing menu ite
 ### Receipt Upload
 
 - Upload endpoint: `POST /api/v1/expenses/items/:id/receipt`
-- Accept: JPEG, PNG, PDF (max 10MB)
+- Validation: Magic byte check (JPEG: `FF D8 FF`, PNG: `89 50 4E 47`, PDF: `25 50 44 46`), max 10MB per file
+- Limits: 1 receipt per item, max 50 items per report, 100MB total per report
 - Storage: `{UPLOAD_DIR}/receipts/{company_id}/{YYYY-MM}/{item_id}.{ext}`
-- Serve: `GET /api/v1/expenses/receipts/:item_id` (auth-protected, streams file)
+- Serve: `GET /api/v1/expenses/receipts/:item_id` (auth-protected, verify company ownership, stream file)
 - Config: `EXPENSE_UPLOAD_DIR` env var, default `/data/receipts`
 
 ## Notifications
@@ -387,14 +465,14 @@ Notification triggers:
 
 ## Testing Strategy
 
-- **Unit tests**: Policy evaluation logic, risk score calculation, GL entry generation, approver resolution
-- **Integration tests**: Full submit → AI review → approve → GL → paid flow
+- **Unit tests**: Policy evaluation logic, risk score calculation, GL entry generation, approver resolution (including self-approval prevention), report number generation
+- **Integration tests**: Full submit → AI review → approve → GL → paid flow; self-approval rejection; empty report rejection; item freeze after submit
 - **AI tests**: Mock Claude API responses, test OCR parsing and category classification
 - **Target**: 80%+ coverage on business logic
 
 ## Migration Path
 
-Single migration file adding all 5 tables. Follows AIStarlight-Go's golang-migrate format.
+Single migration file adding all 5 tables + the RBAC level fix. Follows AIStarlight-Go's golang-migrate format.
 
 ## Future Sub-Projects (out of scope)
 

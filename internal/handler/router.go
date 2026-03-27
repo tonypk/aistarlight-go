@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 	"github.com/tonypk/aistarlight-go/internal/config"
+	"github.com/tonypk/aistarlight-go/internal/domain"
 	"github.com/tonypk/aistarlight-go/internal/handler/middleware"
 	"github.com/tonypk/aistarlight-go/internal/service"
 )
@@ -62,6 +63,8 @@ type Router struct {
 	GLMapping   *GLMappingHandler
 	Webhook     *WebhookHandler
 	Integration *IntegrationHandler
+	// Expense management
+	Expense *ExpenseHandler
 
 	AuthSvc    *service.AuthService
 	OrgSvc     *service.OrgService
@@ -674,6 +677,48 @@ func (rt *Router) Setup(r *gin.Engine) {
 			glMappings.GET("/:id", rt.GLMapping.Get)
 			glMappings.PUT("/:id", rt.GLMapping.Update)
 			glMappings.DELETE("/:id", rt.GLMapping.Delete)
+		}
+	}
+
+	// ---- Expense Management Routes ----
+	if rt.Expense != nil {
+		expenses := api.Group("/expenses")
+		expenses.Use(authMw)
+		{
+			// Employee endpoints (member+)
+			expenses.POST("/reports", rt.Expense.CreateReport)
+			expenses.GET("/reports", rt.Expense.ListMyReports)
+			expenses.GET("/reports/:id", rt.Expense.GetReport)
+			expenses.PUT("/reports/:id", rt.Expense.UpdateReport)
+			expenses.DELETE("/reports/:id", rt.Expense.DeleteReport)
+			expenses.POST("/reports/:id/items", rt.Expense.AddItem)
+			expenses.PUT("/items/:id", rt.Expense.UpdateItem)
+			expenses.DELETE("/items/:id", rt.Expense.DeleteItem)
+			expenses.POST("/items/:id/receipt", rt.Expense.UploadReceipt)
+			expenses.GET("/receipts/:itemId", rt.Expense.ServeReceipt)
+			expenses.POST("/reports/:id/submit", rt.Expense.SubmitReport)
+			expenses.POST("/reports/:id/revert", rt.Expense.RevertToDraft)
+
+			// Approval endpoints
+			expenses.GET("/approvals", rt.Expense.ListPendingApprovals)
+			expenses.POST("/reports/:id/approve", rt.Expense.ApproveReport)
+			expenses.POST("/reports/:id/reject", rt.Expense.RejectReport)
+
+			// Finance endpoints (accountant+)
+			expenses.GET("/finance/queue", middleware.RequireCompanyRole(rt.CompanySvc, domain.CompanyRoleAccountant), rt.Expense.ListFinanceQueue)
+			expenses.POST("/reports/:id/mark-paid", middleware.RequireCompanyRole(rt.CompanySvc, domain.CompanyRoleAccountant), rt.Expense.MarkPaid)
+
+			// Admin endpoints (admin)
+			expenses.POST("/policies", middleware.RequireCompanyRole(rt.CompanySvc, domain.CompanyRoleAdmin), rt.Expense.CreatePolicy)
+			expenses.GET("/policies", rt.Expense.ListPolicies)
+			expenses.GET("/policies/:id", rt.Expense.GetPolicy)
+			expenses.PUT("/policies/:id", middleware.RequireCompanyRole(rt.CompanySvc, domain.CompanyRoleAdmin), rt.Expense.UpdatePolicy)
+			expenses.DELETE("/policies/:id", middleware.RequireCompanyRole(rt.CompanySvc, domain.CompanyRoleAdmin), rt.Expense.DeletePolicy)
+			expenses.POST("/approvers", middleware.RequireCompanyRole(rt.CompanySvc, domain.CompanyRoleAdmin), rt.Expense.CreateApprover)
+			expenses.GET("/approvers", rt.Expense.ListApprovers)
+			expenses.PUT("/approvers/:id", middleware.RequireCompanyRole(rt.CompanySvc, domain.CompanyRoleAdmin), rt.Expense.UpdateApprover)
+			expenses.DELETE("/approvers/:id", middleware.RequireCompanyRole(rt.CompanySvc, domain.CompanyRoleAdmin), rt.Expense.DeleteApprover)
+			expenses.GET("/analytics", middleware.RequireCompanyRole(rt.CompanySvc, domain.CompanyRoleAccountant), rt.Expense.GetAnalytics)
 		}
 	}
 }

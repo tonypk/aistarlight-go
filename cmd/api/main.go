@@ -171,9 +171,16 @@ type services struct {
 	GLMapping      *service.GLMappingService
 	HRIntegration  *service.HRIntegrationService
 	HRInbox        *service.HRInboxProcessor
+	// Expense management
+	ExpensePolicy   *service.ExpensePolicyService
+	ExpenseApprover *service.ExpenseApproverService
+	ExpenseReport   *service.ExpenseReportService
+	ExpenseReceipt  *service.ExpenseReceiptService
+	ExpenseAI       *service.ExpenseAIService
+	ExpenseGL       *service.ExpenseGLService
 }
 
-func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxpool.Pool) services {
+func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxpool.Pool, rdb *redis.Client) services {
 	// Event publisher for domain events (fire-and-forget via asynq)
 	asynqClient := asynq.NewClient(asynq.RedisClientOpt{
 		Addr:     cfg.Redis.AsynqAddr(),
@@ -220,6 +227,19 @@ func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxp
 
 	authSvc := service.NewAuthService(q, cfg.JWT)
 	authSvc.SetIntegrationSecret(cfg.Integration.JWTSecret)
+
+	// Expense management services
+	expensePolicySvc := service.NewExpensePolicyService(q)
+	expenseApproverSvc := service.NewExpenseApproverService(q)
+	expenseGLSvc := service.NewExpenseGLService(q, journalSvc)
+	expenseAISvc := service.NewExpenseAIService(q, pool, rdb)
+	expenseAISvc.SetGLService(expenseGLSvc)
+	uploadDir := cfg.UploadDir
+	if uploadDir == "" {
+		uploadDir = "/data/receipts"
+	}
+	expenseReceiptSvc := service.NewExpenseReceiptService(q, uploadDir)
+	expenseReportSvc := service.NewExpenseReportService(q, pool, expenseApproverSvc, expenseAISvc, expenseGLSvc)
 
 	return services{
 		Auth:        authSvc,
@@ -273,6 +293,13 @@ func newServices(q *sqlc.Queries, cfg *config.Config, ai *oai.Client, pool *pgxp
 		GLMapping:     glMappingSvc,
 		HRIntegration: hrIntSvc,
 		HRInbox:       hrInbox,
+		// Expense management
+		ExpensePolicy:   expensePolicySvc,
+		ExpenseApprover: expenseApproverSvc,
+		ExpenseReport:   expenseReportSvc,
+		ExpenseReceipt:  expenseReceiptSvc,
+		ExpenseAI:       expenseAISvc,
+		ExpenseGL:       expenseGLSvc,
 	}
 }
 
@@ -327,6 +354,8 @@ type handlers struct {
 	GLMapping   *handler.GLMappingHandler
 	Webhook     *handler.WebhookHandler
 	Integration *handler.IntegrationHandler
+	// Expense management
+	Expense *handler.ExpenseHandler
 }
 
 func newAgentRuntime(ai *oai.Client, q *sqlc.Queries, pool *pgxpool.Pool, chatSvc *service.ChatService, svc services) *agent.Runtime {
@@ -419,6 +448,10 @@ func newHandlers(svc services, cfg *config.Config, ai *oai.Client, q *sqlc.Queri
 		GLMapping:      handler.NewGLMappingHandler(svc.GLMapping),
 		Webhook:        handler.NewWebhookHandler(q, slog.Default()),
 		Integration:    handler.NewIntegrationHandler(q, cfg.Integration.JWTSecret),
+		Expense: handler.NewExpenseHandler(
+			svc.ExpenseReport, svc.ExpensePolicy, svc.ExpenseApprover,
+			svc.ExpenseReceipt, svc.ExpenseAI, svc.ExpenseGL, q,
+		),
 	}
 }
 
@@ -488,6 +521,7 @@ func newGinEngine(cfg *config.Config, rdb *redis.Client, svc services, h handler
 		GLMapping:      h.GLMapping,
 		Webhook:        h.Webhook,
 		Integration:    h.Integration,
+		Expense:        h.Expense,
 		AuthSvc:        svc.Auth,
 		OrgSvc:         svc.Org,
 		CompanySvc:     svc.Company,

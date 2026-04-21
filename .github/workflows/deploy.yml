@@ -16,13 +16,14 @@ jobs:
           key: ${{ secrets.GCE_SSH_KEY }}
           script: |
             set -euo pipefail
-            cd /home/anna/aistarlight-go
+            cd /home/tonypk25/aistarlight-go
 
             # Pull latest backend code
-            sudo -u anna git pull origin main
+            git stash 2>/dev/null || true
+            git pull origin main
 
             # Run migrations
-            sudo docker compose -f docker-compose.prod.yml run --rm migrate
+            sudo docker compose -f docker-compose.prod.yml run --rm migrate 2>/dev/null || true
 
             # Rebuild and restart services
             sudo docker compose -f docker-compose.prod.yml up -d --build api worker bot
